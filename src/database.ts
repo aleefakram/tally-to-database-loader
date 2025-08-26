@@ -6,8 +6,8 @@ import postgres from 'pg';
 import { BigQuery } from '@google-cloud/bigquery';
 import { from as pgLoadInto } from 'pg-copy-streams';
 import adls from '@azure/storage-file-datalake';
-import { logger } from './logger.mjs';
-import { connectionConfig, queryResult, tableConfigYAML, databaseFieldInfo, cdmModel, cdmEntity } from './definition.mjs';
+import { logger } from './logger.js';
+import { connectionConfig, queryResult, tableConfigYAML, databaseFieldInfo, cdmModel, cdmEntity } from './definition.js';
 
 const maxQuerySize = 50000;
 let connectionPoolMysql: mysql.Pool;

@@ -3,10 +3,10 @@ import path from 'path';
 import process from 'process';
 import http from 'http';
 import yaml from 'js-yaml';
-import { utility } from './utility.mjs';
-import { logger } from './logger.mjs';
-import { database } from './database.mjs';
-import { tallyConfig, tableConfigYAML } from './definition.mjs';
+import { utility } from './utility.js';
+import { logger } from './logger.js';
+import { database } from './database.js';
+import { tallyConfig, tableConfigYAML } from './definition.js';
 
 class _tally {
 

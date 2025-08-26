@@ -1,7 +1,7 @@
 import process from 'process';
-import { tally } from './tally.mjs';
-import { database } from './database.mjs';
-import { logger } from './logger.mjs'
+import { tally } from './tally.js';
+import { database } from './database.js';
+import { logger } from './logger.js'
 
 let isSyncRunning = false;
 let lastMasterAlterId = 0;

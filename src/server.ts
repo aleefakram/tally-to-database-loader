@@ -2,7 +2,7 @@ import http from 'http';
 import fs from 'fs';
 import child_process from 'child_process';
 import { WebSocketServer } from 'ws';
-import { connectionConfig, tallyConfig } from './definition.mjs';
+import { connectionConfig, tallyConfig } from './definition.js';
 
 const httpPort = 8997;
 const wsPort = 8998;

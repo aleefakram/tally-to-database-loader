@@ -1,7 +1,7 @@
 import fs from 'fs';
 import util from 'util'
 import process from 'process';
-import { utility } from './utility.mjs';
+import { utility } from './utility.js';
 
 class _logger {
 

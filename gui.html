@@ -6,9 +6,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tally to Database Sync</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
-        integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+        xintegrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"
-        integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM"
+        xintegrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM"
         crossorigin="anonymous"></script>
     <style>
         .my-app {
@@ -65,7 +65,9 @@
             document.getElementById('pnlDatabase').hidden = !state;
             document.getElementById('pnlTally').hidden = !state;
             document.getElementById('btnSaveConfig').disabled = !state;
-            document.getElementById('btnLoadConfig').disabled = !state;
+            document.getElementById('btnSaveAsConfig').disabled = !state;
+            document.getElementById('config_selector').disabled = !state;
+
             if (state) { //sync complete
                 document.getElementById('btnSync').disabled = false;
                 document.getElementById('btnAbort').disabled = true;
@@ -91,7 +93,7 @@
             let tallyFromdate = document.getElementById('tally_period_auto').checked === true ? 'auto' : document.getElementById('tally_fromdate').value;
             let tallyTodate = document.getElementById('tally_period_auto').checked === true ? 'auto' : document.getElementById('tally_todate').value;
             let tallySync = document.getElementById('tally_sync').value;
-            let tallyFrequency = parseInt(document.getElementById('tally_sync').value);
+            let tallyFrequency = parseInt(document.getElementById('tally_frequency').value);
             let tallyCompany = document.getElementById('tally_company').value;
 
             objConfig = {
@@ -255,8 +257,14 @@
             }
         }
 
-        async function loadConfig() {
-            let resp = await fetch('http://localhost:8997/loadconfig');
+        // --- MODIFIED FUNCTION ---
+        // Now accepts a filename to load a specific config.
+        async function loadConfig(filename) {
+            if (!filename) {
+                console.error("LoadConfig called without a filename.");
+                return;
+            }
+            let resp = await fetch(`http://localhost:8997/loadconfig?file=${filename}`);
             let respData = await resp.json();
 
             // database
@@ -301,12 +309,24 @@
                 document.getElementById('tally_period_auto').dispatchEvent(new Event('change'));
             }
             document.getElementById('database_technology').dispatchEvent(new Event('change'));
-
         }
 
-        async function saveConfig() {
+        // --- MODIFIED FUNCTION ---
+        // Saves the config to the specified filename. If no filename is provided,
+        // it uses the currently selected one in the dropdown.
+        async function saveConfig(filename) {
+             // If no filename is passed, get it from the dropdown (for the regular "Save" button)
+            if (!filename) {
+                filename = document.getElementById('config_selector').value;
+            }
+
+            if (!filename || filename === 'No configurations found') {
+                alert("Cannot save. No configuration selected or available.");
+                return;
+            }
+
             let objConfig = prepareConfigObj();
-            let resp = await fetch('http://localhost:8997/saveconfig', {
+            await fetch(`http://localhost:8997/saveconfig?file=${filename}`, { // Note the URL change
                 method: 'POST',
                 body: JSON.stringify(objConfig, null, 4),
                 mode: "no-cors",
@@ -314,7 +334,72 @@
                     'Content-Type': 'application/json'
                 }
             });
-            let respData = await resp.text();
+            alert(`Configuration saved to ${filename}`);
+        }
+
+        // --- NEW FUNCTION ---
+        // Saves the current settings to a new file with a user-provided name.
+        async function saveAsConfig() {
+            let newFilename = prompt("Enter a name for the new configuration:", "new-config.json");
+
+            if (!newFilename) {
+                alert("Save cancelled.");
+                return;
+            }
+
+            // Basic validation: ensure it ends with .json
+            if (!newFilename.toLowerCase().endsWith('.json')) {
+                newFilename += '.json';
+            }
+
+            // Call the main save function with the new filename
+            await saveConfig(newFilename);
+            // Refresh the config list to include the new file
+            await populateConfigs();
+            // Set the dropdown to the newly created file
+            document.getElementById('config_selector').value = newFilename;
+        }
+
+
+        // --- NEW FUNCTION ---
+        // Fetches the list of config files from the server and populates the dropdown.
+        async function populateConfigs() {
+            try {
+                const resp = await fetch('http://localhost:8997/list-configs');
+                const configFiles = await resp.json();
+                const selector = document.getElementById('config_selector');
+                selector.innerHTML = ''; // Clear existing options
+
+                if (configFiles.length > 0) {
+                    configFiles.forEach(file => {
+                        const option = document.createElement('option');
+                        option.value = file;
+                        option.textContent = file;
+                        selector.appendChild(option);
+                    });
+                    // Automatically load the first config in the list
+                    await loadSelectedConfig();
+                } else {
+                    // Handle case where no config files are found
+                    const option = document.createElement('option');
+                    option.textContent = 'No configurations found';
+                    option.disabled = true;
+                    selector.appendChild(option);
+                }
+            } catch (err) {
+                console.error('Failed to load configurations:', err);
+                alert('Could not fetch configuration list from the server.');
+            }
+        }
+
+        // --- NEW FUNCTION ---
+        // Loads the configuration selected in the dropdown menu.
+        async function loadSelectedConfig() {
+            const selector = document.getElementById('config_selector');
+            const selectedFile = selector.value;
+            if (selectedFile) {
+                await loadConfig(selectedFile);
+            }
         }
 
         async function sync() {
@@ -409,8 +494,10 @@
         wsClient.onclose = notifyWebsocketDisconnection;
         wsClient.onopen = notifyWebsocketConnection;
 
+        // --- MODIFIED PAGE LOAD LOGIC ---
         document.onreadystatechange = async (e) => {
             if (document.readyState == "complete") {
+                await populateConfigs(); // Load the config list first
                 assignCurrentFinancialYear();
                 populateCompanyListSuggesation();
             }
@@ -423,14 +510,21 @@
         close this browser tab and re-launch run-gui.bat file</div>
     <div class="container my-app">
         <h3 class="text-center text-primary mt-5">Tally to Database Sync</h2>
+            <!-- --- MODIFIED HTML SECTION --- -->
             <div id="pnlActions" class="mt-5">
+                <div class="mb-3 form-group row align-items-center">
+                    <label for="config_selector" class="col-sm-3 col-form-label fw-bold">Configuration File</label>
+                    <div class="col-sm-9">
+                        <select class="form-select" id="config_selector" onchange="loadSelectedConfig()"></select>
+                    </div>
+                </div>
                 <div class="mb-2">
                     <div class="text-center">
                         <input class="btn btn-success" type="button" id="btnSync" value="Sync" onclick="sync()">
-                        <input class="btn btn-primary" type="button" id="btnSaveConfig" value="Save Config"
+                        <input class="btn btn-primary" type="button" id="btnSaveConfig" value="Save"
                             onclick="saveConfig()">
-                        <input class="btn btn-info" type="button" id="btnLoadConfig" value="Load Config"
-                            onclick="loadConfig()">
+                        <input class="btn btn-info" type="button" id="btnSaveAsConfig" value="Save As..."
+                            onclick="saveAsConfig()">
                         <input class="btn btn-danger" type="button" id="btnAbort" value="Abort" onclick="abort()"
                             disabled>
                     </div>

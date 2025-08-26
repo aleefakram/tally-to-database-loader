@@ -1,14 +1,17 @@
 import http from 'http';
 import fs from 'fs';
+import path from 'path'; // Added for path manipulation
+import url from 'url';   // Added for parsing URL query parameters
 import child_process from 'child_process';
 import { WebSocketServer } from 'ws';
 import { connectionConfig, tallyConfig } from './definition.js';
 
 const httpPort = 8997;
 const wsPort = 8998;
+const configDir = './config'; // Define the configuration directory
 
 let isSyncRunning = false;
-let syncProcess: child_process.ChildProcess | undefined = undefined
+let syncProcess: child_process.ChildProcess | undefined = undefined;
 
 const wsServer = new WebSocketServer({
     port: wsPort
@@ -20,11 +23,11 @@ function configObjectToCommandLineArr(obj: any): string[] {
     let tallyObj: tallyConfig = obj['tally'];
     for(const [key, val] of Object.entries(databaseObj)) {
         retval.push('--database-' + key);
-        retval.push(val);
+        retval.push(String(val)); // Ensure value is a string
     }
     for(const [key, val] of Object.entries(tallyObj)) {
         retval.push('--tally-' + key);
-        retval.push(val);
+        retval.push(String(val)); // Ensure value is a string
     }
     return retval;
 }
@@ -81,13 +84,14 @@ function postTallyXML(tallyServer: string, tallyPort: number, payload: string): 
 const httpServer = http.createServer((req, res) => {
 
     let reqContent = '';
+    const parsedUrl = url.parse(req.url || '', true); // Parse URL to get query params
 
     req.on('data', (chunk) => reqContent += chunk);
 
     req.on('end', async () => {
 
         let contentResp = '';
-        if (req.url == '/') {
+        if (parsedUrl.pathname == '/') {
             let fileContent = fs.readFileSync('./gui.html', 'utf8');
             contentResp = fileContent;
             res.statusCode = 200;
@@ -95,17 +99,59 @@ const httpServer = http.createServer((req, res) => {
             res.end(contentResp);
             return;
         }
-        else if (req.url == '/loadconfig') {
-            let fileContent = fs.readFileSync('./config.json', 'utf8');
-            contentResp = fileContent;
-            res.setHeader('Content-Type', 'application/json');
+        // --- NEW ENDPOINT ---
+        // Lists all .json files in the /config directory.
+        else if (parsedUrl.pathname == '/list-configs') {
+            try {
+                const files = fs.readdirSync(configDir).filter(file => file.endsWith('.json'));
+                contentResp = JSON.stringify(files);
+                res.setHeader('Content-Type', 'application/json');
+            } catch (err) {
+                contentResp = '[]'; // Return empty array if directory doesn't exist
+                res.setHeader('Content-Type', 'application/json');
+            }
         }
-        else if (req.url == '/saveconfig') {
-            fs.writeFileSync('./config.json', reqContent, { encoding: 'utf8' });
-            contentResp = 'Config saved';
-            res.setHeader('Content-Type', 'text/plain');
+        // --- MODIFIED ENDPOINT ---
+        // Loads a specific config file based on the 'file' query parameter.
+        else if (parsedUrl.pathname == '/loadconfig') {
+            const fileName = parsedUrl.query.file as string;
+            if (!fileName || fileName.includes('..')) { // Basic security check
+                res.writeHead(400);
+                res.end('Invalid filename');
+                return;
+            }
+            try {
+                const filePath = path.join(configDir, fileName);
+                let fileContent = fs.readFileSync(filePath, 'utf8');
+                contentResp = fileContent;
+                res.setHeader('Content-Type', 'application/json');
+            } catch (err) {
+                res.writeHead(404);
+                res.end('Config file not found');
+                return;
+            }
         }
-        else if (req.url == '/sync') {
+        // --- MODIFIED ENDPOINT ---
+        // Saves content to a specific config file based on the 'file' query parameter.
+        else if (parsedUrl.pathname == '/saveconfig') {
+            const fileName = parsedUrl.query.file as string;
+            if (!fileName || fileName.includes('..')) { // Basic security check
+                res.writeHead(400);
+                res.end('Invalid filename');
+                return;
+            }
+            try {
+                const filePath = path.join(configDir, fileName);
+                fs.writeFileSync(filePath, reqContent, { encoding: 'utf8' });
+                contentResp = `Config saved to ${fileName}`;
+                res.setHeader('Content-Type', 'text/plain');
+            } catch (err) {
+                res.writeHead(500);
+                res.end('Error saving config file');
+                return;
+            }
+        }
+        else if (parsedUrl.pathname == '/sync') {
             let objConfig = JSON.parse(reqContent);
             if(isSyncRunning) {
                 contentResp = 'Sync is already running';
@@ -117,7 +163,7 @@ const httpServer = http.createServer((req, res) => {
             }
             res.setHeader('Content-Type', 'text/plain');
         }
-        else if (req.url == '/abort') {
+        else if (parsedUrl.pathname == '/abort') {
             if(syncProcess) {
                 syncProcess.kill();
                 contentResp = 'Process killed';
@@ -127,7 +173,7 @@ const httpServer = http.createServer((req, res) => {
             }
             res.setHeader('Content-Type', 'text/plain');
         }
-        else if (req.url == '/list-company') {
+        else if (parsedUrl.pathname == '/list-company') {
             const reqPayload = '<?xml version="1.0" encoding="utf-8"?><ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>MyReportLedgerTable</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><REPORT NAME="MyReportLedgerTable"><FORMS>MyForm</FORMS></REPORT><FORM NAME="MyForm"><PARTS>MyPart01</PARTS><XMLTAG>DATA</XMLTAG></FORM><PART NAME="MyPart01"><LINES>MyLine01</LINES><REPEAT>MyLine01 : MyCollection</REPEAT><SCROLLED>Vertical</SCROLLED></PART><LINE NAME="MyLine01"><FIELDS>Fld</FIELDS></LINE><FIELD NAME="Fld"><SET>$Name</SET><XMLTAG>ROW</XMLTAG></FIELD><COLLECTION NAME="MyCollection"><TYPE>Company</TYPE><FETCH></FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>';
             let objConfig = JSON.parse(reqContent);
             let result = '';
@@ -140,7 +186,7 @@ const httpServer = http.createServer((req, res) => {
             contentResp = result;
             res.setHeader('Content-Type', 'text/xml');
         }
-        else if (req.url == '/tally-status') {
+        else if (parsedUrl.pathname == '/tally-status') {
             let objConfig = JSON.parse(reqContent);
             try {
                 let result = await postTallyXML(objConfig['server'], objConfig['port'], '');
@@ -163,6 +209,18 @@ const httpServer = http.createServer((req, res) => {
 });
 
 httpServer.listen(httpPort, 'localhost', () => {
+    // --- NEW STARTUP LOGIC ---
+    // Ensure the /config directory exists on startup.
+    if (!fs.existsSync(configDir)) {
+        console.log(`Creating configuration directory: ${configDir}`);
+        fs.mkdirSync(configDir);
+    }
+    // Move the old config.json into the new directory if it exists
+    if (fs.existsSync('./config.json')) {
+        console.log('Migrating old config.json to /config directory...');
+        fs.renameSync('./config.json', path.join(configDir, 'config.json'));
+    }
+
     console.log(`Server started on http://localhost:${httpPort}`);
     console.log('Launching utility GUI page on default browser...');
     child_process.exec(`start http://localhost:${httpPort}`);
@@ -173,5 +231,3 @@ httpServer.listen(httpPort, 'localhost', () => {
         }
     }, 5000);
 });
-
-

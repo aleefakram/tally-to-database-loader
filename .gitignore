@@ -11,3 +11,5 @@ error-log.txt
 *.duckdb
 bigquery-credentials.json
 adls-config.json
+*.txt
+/config

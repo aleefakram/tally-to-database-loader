@@ -19,12 +19,20 @@ class _database {
     connectionPoolPostgres: postgres.Pool = new postgres.Pool({});
 
     constructor() {
-        try {
-            this.config = JSON.parse(fs.readFileSync('./config.json', 'utf8'))['database'];
-        } catch (err) {
-            logger.logError('database()', err);
-            throw err;
-        }
+        // --- FIXED ---
+        // Removed the hardcoded file read.
+        // The config is now initialized with default values and will be
+        // populated by the updateCommandlineConfig method.
+        this.config = {
+            technology: 'mssql',
+            server: 'localhost',
+            port: 1433,
+            schema: '',
+            username: '',
+            password: '',
+            loadmethod: 'file',
+            ssl: false
+        };
     }
 
     updateCommandlineConfig(lstConfigs: Map<string, string>): void {

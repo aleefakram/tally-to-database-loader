@@ -3,9 +3,9 @@ import path from 'path';
 import process from 'process';
 import http from 'http';
 import yaml from 'js-yaml';
-import { utility } from './utility.mjs';
-import { logger } from './logger.mjs';
-import { database } from './database.mjs';
+import { utility } from './utility.js';
+import { logger } from './logger.js';
+import { database } from './database.js';
 class _tally {
     config;
     lastAlterIdMaster = 0;
@@ -17,23 +17,20 @@ class _tally {
     importTransaction = true;
     truncateTable = true;
     constructor() {
-        try {
-            this.config = JSON.parse(fs.readFileSync('./config.json', 'utf8'))['tally'];
-        }
-        catch (err) {
-            this.config = {
-                definition: 'tally-export-config.yaml',
-                server: 'localhost',
-                port: 9000,
-                company: '',
-                fromdate: 'auto',
-                todate: 'auto',
-                frequency: 0,
-                sync: 'full'
-            };
-            logger.logError('tally()', err);
-            throw err;
-        }
+        // --- FIXED ---
+        // Removed the hardcoded file read.
+        // The config is now initialized with default values and will be
+        // populated by the updateCommandlineConfig method.
+        this.config = {
+            definition: 'tally-export-config.yaml',
+            server: 'localhost',
+            port: 9000,
+            company: '',
+            fromdate: 'auto',
+            todate: 'auto',
+            frequency: 0,
+            sync: 'full'
+        };
     }
     updateCommandlineConfig(lstConfigs) {
         try {
@@ -110,7 +107,7 @@ class _tally {
                         await this.updateLastAlterId(); //Update last alter ID
                         let lastAlterIdMasterTally = this.lastAlterIdMaster;
                         let lastAlterIdTransactionTally = this.lastAlterIdTransaction;
-                        //acquire last AlterID of master & transaction from database
+                        // acquire last AlterID of master & transaction from database
                         // let lstPrimaryMasterTableNames = this.lstTableMaster.filter(p => p.nature == 'Primary').map(p => p.name);
                         // let sqlQuery = 'select max(coalesce(t.alterid,0)) from (';
                         // lstPrimaryMasterTableNames.forEach(p => sqlQuery += ` select max(alterid) as alterid from ${p} union`);
@@ -674,4 +671,4 @@ class _tally {
 }
 let tally = new _tally();
 export { tally };
-//# sourceMappingURL=tally.mjs.map
+//# sourceMappingURL=tally.js.map

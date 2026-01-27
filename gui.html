@@ -66,6 +66,7 @@
             document.getElementById('pnlTally').hidden = !state;
             document.getElementById('btnSaveConfig').disabled = !state;
             document.getElementById('btnSaveAsConfig').disabled = !state;
+            document.getElementById('btnDeleteConfig').disabled = !state;
             document.getElementById('config_selector').disabled = !state;
 
             if (state) { //sync complete
@@ -257,8 +258,6 @@
             }
         }
 
-        // --- MODIFIED FUNCTION ---
-        // Now accepts a filename to load a specific config.
         async function loadConfig(filename) {
             if (!filename) {
                 console.error("LoadConfig called without a filename.");
@@ -311,11 +310,7 @@
             document.getElementById('database_technology').dispatchEvent(new Event('change'));
         }
 
-        // --- MODIFIED FUNCTION ---
-        // Saves the config to the specified filename. If no filename is provided,
-        // it uses the currently selected one in the dropdown.
         async function saveConfig(filename) {
-             // If no filename is passed, get it from the dropdown (for the regular "Save" button)
             if (!filename) {
                 filename = document.getElementById('config_selector').value;
             }
@@ -326,7 +321,7 @@
             }
 
             let objConfig = prepareConfigObj();
-            await fetch(`http://localhost:8997/saveconfig?file=${filename}`, { // Note the URL change
+            await fetch(`http://localhost:8997/saveconfig?file=${filename}`, {
                 method: 'POST',
                 body: JSON.stringify(objConfig, null, 4),
                 mode: "no-cors",
@@ -337,8 +332,6 @@
             alert(`Configuration saved to ${filename}`);
         }
 
-        // --- NEW FUNCTION ---
-        // Saves the current settings to a new file with a user-provided name.
         async function saveAsConfig() {
             let newFilename = prompt("Enter a name for the new configuration:", "new-config.json");
 
@@ -347,28 +340,52 @@
                 return;
             }
 
-            // Basic validation: ensure it ends with .json
             if (!newFilename.toLowerCase().endsWith('.json')) {
                 newFilename += '.json';
             }
 
-            // Call the main save function with the new filename
             await saveConfig(newFilename);
-            // Refresh the config list to include the new file
             await populateConfigs();
-            // Set the dropdown to the newly created file
             document.getElementById('config_selector').value = newFilename;
         }
 
+        /**
+         * --- NEW FUNCTION ---
+         * Deletes the currently selected configuration file after confirmation.
+         */
+        async function deleteConfig() {
+            const selector = document.getElementById('config_selector');
+            const filename = selector.value;
 
-        // --- NEW FUNCTION ---
-        // Fetches the list of config files from the server and populates the dropdown.
+            if (!filename || filename === 'No configurations found') {
+                alert("Cannot delete. No configuration selected.");
+                return;
+            }
+
+            if (confirm(`Are you sure you want to delete the configuration file "${filename}"?`)) {
+                try {
+                    const resp = await fetch(`http://localhost:8997/delete-config?file=${filename}`, {
+                        method: 'POST'
+                    });
+                    if (resp.ok) {
+                        alert(`Successfully deleted ${filename}`);
+                        await populateConfigs(); // Refresh the list
+                    } else {
+                        const errorText = await resp.text();
+                        alert(`Error deleting file: ${errorText}`);
+                    }
+                } catch (err) {
+                    alert('Failed to send delete request to the server.');
+                }
+            }
+        }
+
         async function populateConfigs() {
             try {
                 const resp = await fetch('http://localhost:8997/list-configs');
                 const configFiles = await resp.json();
                 const selector = document.getElementById('config_selector');
-                selector.innerHTML = ''; // Clear existing options
+                selector.innerHTML = ''; 
 
                 if (configFiles.length > 0) {
                     configFiles.forEach(file => {
@@ -377,14 +394,14 @@
                         option.textContent = file;
                         selector.appendChild(option);
                     });
-                    // Automatically load the first config in the list
                     await loadSelectedConfig();
                 } else {
-                    // Handle case where no config files are found
                     const option = document.createElement('option');
                     option.textContent = 'No configurations found';
                     option.disabled = true;
                     selector.appendChild(option);
+                    // If no configs, clear the form or load defaults
+                    // For now, we'll just leave it blank
                 }
             } catch (err) {
                 console.error('Failed to load configurations:', err);
@@ -392,12 +409,10 @@
             }
         }
 
-        // --- NEW FUNCTION ---
-        // Loads the configuration selected in the dropdown menu.
         async function loadSelectedConfig() {
             const selector = document.getElementById('config_selector');
             const selectedFile = selector.value;
-            if (selectedFile) {
+            if (selectedFile && selectedFile !== 'No configurations found') {
                 await loadConfig(selectedFile);
             }
         }
@@ -494,10 +509,9 @@
         wsClient.onclose = notifyWebsocketDisconnection;
         wsClient.onopen = notifyWebsocketConnection;
 
-        // --- MODIFIED PAGE LOAD LOGIC ---
         document.onreadystatechange = async (e) => {
             if (document.readyState == "complete") {
-                await populateConfigs(); // Load the config list first
+                await populateConfigs(); 
                 assignCurrentFinancialYear();
                 populateCompanyListSuggesation();
             }
@@ -510,7 +524,6 @@
         close this browser tab and re-launch run-gui.bat file</div>
     <div class="container my-app">
         <h3 class="text-center text-primary mt-5">Tally to Database Sync</h2>
-            <!-- --- MODIFIED HTML SECTION --- -->
             <div id="pnlActions" class="mt-5">
                 <div class="mb-3 form-group row align-items-center">
                     <label for="config_selector" class="col-sm-3 col-form-label fw-bold">Configuration File</label>
@@ -520,11 +533,13 @@
                 </div>
                 <div class="mb-2">
                     <div class="text-center">
-                        <input class="btn btn-success" type="button" id="btnSync" value="Sync" onclick="sync()">
                         <input class="btn btn-primary" type="button" id="btnSaveConfig" value="Save"
                             onclick="saveConfig()">
                         <input class="btn btn-info" type="button" id="btnSaveAsConfig" value="Save As..."
                             onclick="saveAsConfig()">
+                        <!-- --- NEW BUTTON --- -->
+                        <input class="btn btn-warning" type="button" id="btnDeleteConfig" value="Delete"
+                            onclick="deleteConfig()">
                         <input class="btn btn-danger" type="button" id="btnAbort" value="Abort" onclick="abort()"
                             disabled>
                     </div>
@@ -680,7 +695,11 @@
                     <input class="btn btn-info" type="button" value="Check Tally Status" onclick="checkTallyStatus()">
                 </div>
             </div>
-            <div id="pnlConsole" class="mt-5 mb-3">
+            <!-- --- NEW SYNC BUTTON LOCATION --- -->
+            <div class="text-center my-4">
+                <input class="btn btn-success btn-lg" type="button" id="btnSync" value="Sync Tally To Database" onclick="sync()">
+            </div>
+            <div id="pnlConsole" class="mb-3">
                 <label for="txtConsole" class="form-label">Output</label>
                 <pre id="txtConsole" class="my-console"></pre>
             </div>

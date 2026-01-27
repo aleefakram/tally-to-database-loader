@@ -23,22 +23,20 @@ class _tally {
     private truncateTable = true;
 
     constructor() {
-        try {
-            this.config = JSON.parse(fs.readFileSync('./config.json', 'utf8'))['tally'];
-        } catch (err) {
-            this.config = {
-                definition: 'tally-export-config.yaml',
-                server: 'localhost',
-                port: 9000,
-                company: '',
-                fromdate: 'auto',
-                todate: 'auto',
-                frequency: 0,
-                sync: 'full'
-            };
-            logger.logError('tally()', err);
-            throw err;
-        }
+        // --- FIXED ---
+        // Removed the hardcoded file read.
+        // The config is now initialized with default values and will be
+        // populated by the updateCommandlineConfig method.
+        this.config = {
+            definition: 'tally-export-config.yaml',
+            server: 'localhost',
+            port: 9000,
+            company: '',
+            fromdate: 'auto',
+            todate: 'auto',
+            frequency: 0,
+            sync: 'full'
+        };
     }
 
     updateCommandlineConfig(lstConfigs: Map<string, string>): void {

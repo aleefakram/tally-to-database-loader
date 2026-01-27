@@ -5,11 +5,12 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
-    "start": "node ./dist/server.mjs",
-    "dev": "nodemon --exec node --loader ts-node/esm src/server.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
+  "clean": "rimraf ./dist",
+  "build": "npm run clean && tsc -p src",
+  "start": "node ./dist/server.mjs",
+  "dev": "nodemon --exec node --loader ts-node/esm src/server.ts",
+  "test": "echo \"Error: no test specified\" && exit 1"
+},
   "author": "",
   "license": "ISC",
   "overrides": {
@@ -22,6 +23,7 @@
     "@types/pg-copy-streams": "^1.2.5",
     "@types/ws": "^8.18.1",
     "nodemon": "^3.1.4",
+    "rimraf": "^6.0.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.3"
   },

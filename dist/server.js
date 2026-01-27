@@ -1,9 +1,12 @@
 import http from 'http';
 import fs from 'fs';
+import path from 'path'; // Added for path manipulation
+import url from 'url'; // Added for parsing URL query parameters
 import child_process from 'child_process';
 import { WebSocketServer } from 'ws';
 const httpPort = 8997;
 const wsPort = 8998;
+const configDir = './config'; // Define the configuration directory
 let isSyncRunning = false;
 let syncProcess = undefined;
 const wsServer = new WebSocketServer({
@@ -15,17 +18,17 @@ function configObjectToCommandLineArr(obj) {
     let tallyObj = obj['tally'];
     for (const [key, val] of Object.entries(databaseObj)) {
         retval.push('--database-' + key);
-        retval.push(val);
+        retval.push(String(val)); // Ensure value is a string
     }
     for (const [key, val] of Object.entries(tallyObj)) {
         retval.push('--tally-' + key);
-        retval.push(val);
+        retval.push(String(val)); // Ensure value is a string
     }
     return retval;
 }
 function runSyncProcess(configObj) {
     let cmdArgs = configObjectToCommandLineArr(configObj);
-    syncProcess = child_process.fork('./dist/index.mjs', cmdArgs);
+    syncProcess = child_process.fork('./dist/index.js', cmdArgs);
     syncProcess.on('message', (msg) => wsServer.clients.forEach((wsClient) => wsClient.send(msg.toString())));
     syncProcess.on('close', () => {
         isSyncRunning = false;
@@ -73,10 +76,11 @@ function postTallyXML(tallyServer, tallyPort, payload) {
 ;
 const httpServer = http.createServer((req, res) => {
     let reqContent = '';
+    const parsedUrl = url.parse(req.url || '', true);
     req.on('data', (chunk) => reqContent += chunk);
     req.on('end', async () => {
         let contentResp = '';
-        if (req.url == '/') {
+        if (parsedUrl.pathname == '/') {
             let fileContent = fs.readFileSync('./gui.html', 'utf8');
             contentResp = fileContent;
             res.statusCode = 200;
@@ -84,17 +88,78 @@ const httpServer = http.createServer((req, res) => {
             res.end(contentResp);
             return;
         }
-        else if (req.url == '/loadconfig') {
-            let fileContent = fs.readFileSync('./config.json', 'utf8');
-            contentResp = fileContent;
-            res.setHeader('Content-Type', 'application/json');
+        else if (parsedUrl.pathname == '/list-configs') {
+            try {
+                const files = fs.readdirSync(configDir).filter(file => file.endsWith('.json'));
+                contentResp = JSON.stringify(files);
+                res.setHeader('Content-Type', 'application/json');
+            }
+            catch (err) {
+                contentResp = '[]';
+                res.setHeader('Content-Type', 'application/json');
+            }
         }
-        else if (req.url == '/saveconfig') {
-            fs.writeFileSync('./config.json', reqContent, { encoding: 'utf8' });
-            contentResp = 'Config saved';
-            res.setHeader('Content-Type', 'text/plain');
+        else if (parsedUrl.pathname == '/loadconfig') {
+            const fileName = parsedUrl.query.file;
+            if (!fileName || fileName.includes('..')) {
+                res.writeHead(400);
+                res.end('Invalid filename');
+                return;
+            }
+            try {
+                const filePath = path.join(configDir, fileName);
+                let fileContent = fs.readFileSync(filePath, 'utf8');
+                contentResp = fileContent;
+                res.setHeader('Content-Type', 'application/json');
+            }
+            catch (err) {
+                res.writeHead(404);
+                res.end('Config file not found');
+                return;
+            }
         }
-        else if (req.url == '/sync') {
+        else if (parsedUrl.pathname == '/saveconfig') {
+            const fileName = parsedUrl.query.file;
+            if (!fileName || fileName.includes('..')) {
+                res.writeHead(400);
+                res.end('Invalid filename');
+                return;
+            }
+            try {
+                const filePath = path.join(configDir, fileName);
+                fs.writeFileSync(filePath, reqContent, { encoding: 'utf8' });
+                contentResp = `Config saved to ${fileName}`;
+                res.setHeader('Content-Type', 'text/plain');
+            }
+            catch (err) {
+                res.writeHead(500);
+                res.end('Error saving config file');
+                return;
+            }
+        }
+        // --- NEW ENDPOINT ---
+        // Deletes a specific config file based on the 'file' query parameter.
+        else if (parsedUrl.pathname == '/delete-config' && req.method === 'POST') {
+            const fileName = parsedUrl.query.file;
+            if (!fileName || fileName.includes('..')) { // Basic security check
+                res.writeHead(400);
+                res.end('Invalid filename');
+                return;
+            }
+            try {
+                const filePath = path.join(configDir, fileName);
+                fs.unlinkSync(filePath); // Delete the file
+                contentResp = `Deleted ${fileName}`;
+                res.setHeader('Content-Type', 'text/plain');
+            }
+            catch (err) {
+                console.error(err);
+                res.writeHead(500);
+                res.end('Error deleting config file');
+                return;
+            }
+        }
+        else if (parsedUrl.pathname == '/sync') {
             let objConfig = JSON.parse(reqContent);
             if (isSyncRunning) {
                 contentResp = 'Sync is already running';
@@ -106,7 +171,7 @@ const httpServer = http.createServer((req, res) => {
             }
             res.setHeader('Content-Type', 'text/plain');
         }
-        else if (req.url == '/abort') {
+        else if (parsedUrl.pathname == '/abort') {
             if (syncProcess) {
                 syncProcess.kill();
                 contentResp = 'Process killed';
@@ -116,7 +181,7 @@ const httpServer = http.createServer((req, res) => {
             }
             res.setHeader('Content-Type', 'text/plain');
         }
-        else if (req.url == '/list-company') {
+        else if (parsedUrl.pathname == '/list-company') {
             const reqPayload = '<?xml version="1.0" encoding="utf-8"?><ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>MyReportLedgerTable</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><REPORT NAME="MyReportLedgerTable"><FORMS>MyForm</FORMS></REPORT><FORM NAME="MyForm"><PARTS>MyPart01</PARTS><XMLTAG>DATA</XMLTAG></FORM><PART NAME="MyPart01"><LINES>MyLine01</LINES><REPEAT>MyLine01 : MyCollection</REPEAT><SCROLLED>Vertical</SCROLLED></PART><LINE NAME="MyLine01"><FIELDS>Fld</FIELDS></LINE><FIELD NAME="Fld"><SET>$Name</SET><XMLTAG>ROW</XMLTAG></FIELD><COLLECTION NAME="MyCollection"><TYPE>Company</TYPE><FETCH></FETCH></COLLECTION></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>';
             let objConfig = JSON.parse(reqContent);
             let result = '';
@@ -129,7 +194,7 @@ const httpServer = http.createServer((req, res) => {
             contentResp = result;
             res.setHeader('Content-Type', 'text/xml');
         }
-        else if (req.url == '/tally-status') {
+        else if (parsedUrl.pathname == '/tally-status') {
             let objConfig = JSON.parse(reqContent);
             try {
                 let result = await postTallyXML(objConfig['server'], objConfig['port'], '');
@@ -150,14 +215,22 @@ const httpServer = http.createServer((req, res) => {
     });
 });
 httpServer.listen(httpPort, 'localhost', () => {
-    console.log(`Server started on http://localhost:${httpPort}`);
+    if (!fs.existsSync(configDir)) {
+        console.log(`Creating configuration directory: ${configDir}`);
+        fs.mkdirSync(configDir);
+    }
+    if (fs.existsSync('./config.json')) {
+        console.log('Migrating old config.json to /config directory...');
+        fs.renameSync('./config.json', path.join(configDir, 'config.json'));
+    }
+    console.log(`Server started on http://localhost:httpPort}`);
     console.log('Launching utility GUI page on default browser...');
     child_process.exec(`start http://localhost:${httpPort}`);
     setInterval(() => {
         if (wsServer.clients.size == 0 && !isSyncRunning) {
             console.log('No webpage connected. Closing utility...');
-            process.exit(0); //shutdown utility
+            process.exit(0);
         }
     }, 5000);
 });
-//# sourceMappingURL=server.mjs.map
+//# sourceMappingURL=server.js.map

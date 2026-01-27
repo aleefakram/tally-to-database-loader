@@ -369,4 +369,4 @@ class _utility {
 }
 let utility = new _utility(); //Create singleton instance of class
 export { utility }; //Export singleton instance of class
-//# sourceMappingURL=utility.mjs.map
+//# sourceMappingURL=utility.js.map

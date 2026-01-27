@@ -34,7 +34,7 @@ function configObjectToCommandLineArr(obj: any): string[] {
 
 function runSyncProcess(configObj: any) {
     let cmdArgs = configObjectToCommandLineArr(configObj);
-    syncProcess = child_process.fork('./dist/index.mjs', cmdArgs);
+    syncProcess = child_process.fork('./dist/index.js', cmdArgs);
     syncProcess.on('message', (msg) => wsServer.clients.forEach((wsClient) => wsClient.send(msg.toString())));
     syncProcess.on('close', () => {
         isSyncRunning = false;
@@ -84,7 +84,7 @@ function postTallyXML(tallyServer: string, tallyPort: number, payload: string): 
 const httpServer = http.createServer((req, res) => {
 
     let reqContent = '';
-    const parsedUrl = url.parse(req.url || '', true); // Parse URL to get query params
+    const parsedUrl = url.parse(req.url || '', true); 
 
     req.on('data', (chunk) => reqContent += chunk);
 
@@ -99,23 +99,19 @@ const httpServer = http.createServer((req, res) => {
             res.end(contentResp);
             return;
         }
-        // --- NEW ENDPOINT ---
-        // Lists all .json files in the /config directory.
         else if (parsedUrl.pathname == '/list-configs') {
             try {
                 const files = fs.readdirSync(configDir).filter(file => file.endsWith('.json'));
                 contentResp = JSON.stringify(files);
                 res.setHeader('Content-Type', 'application/json');
             } catch (err) {
-                contentResp = '[]'; // Return empty array if directory doesn't exist
+                contentResp = '[]'; 
                 res.setHeader('Content-Type', 'application/json');
             }
         }
-        // --- MODIFIED ENDPOINT ---
-        // Loads a specific config file based on the 'file' query parameter.
         else if (parsedUrl.pathname == '/loadconfig') {
             const fileName = parsedUrl.query.file as string;
-            if (!fileName || fileName.includes('..')) { // Basic security check
+            if (!fileName || fileName.includes('..')) { 
                 res.writeHead(400);
                 res.end('Invalid filename');
                 return;
@@ -131,11 +127,9 @@ const httpServer = http.createServer((req, res) => {
                 return;
             }
         }
-        // --- MODIFIED ENDPOINT ---
-        // Saves content to a specific config file based on the 'file' query parameter.
         else if (parsedUrl.pathname == '/saveconfig') {
             const fileName = parsedUrl.query.file as string;
-            if (!fileName || fileName.includes('..')) { // Basic security check
+            if (!fileName || fileName.includes('..')) { 
                 res.writeHead(400);
                 res.end('Invalid filename');
                 return;
@@ -148,6 +142,27 @@ const httpServer = http.createServer((req, res) => {
             } catch (err) {
                 res.writeHead(500);
                 res.end('Error saving config file');
+                return;
+            }
+        }
+        // --- NEW ENDPOINT ---
+        // Deletes a specific config file based on the 'file' query parameter.
+        else if (parsedUrl.pathname == '/delete-config' && req.method === 'POST') {
+            const fileName = parsedUrl.query.file as string;
+            if (!fileName || fileName.includes('..')) { // Basic security check
+                res.writeHead(400);
+                res.end('Invalid filename');
+                return;
+            }
+            try {
+                const filePath = path.join(configDir, fileName);
+                fs.unlinkSync(filePath); // Delete the file
+                contentResp = `Deleted ${fileName}`;
+                res.setHeader('Content-Type', 'text/plain');
+            } catch (err) {
+                console.error(err);
+                res.writeHead(500);
+                res.end('Error deleting config file');
                 return;
             }
         }
@@ -209,25 +224,22 @@ const httpServer = http.createServer((req, res) => {
 });
 
 httpServer.listen(httpPort, 'localhost', () => {
-    // --- NEW STARTUP LOGIC ---
-    // Ensure the /config directory exists on startup.
     if (!fs.existsSync(configDir)) {
         console.log(`Creating configuration directory: ${configDir}`);
         fs.mkdirSync(configDir);
     }
-    // Move the old config.json into the new directory if it exists
     if (fs.existsSync('./config.json')) {
         console.log('Migrating old config.json to /config directory...');
         fs.renameSync('./config.json', path.join(configDir, 'config.json'));
     }
 
-    console.log(`Server started on http://localhost:${httpPort}`);
+    console.log(`Server started on http://localhost:httpPort}`);
     console.log('Launching utility GUI page on default browser...');
     child_process.exec(`start http://localhost:${httpPort}`);
-    setInterval(() => { //set timer to detect if webpage is open/closed via monitoring websocket clients
+    setInterval(() => { 
         if(wsServer.clients.size == 0 && !isSyncRunning) {
             console.log('No webpage connected. Closing utility...');
-            process.exit(0); //shutdown utility
+            process.exit(0); 
         }
     }, 5000);
 });

@@ -1,7 +1,7 @@
 import fs from 'fs';
 import util from 'util';
 import process from 'process';
-import { utility } from './utility.mjs';
+import { utility } from './utility.js';
 class _logger {
     streamMessage;
     streamError;
@@ -51,4 +51,4 @@ class _logger {
 }
 let logger = new _logger();
 export { logger };
-//# sourceMappingURL=logger.mjs.map
+//# sourceMappingURL=logger.js.map

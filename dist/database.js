@@ -6,7 +6,7 @@ import postgres from 'pg';
 import { BigQuery } from '@google-cloud/bigquery';
 import { from as pgLoadInto } from 'pg-copy-streams';
 import adls from '@azure/storage-file-datalake';
-import { logger } from './logger.mjs';
+import { logger } from './logger.js';
 const maxQuerySize = 50000;
 let connectionPoolMysql;
 class _database {
@@ -14,13 +14,20 @@ class _database {
     bigquery = new BigQuery();
     connectionPoolPostgres = new postgres.Pool({});
     constructor() {
-        try {
-            this.config = JSON.parse(fs.readFileSync('./config.json', 'utf8'))['database'];
-        }
-        catch (err) {
-            logger.logError('database()', err);
-            throw err;
-        }
+        // --- FIXED ---
+        // Removed the hardcoded file read.
+        // The config is now initialized with default values and will be
+        // populated by the updateCommandlineConfig method.
+        this.config = {
+            technology: 'mssql',
+            server: 'localhost',
+            port: 1433,
+            schema: '',
+            username: '',
+            password: '',
+            loadmethod: 'file',
+            ssl: false
+        };
     }
     updateCommandlineConfig(lstConfigs) {
         try {
@@ -919,4 +926,4 @@ class _database {
 }
 let database = new _database();
 export { database };
-//# sourceMappingURL=database.mjs.map
+//# sourceMappingURL=database.js.map

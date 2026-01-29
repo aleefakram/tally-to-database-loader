@@ -7,6 +7,28 @@ import { WebSocketServer } from 'ws';
 const httpPort = 8997;
 const wsPort = 8998;
 const configDir = './config'; // Define the configuration directory
+/**
+ * Validates that a filename resolves to a path within the config directory.
+ * Prevents path traversal attacks including encoded characters.
+ * @param fileName The filename to validate
+ * @returns The resolved file path if valid, null otherwise
+ */
+function isPathSafe(fileName) {
+    if (!fileName)
+        return null;
+    // Decode URL-encoded characters and check for path traversal
+    const decoded = decodeURIComponent(fileName);
+    if (decoded.includes('..') || decoded.includes('/') || decoded.includes('\\')) {
+        return null;
+    }
+    // Ensure the resolved path is within configDir
+    const resolvedConfigDir = path.resolve(configDir);
+    const filePath = path.resolve(configDir, fileName);
+    if (!filePath.startsWith(resolvedConfigDir + path.sep)) {
+        return null;
+    }
+    return filePath;
+}
 let isSyncRunning = false;
 let syncProcess = undefined;
 const wsServer = new WebSocketServer({
@@ -101,13 +123,13 @@ const httpServer = http.createServer((req, res) => {
         }
         else if (parsedUrl.pathname == '/loadconfig') {
             const fileName = parsedUrl.query.file;
-            if (!fileName || fileName.includes('..')) {
+            const filePath = isPathSafe(fileName);
+            if (!filePath) {
                 res.writeHead(400);
                 res.end('Invalid filename');
                 return;
             }
             try {
-                const filePath = path.join(configDir, fileName);
                 let fileContent = fs.readFileSync(filePath, 'utf8');
                 contentResp = fileContent;
                 res.setHeader('Content-Type', 'application/json');
@@ -120,13 +142,13 @@ const httpServer = http.createServer((req, res) => {
         }
         else if (parsedUrl.pathname == '/saveconfig') {
             const fileName = parsedUrl.query.file;
-            if (!fileName || fileName.includes('..')) {
+            const filePath = isPathSafe(fileName);
+            if (!filePath) {
                 res.writeHead(400);
                 res.end('Invalid filename');
                 return;
             }
             try {
-                const filePath = path.join(configDir, fileName);
                 fs.writeFileSync(filePath, reqContent, { encoding: 'utf8' });
                 contentResp = `Config saved to ${fileName}`;
                 res.setHeader('Content-Type', 'text/plain');
@@ -137,18 +159,17 @@ const httpServer = http.createServer((req, res) => {
                 return;
             }
         }
-        // --- NEW ENDPOINT ---
         // Deletes a specific config file based on the 'file' query parameter.
         else if (parsedUrl.pathname == '/delete-config' && req.method === 'POST') {
             const fileName = parsedUrl.query.file;
-            if (!fileName || fileName.includes('..')) { // Basic security check
+            const filePath = isPathSafe(fileName);
+            if (!filePath) {
                 res.writeHead(400);
                 res.end('Invalid filename');
                 return;
             }
             try {
-                const filePath = path.join(configDir, fileName);
-                fs.unlinkSync(filePath); // Delete the file
+                fs.unlinkSync(filePath);
                 contentResp = `Deleted ${fileName}`;
                 res.setHeader('Content-Type', 'text/plain');
             }

@@ -260,7 +260,7 @@ class _tally {
                                 await database.executeNonQuery('truncate table _vchnumber;');
 
                                 //pull list of voucher numbers for all the vouchers
-                                let activeTable = this.lstTableTransaction.filter(p => p.name = 'trn_voucher')[0];
+                                let activeTable = this.lstTableTransaction.filter(p => p.name === 'trn_voucher')[0];
                                 let lstActiveTableFilter = activeTable.filters || [];
                                 lstActiveTableFilter.push('$$IsEqual:($NumberingMethod:VoucherType:$VoucherTypeName):"Automatic"');
                                 if (Array.isArray(activeTable.filters))
@@ -420,7 +420,7 @@ class _tally {
                 let contentLastAlterIdTally = await this.postTallyXML(xmlPayLoad);
                 if(contentLastAlterIdTally == '') { //target company is closed
                     this.lastAlterIdMaster = -1;
-                    this.lastAlterIdTransaction - 1;
+                    this.lastAlterIdTransaction = -1;
                     if(!tally.config.company) {
                         logger.logMessage('No company open in Tally');
                         return reject('Please select one or more company in Tally to sync data');

@@ -487,12 +487,17 @@ namespace TallyDbLoader.Wpf
             try
             {
                 var client = new TallyClient(TallyServer, TallyPort);
-                var companies = await client.FetchActiveCompaniesAsync();
+                var companies = await client.FetchActiveCompaniesDetailedAsync();
                 
                 if (companies != null && companies.Count > 0)
                 {
-                    JobCompany = companies[0];
-                    Log($"Success! Detected {companies.Count} company/companies: {string.Join(", ", companies)}");
+                    JobCompany = companies[0].Name;
+                    var companyStrings = new System.Collections.Generic.List<string>();
+                    foreach (var c in companies)
+                    {
+                        companyStrings.Add(c.ToString());
+                    }
+                    Log($"Success! Detected {companies.Count} company/companies: {string.Join(", ", companyStrings)}");
                     System.Windows.MessageBox.Show($"Detected Company: {companies[0]}" + 
                         (companies.Count > 1 ? $"\n(And {companies.Count - 1} other open companies. Check log output for full list)" : ""), 
                         "Tally Company Detection", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);

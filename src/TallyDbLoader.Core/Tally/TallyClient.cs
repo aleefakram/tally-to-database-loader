@@ -58,7 +58,7 @@ namespace TallyDbLoader.Core.Tally
             return await PostXMLAsync(requestXml);
         }
 
-        public async Task<System.Collections.Generic.List<string>> FetchActiveCompaniesAsync()
+        public async Task<System.Collections.Generic.List<TallyCompanyInfo>> FetchActiveCompaniesDetailedAsync()
         {
             var requestXml = @"<ENVELOPE>
   <HEADER>
@@ -87,11 +87,16 @@ namespace TallyDbLoader.Core.Tally
             <SCROLLED>Vertical</SCROLLED>
           </PART>
           <LINE NAME=""MyLine01"">
-            <FIELDS>Fld</FIELDS>
-          </LINE>
-          <FIELD NAME=""Fld"">
-            <SET>$Name</SET>
+            <FIELDS>FldName, FldIsGroup</FIELDS>
             <XMLTAG>ROW</XMLTAG>
+          </LINE>
+          <FIELD NAME=""FldName"">
+            <SET>$Name</SET>
+            <XMLTAG>NAME</XMLTAG>
+          </FIELD>
+          <FIELD NAME=""FldIsGroup"">
+            <SET>$IsGroupCompany</SET>
+            <XMLTAG>ISGROUP</XMLTAG>
           </FIELD>
           <COLLECTION NAME=""MyCollection"">
             <TYPE>Company</TYPE>
@@ -107,26 +112,43 @@ namespace TallyDbLoader.Core.Tally
             {
                 var responseXml = await PostXMLAsync(requestXml);
                 var doc = System.Xml.Linq.XDocument.Parse(responseXml);
-                var companies = new System.Collections.Generic.List<string>();
+                var companies = new System.Collections.Generic.List<TallyCompanyInfo>();
                 
                 foreach (var el in doc.Descendants())
                 {
                     string localName = el.Name.LocalName;
-                    if (localName.Equals("ROW", StringComparison.OrdinalIgnoreCase) || 
-                        localName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
+                    if (localName.Equals("ROW", StringComparison.OrdinalIgnoreCase))
                     {
-                        var val = el.Value?.Trim();
-                        if (!string.IsNullOrEmpty(val) && !companies.Contains(val))
+                        var nameEl = el.Element("NAME") ?? el.Element("COMPANYNAME");
+                        var isGroupEl = el.Element("ISGROUP") ?? el.Element("ISGROUPCOMPANY");
+                        
+                        var name = nameEl?.Value?.Trim();
+                        if (!string.IsNullOrEmpty(name) && !companies.Exists(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
                         {
-                            companies.Add(val);
+                            var isGroupStr = isGroupEl?.Value?.Trim();
+                            bool isGroup = isGroupStr != null && (
+                                isGroupStr.Equals("yes", StringComparison.OrdinalIgnoreCase) || 
+                                isGroupStr.Equals("true", StringComparison.OrdinalIgnoreCase) || 
+                                isGroupStr.Equals("1")
+                            );
+                            
+                            companies.Add(new TallyCompanyInfo { Name = name, IsGroup = isGroup });
+                        }
+                    }
+                    else if (localName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var name = el.Value?.Trim();
+                        if (!string.IsNullOrEmpty(name) && !companies.Exists(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            companies.Add(new TallyCompanyInfo { Name = name, IsGroup = false });
                         }
                     }
                     else if (localName.Equals("COMPANY", StringComparison.OrdinalIgnoreCase))
                     {
-                        var attr = el.Attribute("NAME")?.Value?.Trim();
-                        if (!string.IsNullOrEmpty(attr) && !companies.Contains(attr))
+                        var name = el.Attribute("NAME")?.Value?.Trim() ?? el.Value?.Trim();
+                        if (!string.IsNullOrEmpty(name) && !companies.Exists(c => c.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
                         {
-                            companies.Add(attr);
+                            companies.Add(new TallyCompanyInfo { Name = name, IsGroup = false });
                         }
                     }
                 }
@@ -134,8 +156,19 @@ namespace TallyDbLoader.Core.Tally
             }
             catch
             {
-                return new System.Collections.Generic.List<string>();
+                return new System.Collections.Generic.List<TallyCompanyInfo>();
             }
+        }
+
+        public async Task<System.Collections.Generic.List<string>> FetchActiveCompaniesAsync()
+        {
+            var detailed = await FetchActiveCompaniesDetailedAsync();
+            var names = new System.Collections.Generic.List<string>();
+            foreach (var c in detailed)
+            {
+                names.Add(c.Name);
+            }
+            return names;
         }
     }
 }

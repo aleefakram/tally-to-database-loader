@@ -1,8 +1,11 @@
 using System;
+using System.IO;
+using System.Data;
 using System.Threading;
 using System.Threading.Tasks;
 using TallyDbLoader.Core.Data;
 using TallyDbLoader.Core.Tally;
+using TallyDbLoader.Core.DatabaseLoaders;
 
 namespace TallyDbLoader.Core.Sync
 {
@@ -13,6 +16,12 @@ namespace TallyDbLoader.Core.Sync
         private readonly int _tallyPort;
         private CancellationTokenSource? _cts;
         private Task? _runTask;
+        private TallyClient? _tallyClient;
+
+        public void SetTallyClientForTest(TallyClient client)
+        {
+            _tallyClient = client;
+        }
 
         public event Action<string>? OnLogMessage;
         public event Action? OnSyncCompleted;
@@ -53,7 +62,7 @@ namespace TallyDbLoader.Core.Sync
 
         private async Task WorkerLoop(CancellationToken token)
         {
-            var client = new TallyClient(_tallyServer, _tallyPort);
+            var client = _tallyClient ?? new TallyClient(_tallyServer, _tallyPort);
             
             while (!token.IsCancellationRequested)
             {
@@ -103,26 +112,98 @@ namespace TallyDbLoader.Core.Sync
                             
                             try
                             {
-                                // Fetch and parse ledgers
-                                Log($"[SyncJob] Fetching ledgers XML from Tally for company '{job.CompanyName}'...");
-                                var ledgersXml = await client.FetchLedgersXmlAsync(job.CompanyName);
-                                Log($"[SyncJob] Received Tally XML response of size {ledgersXml.Length} bytes.");
+                                var yamlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tally-export-config.yaml");
+                                if (!File.Exists(yamlPath))
+                                {
+                                    yamlPath = Path.Combine(Directory.GetCurrentDirectory(), "tally-export-config.yaml");
+                                }
                                 
-                                var ledgers = TallyXmlParser.ParseLedgers(ledgersXml);
-                                Log($"[SyncJob] Successfully parsed {ledgers.Count} ledgers from Tally XML.");
+                                if (!File.Exists(yamlPath))
+                                {
+                                    throw new FileNotFoundException($"Tally definition file '{yamlPath}' not found.");
+                                }
                                 
+                                Log($"[SyncJob] Loading Tally definition file: {yamlPath}");
+                                var yamlContent = File.ReadAllText(yamlPath);
+                                var config = YamlConfigParser.Parse(yamlContent);
+                                Log($"[SyncJob] Parsed YAML configuration: {config.Master.Count} masters, {config.Transaction.Count} transactions.");
+
                                 // Find database profile
                                 var dbProfile = _repo.GetDatabaseProfileById(job.DbProfileId);
                                 
                                 if (dbProfile != null)
                                 {
                                     Log($"[SyncJob] Target database technology: {dbProfile.Technology} on server '{dbProfile.Server}:{dbProfile.Port}'.");
-                                    Log($"[SyncJob] Initializing/verifying target catalog and tables '{job.TargetCatalog}'...");
-                                    DatabaseWriter.InitializeTargetTables(dbProfile, job.TargetCatalog);
-                                    Log($"[SyncJob] Database structures verified. Writing {ledgers.Count} ledgers to target database...");
-                                    DatabaseWriter.WriteLedgers(dbProfile, job.TargetCatalog, ledgers);
-                                    Log($"[SyncJob] Ledger data written successfully.");
                                     
+                                    IDatabaseLoader dbLoader;
+                                    var tech = dbProfile.Technology.ToLower();
+                                    string connStr;
+                                    if (tech.Contains("postgres") || tech.Contains("npgsql"))
+                                    {
+                                        string sslParam = "";
+                                        if (!dbProfile.Server.Equals("localhost", StringComparison.OrdinalIgnoreCase) && 
+                                            !dbProfile.Server.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            sslParam = "SslMode=Require;TrustServerCertificate=True;";
+                                        }
+                                        connStr = $"Host={dbProfile.Server};Port={dbProfile.Port};Username={dbProfile.Username};Password={dbProfile.Password};Database={job.TargetCatalog};{sslParam}";
+                                        dbLoader = new PostgreSqlLoader(connStr);
+                                    }
+                                    else if (tech.Contains("mssql") || tech.Contains("sqlserver"))
+                                    {
+                                        connStr = $"Server={dbProfile.Server},{dbProfile.Port};User Id={dbProfile.Username};Password={dbProfile.Password};Database={job.TargetCatalog};TrustServerCertificate=True;";
+                                        dbLoader = new MSSqlLoader(connStr);
+                                    }
+                                    else if (tech.Contains("mysql"))
+                                    {
+                                        connStr = $"Server={dbProfile.Server};Port={dbProfile.Port};User Id={dbProfile.Username};Password={dbProfile.Password};Database={job.TargetCatalog};";
+                                        dbLoader = new MySqlLoader(connStr);
+                                    }
+                                    else
+                                    {
+                                        throw new NotSupportedException($"Technology '{dbProfile.Technology}' not supported.");
+                                    }
+
+                                    var dates = await GetCompanyDatesAsync(client, job.CompanyName);
+                                    Log($"[SyncJob] Sync period: {dates.fromDate} to {dates.toDate}");
+
+                                    var tablesToSync = new System.Collections.Generic.List<TableConfig>();
+                                    tablesToSync.AddRange(config.Master);
+                                    tablesToSync.AddRange(config.Transaction);
+
+                                    foreach (var table in tablesToSync)
+                                    {
+                                        if (token.IsCancellationRequested) break;
+                                        
+                                        Log($"[SyncJob] Processing table '{table.Name}'...");
+                                        
+                                        // 1. Initialize schema
+                                        DatabaseWriter.InitializeTargetTableDynamic(dbProfile, job.TargetCatalog, table);
+                                        
+                                        // 2. Truncate table
+                                        using (var conn = DatabaseWriter.GetConnection(dbProfile, job.TargetCatalog))
+                                        using (var cmd = conn.CreateCommand())
+                                        {
+                                            cmd.CommandText = $"TRUNCATE TABLE {table.Name};";
+                                            cmd.ExecuteNonQuery();
+                                        }
+                                        
+                                        // 3. Query XML from Tally
+                                        var xmlQuery = DynamicTdlXmlGenerator.GenerateXml(table, job.CompanyName, dates.fromDate, dates.toDate);
+                                        var responseXml = await client.PostXMLAsync(xmlQuery);
+                                        
+                                        // 4. Parse into DataTable
+                                        var dataTable = DynamicXmlParser.ParseXml(responseXml, table);
+                                        Log($"[SyncJob] Parsed {dataTable.Rows.Count} rows for table '{table.Name}'.");
+                                        
+                                        // 5. Bulk Load into target database
+                                        if (dataTable.Rows.Count > 0)
+                                        {
+                                            await dbLoader.LoadBulkDataAsync(dataTable, table.Name);
+                                            Log($"[SyncJob] Successfully bulk loaded {dataTable.Rows.Count} rows into '{table.Name}'.");
+                                        }
+                                    }
+
                                     job.Status = "Idle";
                                     job.LastRunTime = DateTime.UtcNow.ToString("o");
                                     Log($"Job '{job.CompanyName}' completed successfully.");
@@ -153,6 +234,45 @@ namespace TallyDbLoader.Core.Sync
                 
                 try { await Task.Delay(TimeSpan.FromSeconds(60), token); } catch { break; }
             }
+        }
+
+        private async Task<(string fromDate, string toDate)> GetCompanyDatesAsync(TallyClient client, string companyName)
+        {
+            var defaultFrom = "20000101";
+            var defaultTo = DateTime.Today.ToString("yyyyMMdd");
+            
+            try
+            {
+                var xmlCompany = @"<?xml version=""1.0"" encoding=""utf-8""?><ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>TallyDatabaseLoaderReport</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>ASCII (Comma Delimited)</SVEXPORTFORMAT></STATICVARIABLES><TDL><TDLMESSAGE><REPORT NAME=""TallyDatabaseLoaderReport""><FORMS>MyForm</FORMS></REPORT><FORM NAME=""MyForm""><PARTS>MyPart</PARTS></FORM><PART NAME=""MyPart""><LINES>MyLine</LINES><REPEAT>MyLine : MyCollection</REPEAT><SCROLLED>Vertical</SCROLLED></PART><LINE NAME=""MyLine""><FIELDS>FldGuid,FldName,FldBooksFrom,FldLastVoucherDate,FldLastAlterIdMaster,FldLastAlterIdTransaction,FldEOL</FIELDS></LINE><FIELD NAME=""FldGuid""><SET>$Guid</SET></FIELD><FIELD NAME=""FldName""><SET>$$StringFindAndReplace:$Name:'""':'""""'</SET></FIELD><FIELD NAME=""FldBooksFrom""><SET>(($$YearOfDate:$BooksFrom)*10000)+(($$MonthOfDate:$BooksFrom)*100)+(($$DayOfDate:$BooksFrom)*1)</SET></FIELD><FIELD NAME=""FldLastVoucherDate""><SET>(($$YearOfDate:$LastVoucherDate)*10000)+(($$MonthOfDate:$LastVoucherDate)*100)+(($$DayOfDate:$LastVoucherDate)*1)</SET></FIELD><FIELD NAME=""FldLastAlterIdMaster""><SET>$AltMstId</SET></FIELD><FIELD NAME=""FldLastAlterIdTransaction""><SET>$AltVchId</SET></FIELD><FIELD NAME=""FldEOL""><SET>†</SET></FIELD><COLLECTION NAME=""MyCollection""><TYPE>Company</TYPE><FILTER>FilterActiveCompany</FILTER></COLLECTION><SYSTEM TYPE=""Formulae"" NAME=""FilterActiveCompany"">$$IsEqual:##SVCurrentCompany:$Name</SYSTEM></TDLMESSAGE></TDL></DESC></BODY></ENVELOPE>";
+                
+                xmlCompany = xmlCompany.Replace("##SVCurrentCompany", $"\"{System.Security.SecurityElement.Escape(companyName)}\"");
+                
+                var response = await client.PostXMLAsync(xmlCompany);
+                if (string.IsNullOrEmpty(response)) return (defaultFrom, defaultTo);
+                
+                var cleaned = response.Replace("\"", "").Trim();
+                var parts = cleaned.Split(',');
+                if (parts.Length >= 4)
+                {
+                    var fromPart = parts[2].Trim();
+                    var toPart = parts[3].Trim();
+                    
+                    if (fromPart.Length == 8 && int.TryParse(fromPart, out _))
+                    {
+                        defaultFrom = fromPart;
+                    }
+                    if (toPart.Length == 8 && int.TryParse(toPart, out _))
+                    {
+                        defaultTo = toPart;
+                    }
+                }
+            }
+            catch
+            {
+                // Fallback gracefully
+            }
+            
+            return (defaultFrom, defaultTo);
         }
     }
 }

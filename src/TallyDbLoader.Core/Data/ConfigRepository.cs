@@ -42,6 +42,14 @@ namespace TallyDbLoader.Core.Data
             }
         }
 
+        public List<DatabaseProfile> GetAllDatabaseProfiles()
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                return conn.Query<DatabaseProfile>("SELECT * FROM database_profiles").AsList();
+            }
+        }
+
         public void SaveSyncJob(SyncJob job)
         {
             using (var conn = new SqliteConnection(_connectionString))
@@ -82,6 +90,41 @@ namespace TallyDbLoader.Core.Data
                            last_run_time AS LastRunTime, 
                            status AS Status 
                     FROM sync_jobs").AsList();
+            }
+        }
+
+        public TallySettings GetTallySettings()
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                var settings = conn.QueryFirstOrDefault<TallySettings>("SELECT * FROM tally_settings WHERE id = 1");
+                return settings ?? new TallySettings();
+            }
+        }
+
+        public void SaveTallySettings(TallySettings settings)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Execute(@"
+                    INSERT OR REPLACE INTO tally_settings (id, server, port, tally_exe_path, tally_ini_path)
+                    VALUES (1, @Server, @Port, @TallyExePath, @TallyIniPath)", settings);
+            }
+        }
+
+        public void DeleteDatabaseProfile(int id)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Execute("DELETE FROM database_profiles WHERE id = @Id", new { Id = id });
+            }
+        }
+
+        public void DeleteSyncJob(int id)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Execute("DELETE FROM sync_jobs WHERE id = @Id", new { Id = id });
             }
         }
     }

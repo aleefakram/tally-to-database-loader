@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -11,6 +13,8 @@ namespace TallyDbLoader.Wpf
     {
         private readonly ConfigRepository _repo;
         private string _statusText = "Sync engine is idle.";
+        private string _logOutput = "Ready to start sync loop.";
+        private BackgroundSyncWorker? _worker;
 
         public ObservableCollection<DatabaseProfile> DatabaseProfiles { get; set; }
         public ObservableCollection<SyncJob> SyncJobs { get; set; }
@@ -19,6 +23,116 @@ namespace TallyDbLoader.Wpf
         {
             get => _statusText;
             set { _statusText = value; OnPropertyChanged(); }
+        }
+
+        public string LogOutput
+        {
+            get => _logOutput;
+            set { _logOutput = value; OnPropertyChanged(); }
+        }
+
+        // Tally Settings Form
+        private string _tallyServer = "localhost";
+        private int _tallyPort = 9000;
+        private string _tallyExePath = string.Empty;
+        private string _tallyIniPath = string.Empty;
+
+        public string TallyServer
+        {
+            get => _tallyServer;
+            set { _tallyServer = value; OnPropertyChanged(); }
+        }
+
+        public int TallyPort
+        {
+            get => _tallyPort;
+            set { _tallyPort = value; OnPropertyChanged(); }
+        }
+
+        public string TallyExePath
+        {
+            get => _tallyExePath;
+            set { _tallyExePath = value; OnPropertyChanged(); }
+        }
+
+        public string TallyIniPath
+        {
+            get => _tallyIniPath;
+            set { _tallyIniPath = value; OnPropertyChanged(); }
+        }
+
+        // Database Profile CRUD Form
+        private string _dbName = string.Empty;
+        private string _dbTech = "postgres"; // default
+        private string _dbServer = "localhost";
+        private int _dbPort = 5432;
+        private string _dbUsername = string.Empty;
+        private string _dbPassword = string.Empty;
+
+        public string DbName
+        {
+            get => _dbName;
+            set { _dbName = value; OnPropertyChanged(); }
+        }
+
+        public string DbTech
+        {
+            get => _dbTech;
+            set { _dbTech = value; OnPropertyChanged(); }
+        }
+
+        public string DbServer
+        {
+            get => _dbServer;
+            set { _dbServer = value; OnPropertyChanged(); }
+        }
+
+        public int DbPort
+        {
+            get => _dbPort;
+            set { _dbPort = value; OnPropertyChanged(); }
+        }
+
+        public string DbUsername
+        {
+            get => _dbUsername;
+            set { _dbUsername = value; OnPropertyChanged(); }
+        }
+
+        public string DbPassword
+        {
+            get => _dbPassword;
+            set { _dbPassword = value; OnPropertyChanged(); }
+        }
+
+        // Sync Job CRUD Form
+        private string _jobCompany = string.Empty;
+        private DatabaseProfile? _jobSelectedProfile;
+        private string _jobTargetCatalog = string.Empty;
+        private int _jobInterval = 15;
+
+        public string JobCompany
+        {
+            get => _jobCompany;
+            set { _jobCompany = value; OnPropertyChanged(); }
+        }
+
+        public DatabaseProfile? JobSelectedProfile
+        {
+            get => _jobSelectedProfile;
+            set { _jobSelectedProfile = value; OnPropertyChanged(); }
+        }
+
+        public string JobTargetCatalog
+        {
+            get => _jobTargetCatalog;
+            set { _jobTargetCatalog = value; OnPropertyChanged(); }
+        }
+
+        public int JobInterval
+        {
+            get => _jobInterval;
+            set { _jobInterval = value; OnPropertyChanged(); }
         }
 
         public MainViewModel(string dbPath)
@@ -36,8 +150,15 @@ namespace TallyDbLoader.Wpf
         {
             DatabaseProfiles.Clear();
             SyncJobs.Clear();
+
+            // Load Tally Settings
+            var settings = _repo.GetTallySettings();
+            TallyServer = settings.Server;
+            TallyPort = settings.Port;
+            TallyExePath = settings.TallyExePath ?? string.Empty;
+            TallyIniPath = settings.TallyIniPath ?? string.Empty;
             
-            // Seed default values for demonstration if database is empty
+            // Seed defaults if empty
             var postgresProfile = _repo.GetDatabaseProfileByName("PostgreSqlLocal");
             if (postgresProfile == null)
             {
@@ -51,53 +172,109 @@ namespace TallyDbLoader.Wpf
                     Password = "password"
                 };
                 _repo.SaveDatabaseProfile(postgresProfile);
-                
-                // Fetch again to retrieve the auto-generated primary key (Id)
-                postgresProfile = _repo.GetDatabaseProfileByName("PostgreSqlLocal");
             }
             
-            if (postgresProfile != null)
+            // Load DB Profiles
+            var profiles = _repo.GetAllDatabaseProfiles();
+            foreach (var profile in profiles)
             {
-                DatabaseProfiles.Add(postgresProfile);
-                
-                var jobs = _repo.GetAllSyncJobs();
-                if (jobs.Count == 0)
+                DatabaseProfiles.Add(profile);
+            }
+
+            // Load Sync Jobs
+            var jobs = _repo.GetAllSyncJobs();
+            if (jobs.Count == 0 && DatabaseProfiles.Count > 0)
+            {
+                var defaultJob = new SyncJob
                 {
-                    var defaultJob = new SyncJob
-                    {
-                        CompanyName = "Demo Kitchen Central",
-                        DbProfileId = postgresProfile.Id,
-                        TargetCatalog = "kitchen_central",
-                        SyncIntervalMinutes = 15,
-                        Status = "Idle"
-                    };
-                    _repo.SaveSyncJob(defaultJob);
-                    jobs = _repo.GetAllSyncJobs();
-                }
-                
-                foreach (var job in jobs)
-                {
-                    SyncJobs.Add(job);
-                }
+                    CompanyName = "Demo Kitchen Central",
+                    DbProfileId = DatabaseProfiles[0].Id,
+                    TargetCatalog = "kitchen_central",
+                    SyncIntervalMinutes = 15,
+                    Status = "Idle"
+                };
+                _repo.SaveSyncJob(defaultJob);
+                jobs = _repo.GetAllSyncJobs();
+            }
+
+            foreach (var job in jobs)
+            {
+                SyncJobs.Add(job);
             }
         }
 
-        private BackgroundSyncWorker? _worker;
-        private string _logOutput = "Ready to start sync loop.";
-
-        public string LogOutput
+        // We will call repo methods to save
+        public void SaveTallySettings()
         {
-            get => _logOutput;
-            set { _logOutput = value; OnPropertyChanged(); }
+            var settings = new TallySettings
+            {
+                Server = TallyServer,
+                Port = TallyPort,
+                TallyExePath = TallyExePath,
+                TallyIniPath = TallyIniPath
+            };
+            _repo.SaveTallySettings(settings);
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Saved Tally configuration.\n" + LogOutput;
+        }
+
+        public void SaveDatabaseProfile()
+        {
+            if (string.IsNullOrWhiteSpace(DbName)) return;
+
+            var profile = new DatabaseProfile
+            {
+                Name = DbName,
+                Technology = DbTech,
+                Server = DbServer,
+                Port = DbPort,
+                Username = DbUsername,
+                Password = DbPassword
+            };
+            _repo.SaveDatabaseProfile(profile);
+            LoadConfiguration();
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Saved Database Profile '{DbName}'.\n" + LogOutput;
+        }
+
+        public void DeleteDatabaseProfile(DatabaseProfile profile)
+        {
+            if (profile == null) return;
+            _repo.DeleteDatabaseProfile(profile.Id);
+            LoadConfiguration();
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Deleted Database Profile '{profile.Name}'.\n" + LogOutput;
+        }
+
+        public void AddSyncJob()
+        {
+            if (string.IsNullOrWhiteSpace(JobCompany) || JobSelectedProfile == null) return;
+
+            var job = new SyncJob
+            {
+                CompanyName = JobCompany,
+                DbProfileId = JobSelectedProfile.Id,
+                TargetCatalog = JobTargetCatalog,
+                SyncIntervalMinutes = JobInterval,
+                Status = "Idle"
+            };
+            _repo.SaveSyncJob(job);
+            LoadConfiguration();
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Created Sync Job for '{JobCompany}'.\n" + LogOutput;
+        }
+
+        public void DeleteSyncJob(SyncJob job)
+        {
+            if (job == null) return;
+            _repo.DeleteSyncJob(job.Id);
+            LoadConfiguration();
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Deleted Sync Job for '{job.CompanyName}'.\n" + LogOutput;
         }
 
         public void StartSyncEngine()
         {
             if (_worker == null)
             {
-                _worker = new BackgroundSyncWorker(_repo, "localhost", 9000);
+                _worker = new BackgroundSyncWorker(_repo, TallyServer, TallyPort);
                 _worker.OnLogMessage += (msg) => {
-                    LogOutput = $"[{System.DateTime.Now:HH:mm:ss}] {msg}\n" + LogOutput;
+                    LogOutput = $"[{DateTime.Now:HH:mm:ss}] {msg}\n" + LogOutput;
                     StatusText = msg;
                 };
                 _worker.OnSyncCompleted += () => {

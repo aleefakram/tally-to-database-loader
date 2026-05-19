@@ -56,5 +56,28 @@ namespace TallyDbLoader.Wpf
                 vm.StopSyncEngine();
             }
         }
+        private void SaveTallyButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.SaveTallySettings();
+            }
+        }
+
+        private void SaveDbProfileButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.SaveDatabaseProfile();
+            }
+        }
+
+        private void AddSyncJobButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.AddSyncJob();
+            }
+        }
     }
 }

@@ -1,106 +1,281 @@
 <Window x:Class="TallyDbLoader.Wpf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Tally-to-Database Sync Dashboard" Height="580" Width="850"
-        Background="#1E1E1E" Foreground="#FFFFFF" FontFamily="Segoe UI">
-    <Grid Margin="20">
+        Title="Tally-to-Database Sync Utility" Height="680" Width="950"
+        Background="#121212" Foreground="#FFFFFF" FontFamily="Segoe UI" WindowStartupLocation="CenterScreen">
+    
+    <Window.Resources>
+        <!-- Dark Theme Styling Rules -->
+        <Style TargetType="TabControl">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="BorderBrush" Value="#2D2D2D"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        
+        <Style TargetType="TabItem">
+            <Setter Property="HeaderTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <ContentPresenter Content="{TemplateBinding Content}" Margin="10,6"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Background" Value="#252525"/>
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#4A90E2"/>
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="DataGrid">
+            <Setter Property="Background" Value="#1E1E1E"/>
+            <Setter Property="RowBackground" Value="#252525"/>
+            <Setter Property="AlternatingRowBackground" Value="#1E1E1E"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#333333"/>
+            <Setter Property="HorizontalGridLinesBrush" Value="#2A2A2A"/>
+            <Setter Property="VerticalGridLinesBrush" Value="#2A2A2A"/>
+            <Setter Property="RowHeaderWidth" Value="0"/>
+            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
+        </Style>
+
+        <Style TargetType="DataGridColumnHeader">
+            <Setter Property="Background" Value="#2A2A2A"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="BorderThickness" Value="0,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#3D3D3D"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+
+        <Style TargetType="DataGridCell">
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#3A78C4"/>
+                    <Setter Property="Foreground" Value="#FFFFFF"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#444444"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#444444"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
+        </Style>
+
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#4A90E2"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="15,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="15">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="2*"/>
             <RowDefinition Height="*"/>
-            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Header Controls Deck -->
-        <Grid Grid.Row="0" Margin="0,0,0,20">
+        <Grid Grid.Row="0" Margin="0,0,0,15">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
+            
             <StackPanel Grid.Column="0">
-                <TextBlock Text="Tally-to-Database Dashboard" FontSize="24" FontWeight="Bold" Foreground="#4A90E2"/>
-                <TextBlock Text="Manage background database loaders and execution schedules" FontSize="12" Foreground="#888888" Margin="0,2,0,0"/>
+                <TextBlock Text="Tally-to-Database Sync Utility" FontSize="26" FontWeight="Bold" Foreground="#4A90E2"/>
+                <TextBlock Text="Live synchronization orchestrator and SQLite administration client" FontSize="12" Foreground="#888888" Margin="0,2,0,0"/>
             </StackPanel>
+            
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Content="Start Sync" Click="StartButton_Click" Background="#4CAF50" Foreground="White" Padding="15,8" Margin="0,0,10,0" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
-                <Button Content="Stop Sync" Click="StopButton_Click" Background="#F44336" Foreground="White" Padding="15,8" BorderThickness="0" FontWeight="SemiBold" Cursor="Hand"/>
+                <Button Content="Start Sync" Click="StartButton_Click" Background="#4CAF50" Margin="0,0,10,0"/>
+                <Button Content="Stop Sync" Click="StopButton_Click" Background="#F44336"/>
             </StackPanel>
         </Grid>
 
-        <!-- Data Cards Row -->
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- Sync Jobs Card -->
-            <Border Grid.Column="0" Background="#2D2D2D" CornerRadius="8" Padding="15" Margin="0,0,10,0">
-                <Grid>
+        <!-- Main Workspace Tabs -->
+        <TabControl Grid.Row="1">
+            
+            <!-- TAB 1: Live Monitor -->
+            <TabItem Header="Dashboard Monitor">
+                <Grid Margin="15">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
+                        <RowDefinition Height="180"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="Sync Jobs" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,10"/>
-                    <DataGrid Grid.Row="1" ItemsSource="{Binding SyncJobs}" AutoGenerateColumns="False" 
-                              Background="Transparent" RowBackground="#333333" AlternatingRowBackground="#2A2A2A" 
-                              BorderBrush="Transparent" Foreground="#FFFFFF" GridLinesVisibility="None" IsReadOnly="True"
-                              HeadersVisibility="Column">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Company" Binding="{Binding CompanyName}" Width="*"/>
-                            <DataGridTextColumn Header="Interval" Binding="{Binding SyncIntervalMinutes}" Width="60"/>
-                            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="80"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,15">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="3*"/>
+                            <ColumnDefinition Width="2*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Sync Jobs Table -->
+                        <Border Grid.Column="0" Background="#1A1A1A" CornerRadius="6" Padding="12" Margin="0,0,8,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Active Sync Schedules" FontSize="15" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,10"/>
+                                <DataGrid Grid.Row="1" ItemsSource="{Binding SyncJobs}" AutoGenerateColumns="False" IsReadOnly="True" SelectedItem="{Binding JobSelectedProfile, Mode=TwoWay}">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Company Name" Binding="{Binding CompanyName}" Width="2*"/>
+                                        <DataGridTextColumn Header="Catalog Name" Binding="{Binding TargetCatalog}" Width="*"/>
+                                        <DataGridTextColumn Header="Interval" Binding="{Binding SyncIntervalMinutes}" Width="80"/>
+                                        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="100"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </Border>
+
+                        <!-- Database Profiles Table -->
+                        <Border Grid.Column="1" Background="#1A1A1A" CornerRadius="6" Padding="12" Margin="8,0,0,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="Database Targets" FontSize="15" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,10"/>
+                                <DataGrid Grid.Row="1" ItemsSource="{Binding DatabaseProfiles}" AutoGenerateColumns="False" IsReadOnly="True">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
+                                        <DataGridTextColumn Header="Technology" Binding="{Binding Technology}" Width="100"/>
+                                        <DataGridTextColumn Header="Server" Binding="{Binding Server}" Width="*"/>
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- Real-Time Monospace Logs -->
+                    <Border Grid.Row="1" Background="#1A1A1A" CornerRadius="6" Padding="12">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <TextBlock Grid.Row="0" Text="Sync Orchestrator Log Output" FontSize="14" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,8"/>
+                            <TextBox Grid.Row="1" Text="{Binding LogOutput, Mode=OneWay}" Background="#0E0E0E" Foreground="#00FF33" 
+                                     FontFamily="Consolas" FontSize="11" IsReadOnly="True" BorderThickness="0"
+                                     VerticalScrollBarVisibility="Auto" AcceptsReturn="True" TextWrapping="Wrap"/>
+                        </Grid>
+                    </Border>
                 </Grid>
-            </Border>
+            </TabItem>
 
-            <!-- Database Profiles Card -->
-            <Border Grid.Column="1" Background="#2D2D2D" CornerRadius="8" Padding="15" Margin="10,0,0,0">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="Database Connections" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,10"/>
-                    <DataGrid Grid.Row="1" ItemsSource="{Binding DatabaseProfiles}" AutoGenerateColumns="False" 
-                              Background="Transparent" RowBackground="#333333" AlternatingRowBackground="#2A2A2A" 
-                              BorderBrush="Transparent" Foreground="#FFFFFF" GridLinesVisibility="None" IsReadOnly="True"
-                              HeadersVisibility="Column">
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-                            <DataGridTextColumn Header="Type" Binding="{Binding Technology}" Width="80"/>
-                            <DataGridTextColumn Header="Server" Binding="{Binding Server}" Width="*"/>
-                        </DataGrid.Columns>
-                    </DataGrid>
-                </Grid>
-            </Border>
-        </Grid>
+            <!-- TAB 2: Setup & CRUD configuration -->
+            <TabItem Header="Configuration &amp; Profiles">
+                <ScrollViewer Margin="15" VerticalScrollBarVisibility="Auto">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-        <!-- Log Output Card -->
-        <Border Grid.Row="2" Background="#2D2D2D" CornerRadius="8" Padding="15" Margin="0,15,0,0">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Execution Log" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,10"/>
-                <TextBox Grid.Row="1" Text="{Binding LogOutput, Mode=OneWay}" Background="#222222" Foreground="#00FF00" 
-                         BorderThickness="0" FontFamily="Consolas" FontSize="11" IsReadOnly="True" 
-                         VerticalScrollBarVisibility="Auto" AcceptsReturn="True" TextWrapping="Wrap"/>
-            </Grid>
-        </Border>
+                        <!-- Left Column: Tally Settings & Database Profiles CRUD -->
+                        <StackPanel Grid.Column="0" Margin="0,0,15,0">
+                            
+                            <!-- Global Tally Config -->
+                            <Border Background="#1A1A1A" CornerRadius="6" Padding="15" Margin="0,0,0,15">
+                                <StackPanel>
+                                    <TextBlock Text="Global Tally Configuration" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
+                                    
+                                    <TextBlock Text="Tally XML Host IP / Server" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding TallyServer, UpdateSourceTrigger=PropertyChanged}"/>
 
-        <!-- Status Bar Footer -->
-        <Border Grid.Row="3" Background="#111111" CornerRadius="4" Padding="8,5" Margin="0,15,0,0">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Ellipse Grid.Column="0" Width="8" Height="8" Fill="#4CAF50" VerticalAlignment="Center" Margin="5,0,10,0"/>
-                <TextBlock Grid.Column="1" Text="{Binding StatusText}" FontSize="12" Foreground="#888888" VerticalAlignment="Center"/>
-            </Grid>
-        </Border>
+                                    <TextBlock Text="Tally XML Port" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding TallyPort, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Tally.exe Path (Optional)" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding TallyExePath, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Tally.ini Path (Optional)" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding TallyIniPath, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <Button Content="Save Tally Settings" Click="SaveTallyButton_Click" HorizontalAlignment="Right" Background="#4A90E2"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Add Database Target Form -->
+                            <Border Background="#1A1A1A" CornerRadius="6" Padding="15">
+                                <StackPanel>
+                                    <TextBlock Text="Create Database Target Profile" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
+
+                                    <TextBlock Text="Profile Display Name" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding DbName, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Technology (postgres / mssql)" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <ComboBox SelectedValuePath="Content" SelectedValue="{Binding DbTech, UpdateSourceTrigger=PropertyChanged}">
+                                        <ComboBoxItem Content="postgres"/>
+                                        <ComboBoxItem Content="mssql"/>
+                                    </ComboBox>
+
+                                    <TextBlock Text="Server Address" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding DbServer, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Server Port" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding DbPort, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Username" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding DbUsername, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Password" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding DbPassword, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <Button Content="Create DB Target" Click="SaveDbProfileButton_Click" HorizontalAlignment="Right" Background="#4A90E2"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Right Column: Sync Jobs CRUD -->
+                        <StackPanel Grid.Column="1" Margin="15,0,0,0">
+                            
+                            <!-- Add Sync Job Form -->
+                            <Border Background="#1A1A1A" CornerRadius="6" Padding="15">
+                                <StackPanel>
+                                    <TextBlock Text="Create Sync Schedule / Job" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
+
+                                    <TextBlock Text="Tally Target Company Name" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding JobCompany, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Target Database Catalog" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding JobTargetCatalog, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Sync Interval (Minutes)" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <TextBox Text="{Binding JobInterval, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <TextBlock Text="Database Target Connection Profile" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <ComboBox ItemsSource="{Binding DatabaseProfiles}" DisplayMemberPath="Name" SelectedItem="{Binding JobSelectedProfile, UpdateSourceTrigger=PropertyChanged}"/>
+
+                                    <Button Content="Create Sync Schedule" Click="AddSyncJobButton_Click" HorizontalAlignment="Right" Background="#4A90E2"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
     </Grid>
 </Window>

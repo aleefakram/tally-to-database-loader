@@ -10,13 +10,13 @@ namespace TallyDbLoader.Core.Models
         public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
     }
-    
     public class TallySettings
     {
+        public int Id { get; set; } = 1;
         public string Server { get; set; } = "localhost";
         public int Port { get; set; } = 9000;
-        public string TallyExePath { get; set; } = string.Empty;
-        public string TallyIniPath { get; set; } = string.Empty;
+        public string? TallyExePath { get; set; }
+        public string? TallyIniPath { get; set; }
     }
 
     public class SyncJob

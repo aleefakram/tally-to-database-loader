@@ -79,7 +79,7 @@ namespace TallyDbLoader.Core.Sync
                         
                         if (SyncOrchestrator.ShouldRun(job, DateTime.Now))
                         {
-                            OnLogMessage?.Invoke($"Starting job '{job.CompanyName}'...");
+                            OnLogMessage?.Invoke($"Starting job '{job.CompanyName}' (Target: {job.TargetCatalog})...");
                             
                             job.Status = "Running";
                             _repo.SaveSyncJob(job);
@@ -88,16 +88,24 @@ namespace TallyDbLoader.Core.Sync
                             try
                             {
                                 // Fetch and parse ledgers
+                                OnLogMessage?.Invoke($"[SyncJob] Fetching ledgers XML from Tally for company '{job.CompanyName}'...");
                                 var ledgersXml = await client.FetchLedgersXmlAsync(job.CompanyName);
+                                OnLogMessage?.Invoke($"[SyncJob] Received Tally XML response of size {ledgersXml.Length} bytes.");
+                                
                                 var ledgers = TallyXmlParser.ParseLedgers(ledgersXml);
+                                OnLogMessage?.Invoke($"[SyncJob] Successfully parsed {ledgers.Count} ledgers from Tally XML.");
                                 
                                 // Find database profile
                                 var dbProfile = _repo.GetDatabaseProfileById(job.DbProfileId);
                                 
                                 if (dbProfile != null)
                                 {
+                                    OnLogMessage?.Invoke($"[SyncJob] Target database technology: {dbProfile.Technology} on server '{dbProfile.Server}:{dbProfile.Port}'.");
+                                    OnLogMessage?.Invoke($"[SyncJob] Initializing/verifying target catalog and tables '{job.TargetCatalog}'...");
                                     DatabaseWriter.InitializeTargetTables(dbProfile, job.TargetCatalog);
+                                    OnLogMessage?.Invoke($"[SyncJob] Database structures verified. Writing {ledgers.Count} ledgers to target database...");
                                     DatabaseWriter.WriteLedgers(dbProfile, job.TargetCatalog, ledgers);
+                                    OnLogMessage?.Invoke($"[SyncJob] Ledger data written successfully.");
                                     
                                     job.Status = "Idle";
                                     job.LastRunTime = DateTime.UtcNow.ToString("o");
@@ -106,13 +114,13 @@ namespace TallyDbLoader.Core.Sync
                                 else
                                 {
                                     job.Status = "Failed";
-                                    OnLogMessage?.Invoke($"Job '{job.CompanyName}' failed: Database profile not found.");
+                                    OnLogMessage?.Invoke($"Job '{job.CompanyName}' failed: Database profile ID {job.DbProfileId} not found in configuration.");
                                 }
                             }
                             catch (Exception ex)
                             {
                                 job.Status = "Failed";
-                                OnLogMessage?.Invoke($"Job '{job.CompanyName}' failed: {ex.Message}");
+                                OnLogMessage?.Invoke($"Job '{job.CompanyName}' failed: {ex.Message}\nStack Trace: {ex.StackTrace}");
                             }
                             
                             _repo.SaveSyncJob(job);

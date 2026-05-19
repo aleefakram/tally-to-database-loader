@@ -155,7 +155,7 @@
         </Grid>
 
         <!-- Main Workspace Tabs -->
-        <TabControl Grid.Row="1">
+        <TabControl x:Name="MainTabControl" Grid.Row="1">
             
             <!-- TAB 1: Live Monitor -->
             <TabItem Header="Dashboard Monitor">
@@ -165,13 +165,13 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="180"/>
                     </Grid.RowDefinitions>
-
+ 
                     <Grid Grid.Row="0" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="3*"/>
                             <ColumnDefinition Width="2*"/>
                         </Grid.ColumnDefinitions>
-
+ 
                         <!-- Sync Jobs Table -->
                         <Border Grid.Column="0" Background="#1A1A1A" CornerRadius="6" Padding="12" Margin="0,0,8,0">
                             <Grid>
@@ -190,7 +190,7 @@
                                 </DataGrid>
                             </Grid>
                         </Border>
-
+ 
                         <!-- Database Profiles Table -->
                         <Border Grid.Column="1" Background="#1A1A1A" CornerRadius="6" Padding="12" Margin="8,0,0,0">
                             <Grid>
@@ -209,7 +209,7 @@
                             </Grid>
                         </Border>
                     </Grid>
-
+ 
                     <!-- CRUD Action Row directly under tables -->
                     <Grid Grid.Row="1" Margin="0,0,0,15">
                         <Grid.ColumnDefinitions>
@@ -217,9 +217,11 @@
                             <ColumnDefinition Width="2*"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,0">
+                            <Button Content="Edit Selected Job" Click="EditJobButton_Click" Background="#4A90E2" Padding="12,5" FontSize="11" Margin="0,0,8,0"/>
                             <Button Content="Delete Selected Job" Click="DeleteJobButton_Click" Background="#C62828" Padding="12,5" FontSize="11"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,0,0,0">
+                            <Button Content="Edit Selected Target" Click="EditDbProfileButton_Click" Background="#4A90E2" Padding="12,5" FontSize="11" Margin="0,0,8,0"/>
                             <Button Content="Delete Selected Target" Click="DeleteDbProfileButton_Click" Background="#C62828" Padding="12,5" FontSize="11"/>
                         </StackPanel>
                     </Grid>
@@ -278,7 +280,7 @@
                             <!-- Add Database Target Form -->
                             <Border Background="#1A1A1A" CornerRadius="6" Padding="15">
                                 <StackPanel>
-                                    <TextBlock Text="Create Database Target Profile" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
+                                    <TextBlock Text="{Binding DbFormHeader}" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
 
                                     <TextBlock Text="Profile Display Name" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
                                     <TextBox Text="{Binding DbName, UpdateSourceTrigger=PropertyChanged}"/>
@@ -307,7 +309,10 @@
                                             <ColumnDefinition Width="Auto"/>
                                         </Grid.ColumnDefinitions>
                                         <Button Grid.Column="0" Content="Test Connection" Click="TestConnectionButton_Click" HorizontalAlignment="Left" Background="#7B1FA2"/>
-                                        <Button Grid.Column="1" Content="Create DB Target" Click="SaveDbProfileButton_Click" HorizontalAlignment="Right" Background="#4A90E2"/>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Button Content="Cancel" Click="CancelDbEditButton_Click" Background="#555555" Margin="0,0,8,0" Visibility="{Binding IsEditingDbProfileVisibility}"/>
+                                            <Button Content="{Binding DbSaveButtonText}" Click="SaveDbProfileButton_Click" Background="#4A90E2"/>
+                                        </StackPanel>
                                     </Grid>
                                 </StackPanel>
                             </Border>
@@ -319,7 +324,7 @@
                             <!-- Add Sync Job Form -->
                             <Border Background="#1A1A1A" CornerRadius="6" Padding="15">
                                 <StackPanel>
-                                    <TextBlock Text="Create Sync Schedule / Job" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
+                                    <TextBlock Text="{Binding JobFormHeader}" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
 
                                     <TextBlock Text="Tally Target Company Name" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
                                     <Grid Margin="0,0,0,0">
@@ -340,7 +345,10 @@
                                     <TextBlock Text="Database Target Connection Profile" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
                                     <ComboBox ItemsSource="{Binding DatabaseProfiles}" DisplayMemberPath="Name" SelectedItem="{Binding JobSelectedProfile, UpdateSourceTrigger=PropertyChanged}" Background="#2D2D2D"/>
 
-                                    <Button Content="Create Sync Schedule" Click="AddSyncJobButton_Click" HorizontalAlignment="Right" Background="#4A90E2"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button Content="Cancel" Click="CancelJobEditButton_Click" Background="#555555" Margin="0,0,8,0" Visibility="{Binding IsEditingJobVisibility}"/>
+                                        <Button Content="{Binding JobSaveButtonText}" Click="AddSyncJobButton_Click" Background="#4A90E2"/>
+                                    </StackPanel>
                                 </StackPanel>
                             </Border>
                         </StackPanel>

@@ -18,9 +18,24 @@ namespace TallyDbLoader.Core.Data
         {
             using (var conn = new SqliteConnection(_connectionString))
             {
-                conn.Execute(@"
-                    INSERT OR REPLACE INTO database_profiles (name, technology, server, port, username, password)
-                    VALUES (@Name, @Technology, @Server, @Port, @Username, @Password)", profile);
+                if (profile.Id == 0)
+                {
+                    conn.Execute(@"
+                        INSERT INTO database_profiles (name, technology, server, port, username, password)
+                        VALUES (@Name, @Technology, @Server, @Port, @Username, @Password)", profile);
+                }
+                else
+                {
+                    conn.Execute(@"
+                        UPDATE database_profiles 
+                        SET name = @Name, 
+                            technology = @Technology, 
+                            server = @Server, 
+                            port = @Port, 
+                            username = @Username, 
+                            password = @Password 
+                        WHERE id = @Id", profile);
+                }
             }
         }
 

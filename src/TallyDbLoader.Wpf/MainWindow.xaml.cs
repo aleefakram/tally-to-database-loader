@@ -117,5 +117,45 @@ namespace TallyDbLoader.Wpf
                 await vm.DetectActiveCompaniesAsync();
             }
         }
+
+        private void EditJobButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                if (vm.SelectedSyncJob != null)
+                {
+                    vm.StartEditingSyncJob(vm.SelectedSyncJob);
+                    MainTabControl.SelectedIndex = 1;
+                }
+            }
+        }
+
+        private void EditDbProfileButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                if (vm.SelectedDatabaseProfile != null)
+                {
+                    vm.StartEditingDbProfile(vm.SelectedDatabaseProfile);
+                    MainTabControl.SelectedIndex = 1;
+                }
+            }
+        }
+
+        private void CancelDbEditButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.CancelDbEdit();
+            }
+        }
+
+        private void CancelJobEditButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.CancelJobEdit();
+            }
+        }
     }
 }

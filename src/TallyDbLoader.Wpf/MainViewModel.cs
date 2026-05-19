@@ -271,12 +271,94 @@ namespace TallyDbLoader.Wpf
             LogOutput = $"[{DateTime.Now:HH:mm:ss}] Saved Tally configuration.\n" + LogOutput;
         }
 
+        private int _editingDbProfileId = 0;
+        private int _editingSyncJobId = 0;
+
+        public string DbFormHeader => _editingDbProfileId == 0 ? "Create Database Target Profile" : $"Edit Database Target Profile (ID: {_editingDbProfileId})";
+        public string DbSaveButtonText => _editingDbProfileId == 0 ? "Create DB Target" : "Update Target";
+        
+        public string JobFormHeader => _editingSyncJobId == 0 ? "Create Sync Schedule / Job" : $"Edit Sync Schedule / Job (ID: {_editingSyncJobId})";
+        public string JobSaveButtonText => _editingSyncJobId == 0 ? "Create Sync Schedule" : "Update Schedule";
+
+        public System.Windows.Visibility IsEditingDbProfileVisibility => 
+            _editingDbProfileId != 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+        public System.Windows.Visibility IsEditingJobVisibility => 
+            _editingSyncJobId != 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+        public void StartEditingDbProfile(DatabaseProfile profile)
+        {
+            if (profile == null) return;
+            _editingDbProfileId = profile.Id;
+            DbName = profile.Name;
+            DbTech = profile.Technology;
+            DbServer = profile.Server;
+            DbPort = profile.Port;
+            DbUsername = profile.Username;
+            DbPassword = profile.Password;
+            
+            OnPropertyChanged(nameof(DbFormHeader));
+            OnPropertyChanged(nameof(DbSaveButtonText));
+            OnPropertyChanged(nameof(IsEditingDbProfileVisibility));
+        }
+
+        public void CancelDbEdit()
+        {
+            _editingDbProfileId = 0;
+            DbName = string.Empty;
+            DbTech = "postgres";
+            DbServer = "localhost";
+            DbPort = 5432;
+            DbUsername = string.Empty;
+            DbPassword = string.Empty;
+            
+            OnPropertyChanged(nameof(DbFormHeader));
+            OnPropertyChanged(nameof(DbSaveButtonText));
+            OnPropertyChanged(nameof(IsEditingDbProfileVisibility));
+        }
+
+        public void StartEditingSyncJob(SyncJob job)
+        {
+            if (job == null) return;
+            _editingSyncJobId = job.Id;
+            JobCompany = job.CompanyName;
+            JobTargetCatalog = job.TargetCatalog;
+            JobInterval = job.SyncIntervalMinutes ?? 15;
+            
+            foreach (var profile in DatabaseProfiles)
+            {
+                if (profile.Id == job.DbProfileId)
+                {
+                    JobSelectedProfile = profile;
+                    break;
+                }
+            }
+            
+            OnPropertyChanged(nameof(JobFormHeader));
+            OnPropertyChanged(nameof(JobSaveButtonText));
+            OnPropertyChanged(nameof(IsEditingJobVisibility));
+        }
+
+        public void CancelJobEdit()
+        {
+            _editingSyncJobId = 0;
+            JobCompany = string.Empty;
+            JobTargetCatalog = string.Empty;
+            JobInterval = 15;
+            JobSelectedProfile = null;
+            
+            OnPropertyChanged(nameof(JobFormHeader));
+            OnPropertyChanged(nameof(JobSaveButtonText));
+            OnPropertyChanged(nameof(IsEditingJobVisibility));
+        }
+
         public void SaveDatabaseProfile()
         {
             if (string.IsNullOrWhiteSpace(DbName)) return;
 
             var profile = new DatabaseProfile
             {
+                Id = _editingDbProfileId,
                 Name = DbName,
                 Technology = DbTech,
                 Server = DbServer,
@@ -285,8 +367,14 @@ namespace TallyDbLoader.Wpf
                 Password = DbPassword
             };
             _repo.SaveDatabaseProfile(profile);
+            
+            string msg = _editingDbProfileId == 0 
+                ? $"Created Database Profile '{DbName}'." 
+                : $"Updated Database Profile '{DbName}' (ID: {_editingDbProfileId}).";
+            
+            CancelDbEdit();
             LoadConfiguration();
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Saved Database Profile '{DbName}'.\n" + LogOutput;
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] {msg}\n" + LogOutput;
         }
 
         public void DeleteDatabaseProfile(DatabaseProfile profile)
@@ -303,6 +391,7 @@ namespace TallyDbLoader.Wpf
 
             var job = new SyncJob
             {
+                Id = _editingSyncJobId,
                 CompanyName = JobCompany,
                 DbProfileId = JobSelectedProfile.Id,
                 TargetCatalog = JobTargetCatalog,
@@ -310,8 +399,14 @@ namespace TallyDbLoader.Wpf
                 Status = "Idle"
             };
             _repo.SaveSyncJob(job);
+            
+            string msg = _editingSyncJobId == 0 
+                ? $"Created Sync Job for '{JobCompany}'." 
+                : $"Updated Sync Job for '{JobCompany}' (ID: {_editingSyncJobId}).";
+            
+            CancelJobEdit();
             LoadConfiguration();
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Created Sync Job for '{JobCompany}'.\n" + LogOutput;
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] {msg}\n" + LogOutput;
         }
 
         public void DeleteSyncJob(SyncJob job)

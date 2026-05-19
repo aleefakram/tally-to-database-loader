@@ -120,5 +120,88 @@ transaction: []
             if (File.Exists(dbPath)) File.Delete(dbPath);
             if (File.Exists(yamlPath)) File.Delete(yamlPath);
         }
+
+        [Fact]
+        public async Task Test_BackgroundSyncWorker_IncrementalOrchestration()
+        {
+            // Setup SQLite db
+            var dbPath = "sync_incremental_test.db";
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+            DatabaseHelper.InitializeDatabase(dbPath);
+            var repo = new ConfigRepository(dbPath);
+
+            // Add db profile
+            var profile = new DatabaseProfile
+            {
+                Name = "LocalPg",
+                Technology = "postgres",
+                Server = "localhost",
+                Port = 5432,
+                Username = "postgres",
+                Password = "pwd"
+            };
+            repo.SaveDatabaseProfile(profile);
+            var savedProfile = repo.GetDatabaseProfileByName("LocalPg");
+
+            // Add sync job with incremental mode
+            var job = new SyncJob
+            {
+                CompanyName = "TestCompany",
+                DbProfileId = savedProfile.Id,
+                TargetCatalog = "test_catalog",
+                SyncIntervalMinutes = 1,
+                DailyTimeLocal = null,
+                Status = "Idle",
+                SyncMode = "incremental"
+            };
+            repo.SaveSyncJob(job);
+
+            // Write temporary yaml config
+            var yamlContent = @"
+master:
+  - name: mst_test
+    nature: Primary
+    collection: Ledger
+    fields:
+      - name: guid
+        field: Guid
+        type: text
+      - name: name
+        field: Name
+        type: text
+transaction: []
+";
+            var yamlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tally-export-config.yaml");
+            File.WriteAllText(yamlPath, yamlContent);
+
+            // Setup Mock Client
+            var mockHandler = new MockHttpMessageHandler();
+            // Provide a mock company info response with AlterIDs
+            mockHandler.CompanyInfoResponse = "\"guid-123\",\"TestCompany\",\"20260401\",\"20260519\",\"100\",\"200\",\"†\"";
+            mockHandler.TableDataResponse = "<ENVELOPE><BODY><DATA><ROW><F01>guid-1</F01><F02>100</F02></ROW></DATA></BODY></ENVELOPE>";
+            var httpClient = new HttpClient(mockHandler);
+            var tallyClient = new TallyDbLoader.Core.Tally.TallyClient(httpClient, "localhost", 9000);
+
+            // Create worker
+            var worker = new BackgroundSyncWorker(repo, "localhost", 9000);
+            worker.SetTallyClientForTest(tallyClient);
+            var logs = new List<string>();
+            worker.OnLogMessage += (msg) => logs.Add(msg);
+
+            worker.Start();
+            
+            // Wait up to 2 seconds for worker to process
+            await Task.Delay(2000);
+            worker.Stop();
+
+            // Check if incremental sync log calls were made
+            Assert.Contains(logs, l => l.Contains("Performing incremental sync"));
+            Assert.Contains(logs, l => l.Contains("failed:"));
+
+            // Cleanup
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+            if (File.Exists(yamlPath)) File.Delete(yamlPath);
+        }
     }
 }

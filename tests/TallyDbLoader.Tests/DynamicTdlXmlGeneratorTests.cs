@@ -38,5 +38,45 @@ namespace TallyDbLoader.Tests
             Assert.Contains("<FIELD NAME=\"Fld02\"><SET>$$StringFindAndReplace:(if $$IsDebit:$OpeningBalance then -$$NumValue:$OpeningBalance else $$NumValue:$OpeningBalance):\"(-)\":\"-\"</SET>", xml);
             Assert.Contains("<FIELD NAME=\"Fld03\"><SET>if $IsRevenue then 1 else 0</SET>", xml);
         }
+
+        [Fact]
+        public void Test_GenerateXml_WithAlterIdFilter_AppendsFormula()
+        {
+            var tableConfig = new TableConfig
+            {
+                Name = "mst_ledger",
+                Collection = "Ledger",
+                Fields = new List<FieldConfig>
+                {
+                    new FieldConfig { Name = "guid", Field = "Guid", Type = "text" }
+                },
+                Filters = new List<string> { "$AlterID > 500" }
+            };
+
+            var xml = DynamicTdlXmlGenerator.GenerateXml(tableConfig, "TestCompany", "20260401", "20260519");
+
+            Assert.Contains("<FILTER>Fltr01</FILTER>", xml);
+            Assert.Contains("<SYSTEM TYPE=\"Formulae\" NAME=\"Fltr01\">$AlterID > 500</SYSTEM>", xml);
+        }
+
+        [Fact]
+        public void Test_GenerateXml_ForDiffStaging_HasGuidAndAlterIdFields()
+        {
+            var tableConfig = new TableConfig
+            {
+                Name = "_diff",
+                Collection = "Ledger",
+                Fields = new List<FieldConfig>
+                {
+                    new FieldConfig { Name = "guid", Field = "Guid", Type = "text" },
+                    new FieldConfig { Name = "alterid", Field = "AlterId", Type = "text" }
+                }
+            };
+
+            var xml = DynamicTdlXmlGenerator.GenerateXml(tableConfig, "TestCompany", "20260401", "20260519");
+
+            Assert.Contains("<FIELD NAME=\"Fld01\"><SET>$Guid</SET>", xml);
+            Assert.Contains("<FIELD NAME=\"Fld02\"><SET>$AlterId</SET>", xml);
+        }
     }
 }

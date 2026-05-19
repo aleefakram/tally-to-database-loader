@@ -18,7 +18,18 @@ namespace TallyDbLoader.Wpf
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             _trayController = new TrayController(this);
-            DataContext = new MainViewModel("config.db");
+            var vm = new MainViewModel("config.db");
+            vm.CompanySelector = (companies) =>
+            {
+                var dialog = new CompanySelectionWindow(companies);
+                dialog.Owner = this;
+                if (dialog.ShowDialog() == true)
+                {
+                    return dialog.SelectedCompany;
+                }
+                return null;
+            };
+            DataContext = vm;
         }
 
         protected override void OnStateChanged(EventArgs e)

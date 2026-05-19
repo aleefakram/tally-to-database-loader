@@ -17,6 +17,31 @@ namespace TallyDbLoader.Wpf
         private string _logOutput = "Ready to start sync loop.";
         private BackgroundSyncWorker? _worker;
 
+        public Func<System.Collections.Generic.List<Core.Tally.TallyCompanyInfo>, Core.Tally.TallyCompanyInfo?>? CompanySelector { get; set; }
+
+        public Func<string, int, TallyClient>? TallyClientFactory { get; set; }
+
+        private TallyClient CreateTallyClient()
+        {
+            return TallyClientFactory != null
+                ? TallyClientFactory(TallyServer, TallyPort)
+                : new TallyClient(TallyServer, TallyPort);
+        }
+
+        public Action<string, string, System.Windows.MessageBoxButton, System.Windows.MessageBoxImage>? MessageBoxShowHandler { get; set; }
+
+        private void ShowMessageBox(string message, string caption, System.Windows.MessageBoxButton button = System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage icon = System.Windows.MessageBoxImage.Information)
+        {
+            if (MessageBoxShowHandler != null)
+            {
+                MessageBoxShowHandler(message, caption, button, icon);
+            }
+            else
+            {
+                System.Windows.MessageBox.Show(message, caption, button, icon);
+            }
+        }
+
         public ObservableCollection<DatabaseProfile> DatabaseProfiles { get; set; }
         public ObservableCollection<SyncJob> SyncJobs { get; set; }
 
@@ -470,13 +495,13 @@ namespace TallyDbLoader.Wpf
                     }
                 }
                 Log("Database connection SUCCESSFUL!");
-                System.Windows.MessageBox.Show("Connection Successful!", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                ShowMessageBox("Connection Successful!", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
                 Log($"Database connection FAILED: {ex.Message}");
                 TallyDbLoader.Core.Logging.FileLogger.LogError("TestDatabaseConnection", ex);
-                System.Windows.MessageBox.Show($"Connection Failed:\n{ex.Message}", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+                ShowMessageBox($"Connection Failed:\n{ex.Message}", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }
 
@@ -486,26 +511,41 @@ namespace TallyDbLoader.Wpf
             
             try
             {
-                var client = new TallyClient(TallyServer, TallyPort);
+                var client = CreateTallyClient();
                 var companies = await client.FetchActiveCompaniesDetailedAsync();
                 
                 if (companies != null && companies.Count > 0)
                 {
-                    JobCompany = companies[0].Name;
+                    Core.Tally.TallyCompanyInfo selectedCompany;
+                    if (companies.Count > 1 && CompanySelector != null)
+                    {
+                        var choice = CompanySelector(companies);
+                        if (choice == null)
+                        {
+                            Log("Company selection cancelled by user.");
+                            return;
+                        }
+                        selectedCompany = choice;
+                    }
+                    else
+                    {
+                        selectedCompany = companies[0];
+                    }
+
+                    JobCompany = selectedCompany.Name;
                     var companyStrings = new System.Collections.Generic.List<string>();
                     foreach (var c in companies)
                     {
                         companyStrings.Add(c.ToString());
                     }
-                    Log($"Success! Detected {companies.Count} company/companies: {string.Join(", ", companyStrings)}");
-                    System.Windows.MessageBox.Show($"Detected Company: {companies[0]}" + 
-                        (companies.Count > 1 ? $"\n(And {companies.Count - 1} other open companies. Check log output for full list)" : ""), 
-                        "Tally Company Detection", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                    Log($"Success! Selected company '{selectedCompany.Name}'. (Total active: {companies.Count}: {string.Join(", ", companyStrings)})");
+                    ShowMessageBox($"Selected Company: {selectedCompany.Name}", 
+                        "Tally Company Selection", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
                 }
                 else
                 {
                     Log("No open companies found. Please open a company in Tally Prime first.");
-                    System.Windows.MessageBox.Show("No active companies found. Please ensure a company is open in Tally Prime.", 
+                    ShowMessageBox("No active companies found. Please ensure a company is open in Tally Prime.", 
                         "Tally Company Detection", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
                 }
             }
@@ -513,7 +553,7 @@ namespace TallyDbLoader.Wpf
             {
                 Log($"Connection to Tally failed: {ex.Message}");
                 TallyDbLoader.Core.Logging.FileLogger.LogError("DetectActiveCompanies", ex);
-                System.Windows.MessageBox.Show($"Failed to connect to Tally XML API at {TallyServer}:{TallyPort}.\nEnsure Tally Prime is running and ODBC/XML features are enabled.", 
+                ShowMessageBox($"Failed to connect to Tally XML API at {TallyServer}:{TallyPort}.\nEnsure Tally Prime is running and ODBC/XML features are enabled.", 
                     "Tally Connection Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }

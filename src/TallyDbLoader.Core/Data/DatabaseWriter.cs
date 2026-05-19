@@ -9,7 +9,7 @@ namespace TallyDbLoader.Core.Data
 {
     public static class DatabaseWriter
     {
-        private static IDbConnection GetConnection(DatabaseProfile profile, string catalog)
+        public static IDbConnection GetConnection(DatabaseProfile profile, string catalog)
         {
             if (profile.Technology.Equals("postgres", StringComparison.OrdinalIgnoreCase))
             {
@@ -31,7 +31,27 @@ namespace TallyDbLoader.Core.Data
                 conn.Open();
                 return conn;
             }
+            else if (profile.Technology.Equals("mysql", StringComparison.OrdinalIgnoreCase))
+            {
+                string connStr = $"Server={profile.Server};Port={profile.Port};User Id={profile.Username};Password={profile.Password};Database={catalog};AllowLoadLocalInfile=True;";
+                var conn = new MySqlConnector.MySqlConnection(connStr);
+                conn.Open();
+                return conn;
+            }
             throw new NotSupportedException($"Database technology '{profile.Technology}' is not supported.");
+        }
+
+        public static void InitializeTargetTableDynamic(DatabaseProfile profile, string catalog, Tally.TableConfig table)
+        {
+            var ddl = DynamicTableSchemaGenerator.GenerateCreateTableSql(table, profile.Technology);
+            using (var conn = GetConnection(profile, catalog))
+            {
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = ddl;
+                    cmd.ExecuteNonQuery();
+                }
+            }
         }
 
         public static void InitializeTargetTables(DatabaseProfile profile, string catalog)

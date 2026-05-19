@@ -32,6 +32,12 @@ namespace TallyDbLoader.Wpf
             set { _logOutput = value; OnPropertyChanged(); }
         }
 
+        private void Log(string message)
+        {
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] {message}\n" + LogOutput;
+            TallyDbLoader.Core.Logging.FileLogger.LogMessage(message);
+        }
+
         // Tally Settings Form
         private string _tallyServer = "localhost";
         private int _tallyPort = 9000;
@@ -268,7 +274,7 @@ namespace TallyDbLoader.Wpf
                 AutoStartTally = AutoStartTally ? 1 : 0
             };
             _repo.SaveTallySettings(settings);
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Saved Tally configuration.\n" + LogOutput;
+            Log("Saved Tally configuration.");
         }
 
         private int _editingDbProfileId = 0;
@@ -374,7 +380,7 @@ namespace TallyDbLoader.Wpf
             
             CancelDbEdit();
             LoadConfiguration();
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] {msg}\n" + LogOutput;
+            Log(msg);
         }
 
         public void DeleteDatabaseProfile(DatabaseProfile profile)
@@ -382,7 +388,7 @@ namespace TallyDbLoader.Wpf
             if (profile == null) return;
             _repo.DeleteDatabaseProfile(profile.Id);
             LoadConfiguration();
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Deleted Database Profile '{profile.Name}'.\n" + LogOutput;
+            Log($"Deleted Database Profile '{profile.Name}'.");
         }
 
         public void AddSyncJob()
@@ -406,7 +412,7 @@ namespace TallyDbLoader.Wpf
             
             CancelJobEdit();
             LoadConfiguration();
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] {msg}\n" + LogOutput;
+            Log(msg);
         }
 
         public void DeleteSyncJob(SyncJob job)
@@ -414,7 +420,7 @@ namespace TallyDbLoader.Wpf
             if (job == null) return;
             _repo.DeleteSyncJob(job.Id);
             LoadConfiguration();
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Deleted Sync Job for '{job.CompanyName}'.\n" + LogOutput;
+            Log($"Deleted Sync Job for '{job.CompanyName}'.");
         }
 
         private SyncJob? _selectedSyncJob;
@@ -435,11 +441,11 @@ namespace TallyDbLoader.Wpf
         {
             if (string.IsNullOrWhiteSpace(DbName))
             {
-                LogOutput = $"[{DateTime.Now:HH:mm:ss}] Connection test failed: Profile form is incomplete.\n" + LogOutput;
+                Log("Connection test failed: Profile form is incomplete.");
                 return;
             }
 
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Testing database connection to '{DbServer}'...\n" + LogOutput;
+            Log($"Testing database connection to '{DbServer}'...");
 
             try
             {
@@ -463,19 +469,20 @@ namespace TallyDbLoader.Wpf
                         conn.Open();
                     }
                 }
-                LogOutput = $"[{DateTime.Now:HH:mm:ss}] Database connection SUCCESSFUL!\n" + LogOutput;
+                Log("Database connection SUCCESSFUL!");
                 System.Windows.MessageBox.Show("Connection Successful!", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                LogOutput = $"[{DateTime.Now:HH:mm:ss}] Database connection FAILED: {ex.Message}\n" + LogOutput;
+                Log($"Database connection FAILED: {ex.Message}");
+                TallyDbLoader.Core.Logging.FileLogger.LogError("TestDatabaseConnection", ex);
                 System.Windows.MessageBox.Show($"Connection Failed:\n{ex.Message}", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }
 
         public async System.Threading.Tasks.Task DetectActiveCompaniesAsync()
         {
-            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Querying running Tally instance at http://{TallyServer}:{TallyPort}...\n" + LogOutput;
+            Log($"Querying running Tally instance at http://{TallyServer}:{TallyPort}...");
             
             try
             {
@@ -485,21 +492,22 @@ namespace TallyDbLoader.Wpf
                 if (companies != null && companies.Count > 0)
                 {
                     JobCompany = companies[0];
-                    LogOutput = $"[{DateTime.Now:HH:mm:ss}] Success! Detected {companies.Count} company/companies: {string.Join(", ", companies)}\n" + LogOutput;
+                    Log($"Success! Detected {companies.Count} company/companies: {string.Join(", ", companies)}");
                     System.Windows.MessageBox.Show($"Detected Company: {companies[0]}" + 
                         (companies.Count > 1 ? $"\n(And {companies.Count - 1} other open companies. Check log output for full list)" : ""), 
                         "Tally Company Detection", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
                 }
                 else
                 {
-                    LogOutput = $"[{DateTime.Now:HH:mm:ss}] No open companies found. Please open a company in Tally Prime first.\n" + LogOutput;
+                    Log("No open companies found. Please open a company in Tally Prime first.");
                     System.Windows.MessageBox.Show("No active companies found. Please ensure a company is open in Tally Prime.", 
                         "Tally Company Detection", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
                 }
             }
             catch (Exception ex)
             {
-                LogOutput = $"[{DateTime.Now:HH:mm:ss}] Connection to Tally failed: {ex.Message}\n" + LogOutput;
+                Log($"Connection to Tally failed: {ex.Message}");
+                TallyDbLoader.Core.Logging.FileLogger.LogError("DetectActiveCompanies", ex);
                 System.Windows.MessageBox.Show($"Failed to connect to Tally XML API at {TallyServer}:{TallyPort}.\nEnsure Tally Prime is running and ODBC/XML features are enabled.", 
                     "Tally Connection Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }

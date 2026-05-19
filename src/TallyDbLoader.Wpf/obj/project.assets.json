@@ -1,0 +1,97 @@
+{
+  "version": 3,
+  "targets": {
+    "net8.0-windows7.0": {
+      "TallyDbLoader.Core/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v8.0",
+        "compile": {
+          "bin/placeholder/TallyDbLoader.Core.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/TallyDbLoader.Core.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "TallyDbLoader.Core/1.0.0": {
+      "type": "project",
+      "path": "../TallyDbLoader.Core/TallyDbLoader.Core.csproj",
+      "msbuildProject": "../TallyDbLoader.Core/TallyDbLoader.Core.csproj"
+    }
+  },
+  "projectFileDependencyGroups": {
+    "net8.0-windows7.0": [
+      "TallyDbLoader.Core >= 1.0.0"
+    ]
+  },
+  "packageFolders": {
+    "C:\\Users\\user\\.nuget\\packages\\": {}
+  },
+  "project": {
+    "version": "1.0.0",
+    "restore": {
+      "projectUniqueName": "C:\\Users\\user\\Desktop\\tally-to-database-loader\\src\\TallyDbLoader.Wpf\\TallyDbLoader.Wpf.csproj",
+      "projectName": "TallyDbLoader.Wpf",
+      "projectPath": "C:\\Users\\user\\Desktop\\tally-to-database-loader\\src\\TallyDbLoader.Wpf\\TallyDbLoader.Wpf.csproj",
+      "packagesPath": "C:\\Users\\user\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\user\\Desktop\\tally-to-database-loader\\src\\TallyDbLoader.Wpf\\obj\\",
+      "projectStyle": "PackageReference",
+      "configFilePaths": [
+        "C:\\Users\\user\\AppData\\Roaming\\NuGet\\NuGet.Config"
+      ],
+      "originalTargetFrameworks": [
+        "net8.0-windows"
+      ],
+      "sources": {
+        "https://api.nuget.org/v3/index.json": {}
+      },
+      "frameworks": {
+        "net8.0-windows7.0": {
+          "targetAlias": "net8.0-windows",
+          "projectReferences": {
+            "C:\\Users\\user\\Desktop\\tally-to-database-loader\\src\\TallyDbLoader.Core\\TallyDbLoader.Core.csproj": {
+              "projectPath": "C:\\Users\\user\\Desktop\\tally-to-database-loader\\src\\TallyDbLoader.Core\\TallyDbLoader.Core.csproj"
+            }
+          }
+        }
+      },
+      "warningProperties": {
+        "warnAsError": [
+          "NU1605"
+        ]
+      },
+      "restoreAuditProperties": {
+        "enableAudit": "true",
+        "auditLevel": "low",
+        "auditMode": "direct"
+      }
+    },
+    "frameworks": {
+      "net8.0-windows7.0": {
+        "targetAlias": "net8.0-windows",
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          },
+          "Microsoft.WindowsDesktop.App.WPF": {
+            "privateAssets": "none"
+          }
+        },
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.421/PortableRuntimeIdentifierGraph.json"
+      }
+    }
+  }
+}

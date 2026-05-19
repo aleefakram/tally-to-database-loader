@@ -127,6 +127,7 @@ namespace TallyDbLoader.Tests
                 var content = await req.Content.ReadAsStringAsync();
                 Assert.Contains($"<SVCURRENTCOMPANY>{targetCompanyName}</SVCURRENTCOMPANY>", content);
                 Assert.Contains("<ID>Ledger</ID>", content);
+                Assert.Contains("<TYPE>Collection</TYPE>", content);
 
                 return new HttpResponseMessage(HttpStatusCode.OK)
                 {

@@ -43,7 +43,7 @@ namespace TallyDbLoader.Core.Tally
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
-    <TYPE>Data</TYPE>
+    <TYPE>Collection</TYPE>
     <ID>Ledger</ID>
   </HEADER>
   <BODY>

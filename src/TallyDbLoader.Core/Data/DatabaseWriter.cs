@@ -103,6 +103,149 @@ namespace TallyDbLoader.Core.Data
             }
         }
 
+        public static void InitializeIncrementalSyncSchema(DatabaseProfile profile, string catalog)
+        {
+            var tech = profile.Technology.ToLower();
+            using (var conn = GetConnection(profile, catalog))
+            {
+                using (var cmd = conn.CreateCommand())
+                {
+                    if (tech.Contains("postgres") || tech.Contains("npgsql"))
+                    {
+                        cmd.CommandText = @"
+                            CREATE TABLE IF NOT EXISTS config (
+                                name VARCHAR(255) PRIMARY KEY,
+                                value VARCHAR(1024)
+                            );
+                            CREATE TABLE IF NOT EXISTS _diff (
+                                guid VARCHAR(64) PRIMARY KEY
+                            );
+                            CREATE TABLE IF NOT EXISTS _delete (
+                                guid VARCHAR(64) PRIMARY KEY
+                            );
+                            CREATE TABLE IF NOT EXISTS _vchnumber (
+                                guid VARCHAR(64) PRIMARY KEY,
+                                voucher_number VARCHAR(1024) NOT NULL
+                            );";
+                    }
+                    else if (tech.Contains("mssql") || tech.Contains("sqlserver"))
+                    {
+                        cmd.CommandText = @"
+                            IF OBJECT_ID('config', 'U') IS NULL 
+                            CREATE TABLE config (
+                                name VARCHAR(255) PRIMARY KEY,
+                                value VARCHAR(1024)
+                            );
+                            IF OBJECT_ID('_diff', 'U') IS NULL 
+                            CREATE TABLE _diff (
+                                guid VARCHAR(64) PRIMARY KEY
+                            );
+                            IF OBJECT_ID('_delete', 'U') IS NULL 
+                            CREATE TABLE _delete (
+                                guid VARCHAR(64) PRIMARY KEY
+                            );
+                            IF OBJECT_ID('_vchnumber', 'U') IS NULL 
+                            CREATE TABLE _vchnumber (
+                                guid VARCHAR(64) PRIMARY KEY,
+                                voucher_number VARCHAR(1024) NOT NULL
+                            );";
+                    }
+                    else if (tech.Contains("mysql"))
+                    {
+                        cmd.CommandText = @"
+                            CREATE TABLE IF NOT EXISTS config (
+                                name VARCHAR(255) PRIMARY KEY,
+                                value VARCHAR(1024)
+                            );
+                            CREATE TABLE IF NOT EXISTS _diff (
+                                guid VARCHAR(64) PRIMARY KEY
+                            );
+                            CREATE TABLE IF NOT EXISTS _delete (
+                                guid VARCHAR(64) PRIMARY KEY
+                            );
+                            CREATE TABLE IF NOT EXISTS _vchnumber (
+                                guid VARCHAR(64) PRIMARY KEY,
+                                voucher_number VARCHAR(1024) NOT NULL
+                            );";
+                    }
+                    else
+                    {
+                        throw new NotSupportedException($"Database technology '{profile.Technology}' is not supported.");
+                    }
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public static void ClearStagingTables(DatabaseProfile profile, string catalog)
+        {
+            using (var conn = GetConnection(profile, catalog))
+            {
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "DELETE FROM _diff; DELETE FROM _delete; DELETE FROM _vchnumber;";
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public static string? GetConfigValue(DatabaseProfile profile, string catalog, string name)
+        {
+            using (var conn = GetConnection(profile, catalog))
+            {
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT value FROM config WHERE name = @name";
+                    AddParameter(cmd, "@name", name);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return reader.IsDBNull(0) ? null : reader.GetString(0);
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        public static void SetConfigValue(DatabaseProfile profile, string catalog, string name, string value)
+        {
+            var tech = profile.Technology.ToLower();
+            using (var conn = GetConnection(profile, catalog))
+            {
+                using (var cmd = conn.CreateCommand())
+                {
+                    if (tech.Contains("postgres") || tech.Contains("npgsql"))
+                    {
+                        cmd.CommandText = @"
+                            INSERT INTO config (name, value) VALUES (@name, @value)
+                            ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value;";
+                    }
+                    else if (tech.Contains("mssql") || tech.Contains("sqlserver"))
+                    {
+                        cmd.CommandText = @"
+                            MERGE config AS target
+                            USING (SELECT @name AS name, @value AS value) AS source
+                            ON (target.name = source.name)
+                            WHEN MATCHED THEN
+                                UPDATE SET value = source.value
+                            WHEN NOT MATCHED THEN
+                                INSERT (name, value) VALUES (source.name, source.value);";
+                    }
+                    else if (tech.Contains("mysql"))
+                    {
+                        cmd.CommandText = @"
+                            INSERT INTO config (name, value) VALUES (@name, @value)
+                            ON DUPLICATE KEY UPDATE value = VALUES(value);";
+                    }
+                    AddParameter(cmd, "@name", name);
+                    AddParameter(cmd, "@value", value);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
         public static void WriteLedgers(DatabaseProfile profile, string catalog, List<Ledger> ledgers)
         {
             using (var conn = GetConnection(profile, catalog))

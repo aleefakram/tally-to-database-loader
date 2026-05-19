@@ -223,6 +223,7 @@ namespace TallyDbLoader.Wpf
         private DatabaseProfile? _jobSelectedProfile;
         private string _jobTargetCatalog = string.Empty;
         private int _jobInterval = 15;
+        private string _jobSyncMode = "full";
 
         public string JobCompany
         {
@@ -246,6 +247,12 @@ namespace TallyDbLoader.Wpf
         {
             get => _jobInterval;
             set { _jobInterval = value; OnPropertyChanged(); }
+        }
+
+        public string JobSyncMode
+        {
+            get => _jobSyncMode;
+            set { _jobSyncMode = value; OnPropertyChanged(); }
         }
 
         public MainViewModel(string dbPath)
@@ -355,6 +362,7 @@ namespace TallyDbLoader.Wpf
             JobCompany = job.CompanyName;
             JobTargetCatalog = job.TargetCatalog;
             JobInterval = job.SyncIntervalMinutes ?? 15;
+            JobSyncMode = job.SyncMode ?? "full";
             
             foreach (var profile in DatabaseProfiles)
             {
@@ -376,6 +384,7 @@ namespace TallyDbLoader.Wpf
             JobCompany = string.Empty;
             JobTargetCatalog = string.Empty;
             JobInterval = 15;
+            JobSyncMode = "full";
             JobSelectedProfile = null;
             
             OnPropertyChanged(nameof(JobFormHeader));
@@ -427,7 +436,8 @@ namespace TallyDbLoader.Wpf
                 DbProfileId = JobSelectedProfile.Id,
                 TargetCatalog = JobTargetCatalog,
                 SyncIntervalMinutes = JobInterval,
-                Status = "Idle"
+                Status = "Idle",
+                SyncMode = JobSyncMode
             };
             _repo.SaveSyncJob(job);
             

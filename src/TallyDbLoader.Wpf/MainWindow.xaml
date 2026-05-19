@@ -184,6 +184,7 @@
                                     <DataGrid.Columns>
                                         <DataGridTextColumn Header="Company Name" Binding="{Binding CompanyName}" Width="2*"/>
                                         <DataGridTextColumn Header="Catalog Name" Binding="{Binding TargetCatalog}" Width="*"/>
+                                        <DataGridTextColumn Header="Sync Mode" Binding="{Binding SyncMode}" Width="90"/>
                                         <DataGridTextColumn Header="Interval" Binding="{Binding SyncIntervalMinutes}" Width="80"/>
                                         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="100"/>
                                     </DataGrid.Columns>
@@ -344,6 +345,12 @@
 
                                     <TextBlock Text="Database Target Connection Profile" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
                                     <ComboBox ItemsSource="{Binding DatabaseProfiles}" DisplayMemberPath="Name" SelectedItem="{Binding JobSelectedProfile, UpdateSourceTrigger=PropertyChanged}" Background="#2D2D2D"/>
+
+                                    <TextBlock Text="Sync Mode" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
+                                    <ComboBox SelectedValuePath="Content" SelectedValue="{Binding JobSyncMode, UpdateSourceTrigger=PropertyChanged}" Background="#2D2D2D">
+                                        <ComboBoxItem Content="full"/>
+                                        <ComboBoxItem Content="incremental"/>
+                                    </ComboBox>
 
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                         <Button Content="Cancel" Click="CancelJobEditButton_Click" Background="#555555" Margin="0,0,8,0" Visibility="{Binding IsEditingJobVisibility}"/>

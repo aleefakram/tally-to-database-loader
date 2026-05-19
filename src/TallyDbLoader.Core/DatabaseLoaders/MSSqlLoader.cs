@@ -18,6 +18,10 @@ namespace TallyDbLoader.Core.DatabaseLoaders
             using (var bulkCopy = new SqlBulkCopy(_connectionString))
             {
                 bulkCopy.DestinationTableName = tableName;
+                foreach (DataColumn col in data.Columns)
+                {
+                    bulkCopy.ColumnMappings.Add(col.ColumnName, col.ColumnName);
+                }
                 await bulkCopy.WriteToServerAsync(data);
             }
         }

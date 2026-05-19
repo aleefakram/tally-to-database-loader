@@ -10,7 +10,9 @@ namespace TallyDbLoader.Core.DatabaseLoaders
 
         public MySqlLoader(string connectionString)
         {
-            _connectionString = connectionString;
+            var builder = new MySqlConnectionStringBuilder(connectionString);
+            builder.AllowLoadLocalInfile = true;
+            _connectionString = builder.ConnectionString;
         }
 
         public async Task LoadBulkDataAsync(DataTable data, string tableName)

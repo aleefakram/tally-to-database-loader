@@ -30,7 +30,15 @@ namespace TallyDbLoader.Core.DatabaseLoaders
                         await writer.StartRowAsync();
                         foreach (DataColumn col in data.Columns)
                         {
-                            await writer.WriteAsync(row[col.ColumnName]);
+                            var val = row[col.ColumnName];
+                            if (val == null || val == DBNull.Value)
+                            {
+                                await writer.WriteNullAsync();
+                            }
+                            else
+                            {
+                                await writer.WriteAsync(val);
+                            }
                         }
                     }
                     await writer.CompleteAsync();

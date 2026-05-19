@@ -30,4 +30,22 @@ namespace TallyDbLoader.Core.Models
         public string? LastRunTime { get; set; }
         public string Status { get; set; } = "Idle";
     }
+
+    public class Ledger
+    {
+        public string Guid { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Parent { get; set; } = string.Empty;
+        public decimal OpeningBalance { get; set; }
+        public decimal ClosingBalance { get; set; }
+    }
+
+    public class Voucher
+    {
+        public string Guid { get; set; } = string.Empty;
+        public string Date { get; set; } = string.Empty;
+        public string VoucherNumber { get; set; } = string.Empty;
+        public string VoucherType { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
+    }
 }

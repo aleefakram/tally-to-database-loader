@@ -13,3 +13,4 @@ bigquery-credentials.json
 adls-config.json
 *.txt
 /config
+.superpowers/

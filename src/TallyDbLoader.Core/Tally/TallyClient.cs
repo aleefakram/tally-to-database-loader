@@ -65,7 +65,7 @@ namespace TallyDbLoader.Core.Tally
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Data</TYPE>
-    <ID>MiniCompanyReport</ID>
+    <ID>MyReportLedgerTable</ID>
   </HEADER>
   <BODY>
     <DESC>
@@ -73,29 +73,31 @@ namespace TallyDbLoader.Core.Tally
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>
       <TDL>
-        <TDLMSG>
-          <REPORT NAME=""MiniCompanyReport"">
-            <FORM>MiniCompanyForm</FORM>
+        <TDLMESSAGE>
+          <REPORT NAME=""MyReportLedgerTable"">
+            <FORMS>MyForm</FORMS>
           </REPORT>
-          <FORM NAME=""MiniCompanyForm"">
-            <PART>MiniCompanyPart</PART>
+          <FORM NAME=""MyForm"">
+            <PARTS>MyPart01</PARTS>
+            <XMLTAG>DATA</XMLTAG>
           </FORM>
-          <PART NAME=""MiniCompanyPart"">
-            <LINE>MiniCompanyLine</LINE>
-            <REPEAT>MiniCompanyLine : MiniCompanyCollection</REPEAT>
-            <SCROLL>Vertical</SCROLL>
+          <PART NAME=""MyPart01"">
+            <LINES>MyLine01</LINES>
+            <REPEAT>MyLine01 : MyCollection</REPEAT>
+            <SCROLLED>Vertical</SCROLLED>
           </PART>
-          <LINE NAME=""MiniCompanyLine"">
-            <FIELD>MiniCompanyNameField</FIELD>
+          <LINE NAME=""MyLine01"">
+            <FIELDS>Fld</FIELDS>
           </LINE>
-          <FIELD NAME=""MiniCompanyNameField"">
+          <FIELD NAME=""Fld"">
             <SET>$Name</SET>
-            <XMLTAG>""COMPANYNAME""</XMLTAG>
+            <XMLTAG>ROW</XMLTAG>
           </FIELD>
-          <COLLECTION NAME=""MiniCompanyCollection"">
+          <COLLECTION NAME=""MyCollection"">
             <TYPE>Company</TYPE>
+            <FETCH></FETCH>
           </COLLECTION>
-        </TDLMSG>
+        </TDLMESSAGE>
       </TDL>
     </DESC>
   </BODY>
@@ -110,12 +112,21 @@ namespace TallyDbLoader.Core.Tally
                 foreach (var el in doc.Descendants())
                 {
                     string localName = el.Name.LocalName;
-                    if (localName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
+                    if (localName.Equals("ROW", StringComparison.OrdinalIgnoreCase) || 
+                        localName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
                     {
                         var val = el.Value?.Trim();
                         if (!string.IsNullOrEmpty(val) && !companies.Contains(val))
                         {
                             companies.Add(val);
+                        }
+                    }
+                    else if (localName.Equals("COMPANY", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var attr = el.Attribute("NAME")?.Value?.Trim();
+                        if (!string.IsNullOrEmpty(attr) && !companies.Contains(attr))
+                        {
+                            companies.Add(attr);
                         }
                     }
                 }

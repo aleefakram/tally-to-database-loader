@@ -64,14 +64,39 @@ namespace TallyDbLoader.Core.Tally
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
-    <TYPE>Collection</TYPE>
-    <ID>List of Companies</ID>
+    <TYPE>Data</TYPE>
+    <ID>MiniCompanyReport</ID>
   </HEADER>
   <BODY>
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>
+      <TDL>
+        <TDLMSG>
+          <REPORT NAME=""MiniCompanyReport"">
+            <FORM>MiniCompanyForm</FORM>
+          </REPORT>
+          <FORM NAME=""MiniCompanyForm"">
+            <PART>MiniCompanyPart</PART>
+          </FORM>
+          <PART NAME=""MiniCompanyPart"">
+            <LINE>MiniCompanyLine</LINE>
+            <REPEAT>MiniCompanyLine : MiniCompanyCollection</REPEAT>
+            <SCROLL>Vertical</SCROLL>
+          </PART>
+          <LINE NAME=""MiniCompanyLine"">
+            <FIELD>MiniCompanyNameField</FIELD>
+          </LINE>
+          <FIELD NAME=""MiniCompanyNameField"">
+            <SET>$Name</SET>
+            <XMLTAG>""COMPANYNAME""</XMLTAG>
+          </FIELD>
+          <COLLECTION NAME=""MiniCompanyCollection"">
+            <TYPE>Company</TYPE>
+          </COLLECTION>
+        </TDLMSG>
+      </TDL>
     </DESC>
   </BODY>
 </ENVELOPE>";
@@ -85,24 +110,7 @@ namespace TallyDbLoader.Core.Tally
                 foreach (var el in doc.Descendants())
                 {
                     string localName = el.Name.LocalName;
-                    if (localName.Equals("COMPANY", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var attr = el.Attribute("NAME")?.Value?.Trim();
-                        if (!string.IsNullOrEmpty(attr) && !companies.Contains(attr))
-                        {
-                            companies.Add(attr);
-                        }
-                    }
-                    else if (localName.Equals("NAME", StringComparison.OrdinalIgnoreCase) && 
-                             el.Parent?.Name.LocalName.Equals("COMPANY", StringComparison.OrdinalIgnoreCase) == true)
-                    {
-                        var val = el.Value?.Trim();
-                        if (!string.IsNullOrEmpty(val) && !companies.Contains(val))
-                        {
-                            companies.Add(val);
-                        }
-                    }
-                    else if (localName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
+                    if (localName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
                     {
                         var val = el.Value?.Trim();
                         if (!string.IsNullOrEmpty(val) && !companies.Contains(val))

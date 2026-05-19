@@ -10,6 +10,11 @@ namespace TallyDbLoader.Core.Tally
         private readonly HttpClient _httpClient;
         private readonly string _tallyUrl;
 
+        public TallyClient(string server, int port)
+            : this(new HttpClient(), server, port)
+        {
+        }
+
         public TallyClient(HttpClient httpClient, string server, int port)
         {
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -30,6 +35,27 @@ namespace TallyDbLoader.Core.Tally
                 response.EnsureSuccessStatusCode();
                 return await response.Content.ReadAsStringAsync();
             }
+        }
+
+        public async Task<string> FetchLedgersXmlAsync(string companyName)
+        {
+            var requestXml = $@"<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>Ledger</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVCURRENTCOMPANY>{companyName}</SVCURRENTCOMPANY>
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>";
+            return await PostXMLAsync(requestXml);
         }
     }
 }

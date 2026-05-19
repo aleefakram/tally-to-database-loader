@@ -33,6 +33,15 @@ namespace TallyDbLoader.Core.Data
             }
         }
 
+        public DatabaseProfile? GetDatabaseProfileById(int id)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                return conn.QueryFirstOrDefault<DatabaseProfile>(
+                    "SELECT * FROM database_profiles WHERE id = @Id", new { Id = id });
+            }
+        }
+
         public void SaveSyncJob(SyncJob job)
         {
             using (var conn = new SqliteConnection(_connectionString))

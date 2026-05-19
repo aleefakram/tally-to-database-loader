@@ -164,7 +164,25 @@ The UI will be designed using **WPF** with Modern styling (rounded corners, slee
 
 ---
 
-## 6. Implementation Stages
+## 6. Reliability & Robustness Enhancements
+
+### 6.1. Date-Based Chunking for Large Exports
+- **Problem:** Exporting a large range of transactions (e.g., a full financial year Day Book) in a single XML request can exceed Tally's memory threshold or cause HTTP request timeouts.
+- **Solution:** For Full Syncs or large initial historical loads, the sync engine will chunk the date range into smaller blocks (e.g., daily, weekly, or monthly date ranges using `SVFROMDATE` and `SVTODATE`). The engine will serialize, fetch, and load these chunks sequentially, purging temporary caches in between.
+
+### 6.2. Advanced Deletion Reconciliation
+- **Reconciliation Sweep:** In incremental mode, Tally does not record deleted vouchers as updated `AlterID` events. The C# engine will run a complete GUID reconciliation sweep (getting the list of active GUIDs from Tally and comparing with the DB target) periodically.
+- **Edit Log Integration (TallyPrime Edit Log):** If the Edit Log is enabled, the C# app can send a custom TDL collection query of type `Edit Logs: Deleted Master` and `Edit Logs: Voucher` with filter `ObjectUpdateAction = "Delete"`. This allows retrieving only the deleted GUIDs since the last sync time, avoiding a full GUID reconciliation sweep.
+- **Voucher Cancellation Guidance:** Users will be advised in the UI documentation to prefer **Cancelling (Alt+X)** over **Deleting (Alt+D)** in Tally Prime, as cancelled records retain their GUID and increment their AlterID, causing the sync to be propagated instantly.
+
+### 6.3. Transient Database & Network Recovery
+- **Connection Retry Policy:** Implement a simple transient fault handler (exponential backoff, 3 retries) for database connections and HTTP posts to Tally.
+- **Explicit Timeouts:** Set default `CommandTimeout` to 60 seconds on all DB operations and XML requests to prevent tasks from hanging indefinitely.
+- **Tally Port Lock:** A `SemaphoreSlim(1,1)` ensures that no two threads query the Tally XML API simultaneously, avoiding race conditions or HTTP port exhaustion.
+
+---
+
+## 7. Implementation Stages
 
 1. **Stage 1: Core Library & Database Porting:**
    - Implement the SQLite config manager and repository classes in C#.
@@ -173,9 +191,11 @@ The UI will be designed using **WPF** with Modern styling (rounded corners, slee
 2. **Stage 2: Background Engine & Scheduling:**
    - Implement the scheduler and task executor with the semaphore queue.
    - Implement the Tally process checker and `tally.ini` reader/writer.
+   - Integrate date-range chunking and transient fault retries.
 3. **Stage 3: WPF User Interface & System Tray:**
    - Design the main window layout using XAML.
    - Implement WPF System Tray integration (`NotifyIcon` framework).
    - Hook up ViewModels to SQLite configurations.
 4. **Stage 4: Verification and Testing:**
    - Verify connection testers, scheduler triggers, time-of-day fires, and Tally auto-loading.
+

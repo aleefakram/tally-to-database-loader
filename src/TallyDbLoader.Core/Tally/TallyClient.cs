@@ -57,5 +57,48 @@ namespace TallyDbLoader.Core.Tally
 </ENVELOPE>";
             return await PostXMLAsync(requestXml);
         }
+
+        public async Task<System.Collections.Generic.List<string>> FetchActiveCompaniesAsync()
+        {
+            var requestXml = @"<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>List of Companies</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+    </DESC>
+  </BODY>
+</ENVELOPE>";
+            
+            try
+            {
+                var responseXml = await PostXMLAsync(requestXml);
+                var doc = System.Xml.Linq.XDocument.Parse(responseXml);
+                var companies = new System.Collections.Generic.List<string>();
+                
+                foreach (var el in doc.Descendants())
+                {
+                    if (el.Name.LocalName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var name = el.Value?.Trim();
+                        if (!string.IsNullOrEmpty(name))
+                        {
+                            companies.Add(name);
+                        }
+                    }
+                }
+                return companies;
+            }
+            catch
+            {
+                return new System.Collections.Generic.List<string>();
+            }
+        }
     }
 }

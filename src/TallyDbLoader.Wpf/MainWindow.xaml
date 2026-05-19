@@ -322,7 +322,14 @@
                                     <TextBlock Text="Create Sync Schedule / Job" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
 
                                     <TextBlock Text="Tally Target Company Name" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding JobCompany, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <Grid Margin="0,0,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0" Text="{Binding JobCompany, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,5,10"/>
+                                        <Button Grid.Column="1" Content="Detect" Click="DetectCompaniesButton_Click" Background="#4A90E2" Padding="10,5" FontSize="11" Margin="0,0,0,10"/>
+                                    </Grid>
 
                                     <TextBlock Text="Target Database Catalog" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
                                     <TextBox Text="{Binding JobTargetCatalog, UpdateSourceTrigger=PropertyChanged}"/>

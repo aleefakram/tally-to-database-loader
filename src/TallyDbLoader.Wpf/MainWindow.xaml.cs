@@ -109,5 +109,13 @@ namespace TallyDbLoader.Wpf
                 vm.TestDatabaseConnection();
             }
         }
+
+        private async void DetectCompaniesButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                await vm.DetectActiveCompaniesAsync();
+            }
+        }
     }
 }

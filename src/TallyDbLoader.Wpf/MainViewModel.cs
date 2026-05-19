@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using TallyDbLoader.Core.Models;
 using TallyDbLoader.Core.Data;
 using TallyDbLoader.Core.Sync;
+using TallyDbLoader.Core.Tally;
 
 namespace TallyDbLoader.Wpf
 {
@@ -374,6 +375,38 @@ namespace TallyDbLoader.Wpf
             {
                 LogOutput = $"[{DateTime.Now:HH:mm:ss}] Database connection FAILED: {ex.Message}\n" + LogOutput;
                 System.Windows.MessageBox.Show($"Connection Failed:\n{ex.Message}", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
+        }
+
+        public async System.Threading.Tasks.Task DetectActiveCompaniesAsync()
+        {
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Querying running Tally instance at http://{TallyServer}:{TallyPort}...\n" + LogOutput;
+            
+            try
+            {
+                var client = new TallyClient(TallyServer, TallyPort);
+                var companies = await client.FetchActiveCompaniesAsync();
+                
+                if (companies != null && companies.Count > 0)
+                {
+                    JobCompany = companies[0];
+                    LogOutput = $"[{DateTime.Now:HH:mm:ss}] Success! Detected {companies.Count} company/companies: {string.Join(", ", companies)}\n" + LogOutput;
+                    System.Windows.MessageBox.Show($"Detected Company: {companies[0]}" + 
+                        (companies.Count > 1 ? $"\n(And {companies.Count - 1} other open companies. Check log output for full list)" : ""), 
+                        "Tally Company Detection", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                }
+                else
+                {
+                    LogOutput = $"[{DateTime.Now:HH:mm:ss}] No open companies found. Please open a company in Tally Prime first.\n" + LogOutput;
+                    System.Windows.MessageBox.Show("No active companies found. Please ensure a company is open in Tally Prime.", 
+                        "Tally Company Detection", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Warning);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogOutput = $"[{DateTime.Now:HH:mm:ss}] Connection to Tally failed: {ex.Message}\n" + LogOutput;
+                System.Windows.MessageBox.Show($"Failed to connect to Tally XML API at {TallyServer}:{TallyPort}.\nEnsure Tally Prime is running and ODBC/XML features are enabled.", 
+                    "Tally Connection Error", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
             }
         }
 

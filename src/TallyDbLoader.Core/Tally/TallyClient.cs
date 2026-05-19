@@ -64,7 +64,7 @@ namespace TallyDbLoader.Core.Tally
   <HEADER>
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
-    <TYPE>Data</TYPE>
+    <TYPE>Collection</TYPE>
     <ID>List of Companies</ID>
   </HEADER>
   <BODY>
@@ -84,12 +84,30 @@ namespace TallyDbLoader.Core.Tally
                 
                 foreach (var el in doc.Descendants())
                 {
-                    if (el.Name.LocalName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
+                    string localName = el.Name.LocalName;
+                    if (localName.Equals("COMPANY", StringComparison.OrdinalIgnoreCase))
                     {
-                        var name = el.Value?.Trim();
-                        if (!string.IsNullOrEmpty(name))
+                        var attr = el.Attribute("NAME")?.Value?.Trim();
+                        if (!string.IsNullOrEmpty(attr) && !companies.Contains(attr))
                         {
-                            companies.Add(name);
+                            companies.Add(attr);
+                        }
+                    }
+                    else if (localName.Equals("NAME", StringComparison.OrdinalIgnoreCase) && 
+                             el.Parent?.Name.LocalName.Equals("COMPANY", StringComparison.OrdinalIgnoreCase) == true)
+                    {
+                        var val = el.Value?.Trim();
+                        if (!string.IsNullOrEmpty(val) && !companies.Contains(val))
+                        {
+                            companies.Add(val);
+                        }
+                    }
+                    else if (localName.Equals("COMPANYNAME", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var val = el.Value?.Trim();
+                        if (!string.IsNullOrEmpty(val) && !companies.Contains(val))
+                        {
+                            companies.Add(val);
                         }
                     }
                 }

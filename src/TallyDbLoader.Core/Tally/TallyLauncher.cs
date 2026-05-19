@@ -9,7 +9,8 @@ namespace TallyDbLoader.Core.Tally
     {
         public static bool IsTallyRunning()
         {
-            return Process.GetProcessesByName("tally").Length > 0;
+            return Process.GetProcessesByName("tally").Length > 0 || 
+                   Process.GetProcessesByName("tallyprime").Length > 0;
         }
 
         public static void LaunchTally(string tallyExePath)

@@ -240,22 +240,6 @@ namespace TallyDbLoader.Wpf
             TallyIniPath = settings.TallyIniPath ?? string.Empty;
             AutoStartTally = settings.AutoStartTally == 1;
             
-            // Seed defaults if empty
-            var postgresProfile = _repo.GetDatabaseProfileByName("PostgreSqlLocal");
-            if (postgresProfile == null)
-            {
-                postgresProfile = new DatabaseProfile
-                {
-                    Name = "PostgreSqlLocal",
-                    Technology = "postgres",
-                    Server = "localhost",
-                    Port = 5432,
-                    Username = "postgres",
-                    Password = "password"
-                };
-                _repo.SaveDatabaseProfile(postgresProfile);
-            }
-            
             // Load DB Profiles
             var profiles = _repo.GetAllDatabaseProfiles();
             foreach (var profile in profiles)
@@ -265,20 +249,6 @@ namespace TallyDbLoader.Wpf
 
             // Load Sync Jobs
             var jobs = _repo.GetAllSyncJobs();
-            if (jobs.Count == 0 && DatabaseProfiles.Count > 0)
-            {
-                var defaultJob = new SyncJob
-                {
-                    CompanyName = "Demo Kitchen Central",
-                    DbProfileId = DatabaseProfiles[0].Id,
-                    TargetCatalog = "kitchen_central",
-                    SyncIntervalMinutes = 15,
-                    Status = "Idle"
-                };
-                _repo.SaveSyncJob(defaultJob);
-                jobs = _repo.GetAllSyncJobs();
-            }
-
             foreach (var job in jobs)
             {
                 SyncJobs.Add(job);

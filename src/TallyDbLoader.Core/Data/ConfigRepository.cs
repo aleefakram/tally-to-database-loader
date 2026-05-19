@@ -97,7 +97,15 @@ namespace TallyDbLoader.Core.Data
         {
             using (var conn = new SqliteConnection(_connectionString))
             {
-                var settings = conn.QueryFirstOrDefault<TallySettings>("SELECT * FROM tally_settings WHERE id = 1");
+                var settings = conn.QueryFirstOrDefault<TallySettings>(@"
+                    SELECT id AS Id, 
+                           server AS Server, 
+                           port AS Port, 
+                           tally_exe_path AS TallyExePath, 
+                           tally_ini_path AS TallyIniPath, 
+                           auto_start_tally AS AutoStartTally 
+                    FROM tally_settings 
+                    WHERE id = 1");
                 return settings ?? new TallySettings();
             }
         }

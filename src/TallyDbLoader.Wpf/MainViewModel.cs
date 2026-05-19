@@ -36,6 +36,7 @@ namespace TallyDbLoader.Wpf
         private int _tallyPort = 9000;
         private string _tallyExePath = string.Empty;
         private string _tallyIniPath = string.Empty;
+        private bool _autoStartTally = false;
 
         public string TallyServer
         {
@@ -59,6 +60,12 @@ namespace TallyDbLoader.Wpf
         {
             get => _tallyIniPath;
             set { _tallyIniPath = value; OnPropertyChanged(); }
+        }
+
+        public bool AutoStartTally
+        {
+            get => _autoStartTally;
+            set { _autoStartTally = value; OnPropertyChanged(); }
         }
 
         // Database Profile CRUD Form
@@ -157,6 +164,7 @@ namespace TallyDbLoader.Wpf
             TallyPort = settings.Port;
             TallyExePath = settings.TallyExePath ?? string.Empty;
             TallyIniPath = settings.TallyIniPath ?? string.Empty;
+            AutoStartTally = settings.AutoStartTally == 1;
             
             // Seed defaults if empty
             var postgresProfile = _repo.GetDatabaseProfileByName("PostgreSqlLocal");
@@ -211,7 +219,8 @@ namespace TallyDbLoader.Wpf
                 Server = TallyServer,
                 Port = TallyPort,
                 TallyExePath = TallyExePath,
-                TallyIniPath = TallyIniPath
+                TallyIniPath = TallyIniPath,
+                AutoStartTally = AutoStartTally ? 1 : 0
             };
             _repo.SaveTallySettings(settings);
             LogOutput = $"[{DateTime.Now:HH:mm:ss}] Saved Tally configuration.\n" + LogOutput;
@@ -266,6 +275,56 @@ namespace TallyDbLoader.Wpf
             _repo.DeleteSyncJob(job.Id);
             LoadConfiguration();
             LogOutput = $"[{DateTime.Now:HH:mm:ss}] Deleted Sync Job for '{job.CompanyName}'.\n" + LogOutput;
+        }
+
+        private SyncJob? _selectedSyncJob;
+        public SyncJob? SelectedSyncJob
+        {
+            get => _selectedSyncJob;
+            set { _selectedSyncJob = value; OnPropertyChanged(); }
+        }
+
+        private DatabaseProfile? _selectedDatabaseProfile;
+        public DatabaseProfile? SelectedDatabaseProfile
+        {
+            get => _selectedDatabaseProfile;
+            set { _selectedDatabaseProfile = value; OnPropertyChanged(); }
+        }
+
+        public void TestDatabaseConnection()
+        {
+            if (string.IsNullOrWhiteSpace(DbName))
+            {
+                LogOutput = $"[{DateTime.Now:HH:mm:ss}] Connection test failed: Profile form is incomplete.\n" + LogOutput;
+                return;
+            }
+
+            LogOutput = $"[{DateTime.Now:HH:mm:ss}] Testing database connection to '{DbServer}'...\n" + LogOutput;
+
+            try
+            {
+                if (DbTech.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+                {
+                    using (var conn = new Npgsql.NpgsqlConnection($"Host={DbServer};Port={DbPort};Username={DbUsername};Password={DbPassword};Database=postgres;Timeout=5"))
+                    {
+                        conn.Open();
+                    }
+                }
+                else
+                {
+                    using (var conn = new Microsoft.Data.SqlClient.SqlConnection($"Server={DbServer},{DbPort};User Id={DbUsername};Password={DbPassword};TrustServerCertificate=True;Connection Timeout=5"))
+                    {
+                        conn.Open();
+                    }
+                }
+                LogOutput = $"[{DateTime.Now:HH:mm:ss}] Database connection SUCCESSFUL!\n" + LogOutput;
+                System.Windows.MessageBox.Show("Connection Successful!", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                LogOutput = $"[{DateTime.Now:HH:mm:ss}] Database connection FAILED: {ex.Message}\n" + LogOutput;
+                System.Windows.MessageBox.Show($"Connection Failed:\n{ex.Message}", "Database Test", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Error);
+            }
         }
 
         public void StartSyncEngine()

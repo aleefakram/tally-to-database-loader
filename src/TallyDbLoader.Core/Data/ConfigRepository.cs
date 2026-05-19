@@ -107,8 +107,8 @@ namespace TallyDbLoader.Core.Data
             using (var conn = new SqliteConnection(_connectionString))
             {
                 conn.Execute(@"
-                    INSERT OR REPLACE INTO tally_settings (id, server, port, tally_exe_path, tally_ini_path)
-                    VALUES (1, @Server, @Port, @TallyExePath, @TallyIniPath)", settings);
+                    INSERT OR REPLACE INTO tally_settings (id, server, port, tally_exe_path, tally_ini_path, auto_start_tally)
+                    VALUES (1, @Server, @Port, @TallyExePath, @TallyIniPath, @AutoStartTally)", settings);
             }
         }
 

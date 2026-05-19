@@ -79,5 +79,35 @@ namespace TallyDbLoader.Wpf
                 vm.AddSyncJob();
             }
         }
+
+        private void DeleteJobButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                if (vm.SelectedSyncJob != null)
+                {
+                    vm.DeleteSyncJob(vm.SelectedSyncJob);
+                }
+            }
+        }
+
+        private void DeleteDbProfileButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                if (vm.SelectedDatabaseProfile != null)
+                {
+                    vm.DeleteDatabaseProfile(vm.SelectedDatabaseProfile);
+                }
+            }
+        }
+
+        private void TestConnectionButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.TestDatabaseConnection();
+            }
+        }
     }
 }

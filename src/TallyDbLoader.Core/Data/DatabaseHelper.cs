@@ -45,11 +45,16 @@ namespace TallyDbLoader.Core.Data
                         server TEXT NOT NULL DEFAULT 'localhost',
                         port INTEGER NOT NULL DEFAULT 9000,
                         tally_exe_path TEXT,
-                        tally_ini_path TEXT
+                        tally_ini_path TEXT,
+                        auto_start_tally INTEGER NOT NULL DEFAULT 0
                     );
-                    
-                    INSERT OR IGNORE INTO tally_settings (id, server, port) VALUES (1, 'localhost', 9000);
                 ");
+                try
+                {
+                    conn.Execute("ALTER TABLE tally_settings ADD COLUMN auto_start_tally INTEGER NOT NULL DEFAULT 0;");
+                }
+                catch { }
+                conn.Execute("INSERT OR IGNORE INTO tally_settings (id, server, port, auto_start_tally) VALUES (1, 'localhost', 9000, 0);");
             }
         }
     }

@@ -17,6 +17,7 @@ namespace TallyDbLoader.Core.Models
         public int Port { get; set; } = 9000;
         public string? TallyExePath { get; set; }
         public string? TallyIniPath { get; set; }
+        public int AutoStartTally { get; set; }
     }
 
     public class SyncJob

@@ -53,6 +53,25 @@ namespace TallyDbLoader.Core.Sync
             {
                 try
                 {
+                    var settings = _repo.GetTallySettings();
+                    if (settings.AutoStartTally == 1 && !string.IsNullOrEmpty(settings.TallyExePath))
+                    {
+                        if (!TallyLauncher.IsTallyRunning())
+                        {
+                            OnLogMessage?.Invoke("Auto-start Tally: Tally is not running. Launching...");
+                            try
+                            {
+                                TallyLauncher.LaunchTally(settings.TallyExePath);
+                                OnLogMessage?.Invoke("Tally launched successfully.");
+                                await Task.Delay(TimeSpan.FromSeconds(5), token);
+                            }
+                            catch (Exception ex)
+                            {
+                                OnLogMessage?.Invoke($"Auto-start Tally failed: {ex.Message}");
+                            }
+                        }
+                    }
+
                     var jobs = _repo.GetAllSyncJobs();
                     foreach (var job in jobs)
                       {

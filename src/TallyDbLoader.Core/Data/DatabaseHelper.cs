@@ -37,6 +37,7 @@ namespace TallyDbLoader.Core.Data
                         daily_time_local TEXT,
                         last_run_time TEXT,
                         status TEXT NOT NULL DEFAULT 'Idle',
+                        sync_mode TEXT NOT NULL DEFAULT 'full',
                         FOREIGN KEY (db_profile_id) REFERENCES database_profiles(id)
                     );
                     
@@ -49,6 +50,11 @@ namespace TallyDbLoader.Core.Data
                         auto_start_tally INTEGER NOT NULL DEFAULT 0
                     );
                 ");
+                try
+                {
+                    conn.Execute("ALTER TABLE sync_jobs ADD COLUMN sync_mode TEXT NOT NULL DEFAULT 'full';");
+                }
+                catch { }
                 try
                 {
                     conn.Execute("ALTER TABLE tally_settings ADD COLUMN auto_start_tally INTEGER NOT NULL DEFAULT 0;");

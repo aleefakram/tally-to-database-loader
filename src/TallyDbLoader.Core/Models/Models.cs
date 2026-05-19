@@ -30,6 +30,7 @@ namespace TallyDbLoader.Core.Models
         public string? DailyTimeLocal { get; set; }
         public string? LastRunTime { get; set; }
         public string Status { get; set; } = "Idle";
+        public string SyncMode { get; set; } = "full";
     }
 
     public class Ledger

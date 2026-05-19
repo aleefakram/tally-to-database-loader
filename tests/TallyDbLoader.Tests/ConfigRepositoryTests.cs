@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using Xunit;
 using TallyDbLoader.Core.Data;
 using TallyDbLoader.Core.Models;
@@ -75,6 +76,41 @@ namespace TallyDbLoader.Tests
             Assert.Single(jobs);
             Assert.Equal("Yaghma Kababs", jobs[0].CompanyName);
             Assert.Equal(savedProfile.Id, jobs[0].DbProfileId);
+
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);
+        }
+
+        [Fact]
+        public void Should_Save_And_Retrieve_SyncMode()
+        {
+            string testDbPath = "test_syncmode.db";
+            if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);
+
+            DatabaseHelper.InitializeDatabase(testDbPath);
+            var repo = new ConfigRepository(testDbPath);
+
+            var profile = new DatabaseProfile
+            {
+                Name = "TestDb",
+                Technology = "postgres",
+                Server = "localhost"
+            };
+            repo.SaveDatabaseProfile(profile);
+            var savedProfile = repo.GetAllDatabaseProfiles().First();
+
+            var job = new SyncJob
+            {
+                CompanyName = "Company A",
+                DbProfileId = savedProfile.Id,
+                TargetCatalog = "catalog_a",
+                SyncIntervalMinutes = 30,
+                SyncMode = "incremental"
+            };
+
+            repo.SaveSyncJob(job);
+            var retrieved = repo.GetAllSyncJobs().First();
+            Assert.Equal("incremental", retrieved.SyncMode);
 
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);

@@ -72,8 +72,8 @@ namespace TallyDbLoader.Core.Data
                 if (job.Id == 0)
                 {
                     conn.Execute(@"
-                        INSERT INTO sync_jobs (company_name, db_profile_id, target_catalog, sync_interval_minutes, daily_time_local, last_run_time, status)
-                        VALUES (@CompanyName, @DbProfileId, @TargetCatalog, @SyncIntervalMinutes, @DailyTimeLocal, @LastRunTime, @Status)", job);
+                        INSERT INTO sync_jobs (company_name, db_profile_id, target_catalog, sync_interval_minutes, daily_time_local, last_run_time, status, sync_mode)
+                        VALUES (@CompanyName, @DbProfileId, @TargetCatalog, @SyncIntervalMinutes, @DailyTimeLocal, @LastRunTime, @Status, @SyncMode)", job);
                 }
                 else
                 {
@@ -85,7 +85,8 @@ namespace TallyDbLoader.Core.Data
                             sync_interval_minutes = @SyncIntervalMinutes, 
                             daily_time_local = @DailyTimeLocal, 
                             last_run_time = @LastRunTime, 
-                            status = @Status
+                            status = @Status,
+                            sync_mode = @SyncMode
                         WHERE id = @Id", job);
                 }
             }
@@ -103,7 +104,8 @@ namespace TallyDbLoader.Core.Data
                            sync_interval_minutes AS SyncIntervalMinutes, 
                            daily_time_local AS DailyTimeLocal, 
                            last_run_time AS LastRunTime, 
-                           status AS Status 
+                           status AS Status,
+                           sync_mode AS SyncMode
                     FROM sync_jobs").AsList();
             }
         }

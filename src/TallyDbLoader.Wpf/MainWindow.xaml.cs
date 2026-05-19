@@ -18,6 +18,7 @@ namespace TallyDbLoader.Wpf
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
             _trayController = new TrayController(this);
+            DataContext = new MainViewModel("config.db");
         }
 
         protected override void OnStateChanged(EventArgs e)

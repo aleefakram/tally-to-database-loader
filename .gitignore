@@ -14,3 +14,9 @@ adls-config.json
 *.txt
 /config
 .superpowers/
+
+# .NET Build artifacts
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo

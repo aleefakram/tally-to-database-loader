@@ -4,7 +4,7 @@ using System.Windows;
 
 namespace TallyDbLoader.Wpf
 {
-    public partial class App : Application
+    public partial class App : System.Windows.Application
     {
         private const string AppMutexName = "Global\\TallyToDbLoaderMutex_662bd342-d285-4831-a40d";
         private static Mutex? _mutex;
@@ -15,9 +15,9 @@ namespace TallyDbLoader.Wpf
 
             if (!isNewInstance)
             {
-                MessageBox.Show("Another instance of Tally-to-Database Sync is already running.", 
+                System.Windows.MessageBox.Show("Another instance of Tally-to-Database Sync is already running.", 
                                 "Already Running", MessageBoxButton.OK, MessageBoxImage.Warning);
-                Application.Current.Shutdown();
+                System.Windows.Application.Current.Shutdown();
                 return;
             }
 

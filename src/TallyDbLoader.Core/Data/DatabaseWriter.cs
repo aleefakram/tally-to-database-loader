@@ -13,7 +13,13 @@ namespace TallyDbLoader.Core.Data
         {
             if (profile.Technology.Equals("postgres", StringComparison.OrdinalIgnoreCase))
             {
-                string connStr = $"Host={profile.Server};Port={profile.Port};Username={profile.Username};Password={profile.Password};Database={catalog};";
+                string sslParam = "";
+                if (!profile.Server.Equals("localhost", StringComparison.OrdinalIgnoreCase) && 
+                    !profile.Server.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+                {
+                    sslParam = "SslMode=Require;TrustServerCertificate=True;";
+                }
+                string connStr = $"Host={profile.Server};Port={profile.Port};Username={profile.Username};Password={profile.Password};Database={catalog};{sslParam}";
                 var conn = new NpgsqlConnection(connStr);
                 conn.Open();
                 return conn;

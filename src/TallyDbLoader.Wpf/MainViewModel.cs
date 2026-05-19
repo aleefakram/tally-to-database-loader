@@ -305,7 +305,13 @@ namespace TallyDbLoader.Wpf
             {
                 if (DbTech.Equals("postgres", StringComparison.OrdinalIgnoreCase))
                 {
-                    using (var conn = new Npgsql.NpgsqlConnection($"Host={DbServer};Port={DbPort};Username={DbUsername};Password={DbPassword};Database=postgres;Timeout=5"))
+                    string sslParam = "";
+                    if (!DbServer.Equals("localhost", StringComparison.OrdinalIgnoreCase) && 
+                        !DbServer.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+                    {
+                        sslParam = "SslMode=Require;TrustServerCertificate=True;";
+                    }
+                    using (var conn = new Npgsql.NpgsqlConnection($"Host={DbServer};Port={DbPort};Username={DbUsername};Password={DbPassword};Database=postgres;Timeout=5;{sslParam}"))
                     {
                         conn.Open();
                     }

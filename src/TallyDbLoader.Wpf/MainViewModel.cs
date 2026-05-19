@@ -91,7 +91,81 @@ namespace TallyDbLoader.Wpf
         public string DbServer
         {
             get => _dbServer;
-            set { _dbServer = value; OnPropertyChanged(); }
+            set 
+            { 
+                _dbServer = value; 
+                OnPropertyChanged(); 
+                TryParseConnectionString(value);
+            }
+        }
+
+        private bool _isParsing = false;
+        private void TryParseConnectionString(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input) || _isParsing) return;
+            _isParsing = true;
+            try
+            {
+                if (input.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) || 
+                    input.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase))
+                {
+                    var uri = new Uri(input);
+                    DbTech = "postgres";
+                    
+                    _dbServer = uri.Host;
+                    OnPropertyChanged(nameof(DbServer));
+                    
+                    DbPort = uri.Port > 0 ? uri.Port : 5432;
+                    
+                    var userInfo = uri.UserInfo.Split(':');
+                    if (userInfo.Length >= 1) DbUsername = Uri.UnescapeDataString(userInfo[0]);
+                    if (userInfo.Length >= 2) DbPassword = Uri.UnescapeDataString(userInfo[1]);
+                    
+                    var path = uri.AbsolutePath.TrimStart('/');
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        JobTargetCatalog = Uri.UnescapeDataString(path);
+                    }
+                }
+                else if (input.Contains("Server=", StringComparison.OrdinalIgnoreCase) || 
+                         input.Contains("Host=", StringComparison.OrdinalIgnoreCase) || 
+                         input.Contains("Database=", StringComparison.OrdinalIgnoreCase))
+                {
+                    var builder = new System.Data.Common.DbConnectionStringBuilder { ConnectionString = input };
+                    
+                    if (builder.TryGetValue("Server", out var s) || builder.TryGetValue("Host", out s) || builder.TryGetValue("Data Source", out s))
+                    {
+                        var hostPort = s.ToString()?.Split(',');
+                        if (hostPort?.Length >= 1)
+                        {
+                            _dbServer = hostPort[0].Trim();
+                            OnPropertyChanged(nameof(DbServer));
+                        }
+                        if (hostPort?.Length >= 2 && int.TryParse(hostPort[1], out int p)) DbPort = p;
+                    }
+                    if (builder.TryGetValue("User Id", out var u) || builder.TryGetValue("Username", out u) || builder.TryGetValue("Uid", out u))
+                    {
+                        DbUsername = u.ToString() ?? "";
+                    }
+                    if (builder.TryGetValue("Password", out var pass) || builder.TryGetValue("Pwd", out pass))
+                    {
+                        DbPassword = pass.ToString() ?? "";
+                    }
+                    if (builder.TryGetValue("Port", out var portStr) && int.TryParse(portStr.ToString(), out int parsedPort))
+                    {
+                        DbPort = parsedPort;
+                    }
+                    if (builder.TryGetValue("Database", out var db) || builder.TryGetValue("Initial Catalog", out db))
+                    {
+                        JobTargetCatalog = db.ToString() ?? "";
+                    }
+                }
+            }
+            catch {}
+            finally
+            {
+                _isParsing = false;
+            }
         }
 
         public int DbPort

@@ -180,14 +180,45 @@ The UI will be designed using **WPF** with Modern styling (rounded corners, slee
 - **Explicit Timeouts:** Set default `CommandTimeout` to 60 seconds on all DB operations and XML requests to prevent tasks from hanging indefinitely.
 - **Tally Port Lock:** A `SemaphoreSlim(1,1)` ensures that no two threads query the Tally XML API simultaneously, avoiding race conditions or HTTP port exhaustion.
 
+### 6.4. Tally XML Encoding & HTTP Content Layout
+- **Encoding Requirement:** Tally Prime operates primarily on UTF-16 (Unicode) to support special currency symbols (like the Rupee symbol). 
+- **C# Implementation:** When posting XML payloads to Tally using `HttpClient`, developers must construct the payload using `Encoding.Unicode` (which maps to UTF-16LE in Windows/C#) and the `text/xml` media type:
+  ```csharp
+  var content = new StringContent(xmlRequestString, Encoding.Unicode, "text/xml");
+  var response = await httpClient.PostAsync(tallyUrl, content);
+  ```
+- **XML Declaration Alignment:** The dynamic TDL XML request header must match the encoding: `<?xml version="1.0" encoding="utf-16"?>`. If there is a mismatch (e.g. declaring UTF-8 but sending UTF-16 bytes), Tally's server will reject the request.
+
+### 6.5. Native C# Database Bulk Loading Implementation
+To handle large-scale database sync operations efficiently and avoid slow row-by-row `INSERT` commands, we implement technology-specific native loaders:
+1. **PostgreSQL (`Npgsql`):** Use `NpgsqlBinaryImporter` leveraging PostgreSQL's native `COPY` command. It streams raw binary data directly to the server:
+   ```csharp
+   using (var writer = connection.BeginBinaryImport("COPY table (col1, col2) FROM STDIN (FORMAT BINARY)")) {
+       foreach (var item in dataList) {
+           writer.StartRow();
+           writer.Write(item.Col1);
+           writer.Write(item.Col2);
+       }
+       writer.Complete();
+   }
+   ```
+2. **MySQL (`MySqlConnector`):** Use `MySqlBulkCopy` to perform fast server-side CSV/binary imports from in-memory Datatables or Collections. (The connection string must include `AllowLoadLocalInfile=True` and connection options must configure `Local = true`).
+3. **Microsoft SQL Server (`Microsoft.Data.SqlClient`):** Use `SqlBulkCopy` for native high-performance bulk loading.
+4. **SQLite local app cache:** Use Dapper for fast parameterized bulk operations wrapped inside an explicit SQL transaction to ensure acid compliance and prevent disk write slowdowns.
+
+### 6.6. Application Lifecycle, Mutex, and Restoring IPC
+- **Single-Instance Mutex:** To prevent file locks on the local SQLite config database (`sync_config.db`) and port collisions on background threads, the application uses a global named system `Mutex` initialized in `App.xaml.cs`.
+- **Inter-Process Restoration (Named Pipes):** If a user attempts to launch a second instance (e.g. by double-clicking the desktop shortcut while it runs in the system tray), the second process will detect the Mutex, open a lightweight local Named Pipe client, send a "RestoreWindow" command string to the primary instance, and immediately shut down.
+- **Graceful Tray Minimize:** The WPF main window intercepts the close event and redirects it to hide the window instead, keeping the app alive in the system tray. The application only fully shuts down via the tray context menu "Exit" option or Windows session shutdown events.
+
 ---
 
 ## 7. Implementation Stages
 
 1. **Stage 1: Core Library & Database Porting:**
-   - Implement the SQLite config manager and repository classes in C#.
-   - Port the XML generator/parser logic from TypeScript (`src/tally.ts`) to C#.
-   - Port database bulk loaders (MSSQL using `SqlBulkCopy`, MySQL using `MySqlBulkLoader`, Postgres using `NpgsqlBinaryImporter`, etc.).
+   - Implement the SQLite config manager, repositories, and Local Named Mutex/IPC listener.
+   - Port the XML generator/parser logic from TypeScript (`src/tally.ts`) to C# with explicit UTF-16 `StringContent` posting.
+   - Implement native database loaders (`SqlBulkCopy`, `MySqlBulkCopy`, `NpgsqlBinaryImporter`) and CSV/JSON output writers.
 2. **Stage 2: Background Engine & Scheduling:**
    - Implement the scheduler and task executor with the semaphore queue.
    - Implement the Tally process checker and `tally.ini` reader/writer.
@@ -198,4 +229,5 @@ The UI will be designed using **WPF** with Modern styling (rounded corners, slee
    - Hook up ViewModels to SQLite configurations.
 4. **Stage 4: Verification and Testing:**
    - Verify connection testers, scheduler triggers, time-of-day fires, and Tally auto-loading.
+
 

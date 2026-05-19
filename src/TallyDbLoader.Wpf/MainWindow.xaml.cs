@@ -40,5 +40,21 @@ namespace TallyDbLoader.Wpf
             }
             base.OnClosing(e);
         }
+
+        private void StartButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.StartSyncEngine();
+            }
+        }
+
+        private void StopButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is MainViewModel vm)
+            {
+                vm.StopSyncEngine();
+            }
+        }
     }
 }

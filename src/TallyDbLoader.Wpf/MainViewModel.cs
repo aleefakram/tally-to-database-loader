@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using TallyDbLoader.Core.Models;
 using TallyDbLoader.Core.Data;
+using TallyDbLoader.Core.Sync;
 
 namespace TallyDbLoader.Wpf
 {
@@ -79,6 +80,36 @@ namespace TallyDbLoader.Wpf
                     SyncJobs.Add(job);
                 }
             }
+        }
+
+        private BackgroundSyncWorker? _worker;
+        private string _logOutput = "Ready to start sync loop.";
+
+        public string LogOutput
+        {
+            get => _logOutput;
+            set { _logOutput = value; OnPropertyChanged(); }
+        }
+
+        public void StartSyncEngine()
+        {
+            if (_worker == null)
+            {
+                _worker = new BackgroundSyncWorker(_repo, "localhost", 9000);
+                _worker.OnLogMessage += (msg) => {
+                    LogOutput = $"[{System.DateTime.Now:HH:mm:ss}] {msg}\n" + LogOutput;
+                    StatusText = msg;
+                };
+                _worker.OnSyncCompleted += () => {
+                    System.Windows.Application.Current.Dispatcher.Invoke(() => LoadConfiguration());
+                };
+            }
+            _worker.Start();
+        }
+
+        public void StopSyncEngine()
+        {
+            _worker?.Stop();
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

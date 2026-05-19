@@ -2,7 +2,7 @@ node_modules/
 private/
 csv/
 ssl/
-sync/
+/sync/
 dist/*.mjs.map
 import-log.txt
 error-log.txt

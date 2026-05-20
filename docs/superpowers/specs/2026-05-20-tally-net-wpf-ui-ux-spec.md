@@ -213,3 +213,33 @@ When editing the UI, AI agents must adhere to the following constraints:
 2. **DPAPI Data Encryption:** DB passwords must be encrypted before database persistence using the Windows Data Protection API (`ProtectedData`), wrapped inside core repository methods.
 3. **No Code-Behind Business Logic:** Event handlers in `MainWindow.xaml.cs` must strictly act as event-routing bridges, passing control directly to `MainViewModel`. All connection tests, validations, and database writes must occur in `MainViewModel` or business layers.
 4. **Command Execution Safety:** Confirm that background schedulers are stopped before deleting database profiles or jobs to prevent SQLite transaction locking errors.
+
+---
+
+## 8. Safety, Lifecycles & Mutation Guards (Completed Implementation)
+
+### 8.1 ViewModel Mutation Guards
+To prevent race conditions, locks, or database write conflicts while the background sync worker is running, all configuration commands in `MainViewModel.cs` enforce mutation guards. If `IsSyncRunning` is `true`, these commands immediately return early and log a warning message:
+- `SaveTallySettings()`
+- `SaveDatabaseProfile()`
+- `DeleteDatabaseProfile()`
+- `AddSyncJob()`
+- `DeleteSyncJob()`
+- `TestDatabaseConnection()`
+- `DetectActiveCompaniesAsync()`
+
+### 8.2 UI Control State Mutex
+Form input groups and editor controls are locked out visually during active synchronization to guide the user to stop the engine before making modifications.
+- Bindings `IsEnabled="{Binding IsSyncNotRunning}"` are applied to parent grid and group panels wrapping the settings editor columns.
+- The dashboard control buttons (Edit, Delete, and settings saves) dynamically disable when the sync worker is active.
+
+### 8.3 Safe App Exit & Session Ending
+To resolve issue where the system tray menu's Exit option blocks Windows shutdown, or prompts confirmation dialogs indefinitely:
+- **`MainWindow.ExitApplication()`**: Explicitly flags `_isExiting = true` and triggers a clean WPF application shutdown (`System.Windows.Application.Current.Shutdown()`).
+- **`MainWindow.OnClosing` Override**: Intercepts standard OS close calls. If `_isExiting` is false, it minimizes the application to the system tray (`Hide()`). If `_isExiting` is true, it exits immediately.
+- **`SessionEnding` Handler**: Listens to system-level Windows logout/shutdown events (`System.Windows.Application.Current.SessionEnding`). When triggered, it flags `_isExiting = true` to bypass the tray minimization interceptor, allowing Windows to close without blocker popups.
+
+### 8.4 Idempotent Worker Disposal & Thread-Safe Manual Sync
+- **`BackgroundSyncWorker.Dispose()`**: Implements an idempotent `IDisposable` pattern. Ensures multiple calls do not cause double-free/null reference exceptions.
+- **`BackgroundSyncWorker.TriggerManualSync()`**: Thread-safe manual wake-up signaling. Protects variables (`_forceSyncOnce` and `_wakeUpCts`) inside lock scopes. Disposes and recreates cancellation tokens to wake the worker loop from delay task sleeps immediately.
+

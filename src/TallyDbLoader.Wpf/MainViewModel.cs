@@ -297,6 +297,11 @@ namespace TallyDbLoader.Wpf
         // We will call repo methods to save
         public void SaveTallySettings()
         {
+            if (IsSyncRunning)
+            {
+                Log("Cannot modify configurations while the sync engine is running.");
+                return;
+            }
             var settings = new TallySettings
             {
                 Server = TallyServer,
@@ -394,6 +399,11 @@ namespace TallyDbLoader.Wpf
 
         public void SaveDatabaseProfile()
         {
+            if (IsSyncRunning)
+            {
+                Log("Cannot modify configurations while the sync engine is running.");
+                return;
+            }
             if (string.IsNullOrWhiteSpace(DbName)) return;
 
             var profile = new DatabaseProfile
@@ -419,6 +429,11 @@ namespace TallyDbLoader.Wpf
 
         public void DeleteDatabaseProfile(DatabaseProfile profile)
         {
+            if (IsSyncRunning)
+            {
+                Log("Cannot modify configurations while the sync engine is running.");
+                return;
+            }
             if (profile == null) return;
             _repo.DeleteDatabaseProfile(profile.Id);
             LoadConfiguration();
@@ -427,6 +442,11 @@ namespace TallyDbLoader.Wpf
 
         public void AddSyncJob()
         {
+            if (IsSyncRunning)
+            {
+                Log("Cannot modify configurations while the sync engine is running.");
+                return;
+            }
             if (string.IsNullOrWhiteSpace(JobCompany) || JobSelectedProfile == null) return;
 
             var job = new SyncJob
@@ -452,6 +472,11 @@ namespace TallyDbLoader.Wpf
 
         public void DeleteSyncJob(SyncJob job)
         {
+            if (IsSyncRunning)
+            {
+                Log("Cannot modify configurations while the sync engine is running.");
+                return;
+            }
             if (job == null) return;
             _repo.DeleteSyncJob(job.Id);
             LoadConfiguration();
@@ -474,6 +499,11 @@ namespace TallyDbLoader.Wpf
 
         public void TestDatabaseConnection()
         {
+            if (IsSyncRunning)
+            {
+                Log("Cannot modify configurations while the sync engine is running.");
+                return;
+            }
             if (string.IsNullOrWhiteSpace(DbName))
             {
                 Log("Connection test failed: Profile form is incomplete.");
@@ -517,6 +547,11 @@ namespace TallyDbLoader.Wpf
 
         public async System.Threading.Tasks.Task DetectActiveCompaniesAsync()
         {
+            if (IsSyncRunning)
+            {
+                Log("Cannot modify configurations while the sync engine is running.");
+                return;
+            }
             Log($"Querying running Tally instance at http://{TallyServer}:{TallyPort}...");
             
             try
@@ -568,6 +603,9 @@ namespace TallyDbLoader.Wpf
             }
         }
 
+        public bool IsSyncRunning => _worker?.IsRunning == true;
+        public bool IsSyncNotRunning => !IsSyncRunning;
+
         public void StartSyncEngine()
         {
             if (_worker == null)
@@ -582,11 +620,32 @@ namespace TallyDbLoader.Wpf
                 };
             }
             _worker.Start();
+            OnPropertyChanged(nameof(IsSyncRunning));
+            OnPropertyChanged(nameof(IsSyncNotRunning));
         }
 
         public void StopSyncEngine()
         {
-            _worker?.Stop();
+            if (_worker != null)
+            {
+                _worker.Dispose();
+                _worker = null;
+            }
+            OnPropertyChanged(nameof(IsSyncRunning));
+            OnPropertyChanged(nameof(IsSyncNotRunning));
+        }
+
+        public void TriggerManualSync()
+        {
+            if (_worker != null && _worker.IsRunning)
+            {
+                Log("Manual sync triggered via dashboard.");
+                _worker.TriggerManualSync();
+            }
+            else
+            {
+                Log("Manual sync ignored: Sync engine is not running.");
+            }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

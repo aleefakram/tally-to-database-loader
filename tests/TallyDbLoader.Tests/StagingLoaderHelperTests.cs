@@ -63,5 +63,29 @@ namespace TallyDbLoader.Tests
             Assert.Equal("g2", mockLoader.LastDataLoaded.Rows[1]["guid"]);
             Assert.Equal("v2", mockLoader.LastDataLoaded.Rows[1]["voucher_number"]);
         }
+
+        [Fact]
+        public async Task Test_LoadGuidsWithAlterIdsToStagingAsync_BuildsCorrectDataTable()
+        {
+            var mockLoader = new MockDatabaseLoader();
+            var diffData = new List<(string Guid, string AlterId)>
+            {
+                ("g1", "101"),
+                ("g2", "102")
+            };
+
+            await StagingLoaderHelper.LoadGuidsWithAlterIdsToStagingAsync(mockLoader, "_diff", diffData);
+
+            Assert.Equal("_diff", mockLoader.LastTableLoaded);
+            Assert.NotNull(mockLoader.LastDataLoaded);
+            Assert.Equal(2, mockLoader.LastDataLoaded.Columns.Count);
+            Assert.Equal("guid", mockLoader.LastDataLoaded.Columns[0].ColumnName);
+            Assert.Equal("alterid", mockLoader.LastDataLoaded.Columns[1].ColumnName);
+            Assert.Equal(2, mockLoader.LastDataLoaded.Rows.Count);
+            Assert.Equal("g1", mockLoader.LastDataLoaded.Rows[0]["guid"]);
+            Assert.Equal("101", mockLoader.LastDataLoaded.Rows[0]["alterid"]);
+            Assert.Equal("g2", mockLoader.LastDataLoaded.Rows[1]["guid"]);
+            Assert.Equal("102", mockLoader.LastDataLoaded.Rows[1]["alterid"]);
+        }
     }
 }

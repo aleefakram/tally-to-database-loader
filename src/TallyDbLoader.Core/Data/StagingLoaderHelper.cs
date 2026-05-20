@@ -29,5 +29,17 @@ namespace TallyDbLoader.Core.Data
             }
             await loader.LoadBulkDataAsync(dt, stagingTable);
         }
+
+        public static async Task LoadGuidsWithAlterIdsToStagingAsync(IDatabaseLoader loader, string stagingTable, List<(string Guid, string AlterId)> diffData)
+        {
+            var dt = new DataTable(stagingTable);
+            dt.Columns.Add("guid", typeof(string));
+            dt.Columns.Add("alterid", typeof(string));
+            foreach (var item in diffData)
+            {
+                dt.Rows.Add(item.Guid, item.AlterId);
+            }
+            await loader.LoadBulkDataAsync(dt, stagingTable);
+        }
     }
 }

@@ -178,5 +178,64 @@ namespace TallyDbLoader.Tests
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (File.Exists(dbPath)) File.Delete(dbPath);
         }
+
+        [Fact]
+        public async Task Test_Mutation_Guards_And_SyncRunning_Properties()
+        {
+            string dbPath = "vm_test_guards.db";
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+            DatabaseHelper.InitializeDatabase(dbPath);
+
+            var vm = new MainViewModel(dbPath);
+
+            // Verify initial state
+            Assert.False(vm.IsSyncRunning);
+            Assert.True(vm.IsSyncNotRunning);
+
+            // Hook up PropertyChanged tracker
+            var changedProperties = new List<string>();
+            vm.PropertyChanged += (sender, e) =>
+            {
+                if (e.PropertyName != null) changedProperties.Add(e.PropertyName);
+            };
+
+            // Start Sync
+            vm.StartSyncEngine();
+            Assert.True(vm.IsSyncRunning);
+            Assert.False(vm.IsSyncNotRunning);
+            Assert.Contains(nameof(vm.IsSyncRunning), changedProperties);
+            Assert.Contains(nameof(vm.IsSyncNotRunning), changedProperties);
+
+            changedProperties.Clear();
+
+            // Attempt configuration mutations when sync is running and verify they early-return / guard
+            vm.TallyServer = "new_server";
+            vm.SaveTallySettings();
+            
+            // Verify Tally settings did not save to database (should still be default or empty)
+            var repo = new ConfigRepository(dbPath);
+            var savedSettings = repo.GetTallySettings();
+            Assert.NotEqual("new_server", savedSettings.Server);
+
+            // Attempt save db profile
+            vm.DbName = "GuardedDb";
+            vm.SaveDatabaseProfile();
+            Assert.Null(repo.GetDatabaseProfileByName("GuardedDb"));
+
+            // Attempt detect companies
+            vm.JobCompany = "Initial Company";
+            await vm.DetectActiveCompaniesAsync();
+            Assert.Equal("Initial Company", vm.JobCompany);
+
+            // Stop Sync
+            vm.StopSyncEngine();
+            Assert.False(vm.IsSyncRunning);
+            Assert.True(vm.IsSyncNotRunning);
+            Assert.Contains(nameof(vm.IsSyncRunning), changedProperties);
+            Assert.Contains(nameof(vm.IsSyncNotRunning), changedProperties);
+
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
     }
 }

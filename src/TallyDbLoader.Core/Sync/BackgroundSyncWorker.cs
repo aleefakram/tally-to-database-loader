@@ -11,7 +11,7 @@ using TallyDbLoader.Core.DatabaseLoaders;
 
 namespace TallyDbLoader.Core.Sync
 {
-    public class BackgroundSyncWorker
+    public class BackgroundSyncWorker : IDisposable
     {
         private readonly ConfigRepository _repo;
         private readonly string _tallyServer;
@@ -19,6 +19,11 @@ namespace TallyDbLoader.Core.Sync
         private CancellationTokenSource? _cts;
         private Task? _runTask;
         private TallyClient? _tallyClient;
+
+        private readonly object _syncLock = new object();
+        private bool _forceSyncOnce = false;
+        private CancellationTokenSource _wakeUpCts = new CancellationTokenSource();
+        private bool _disposed = false;
 
         public void SetTallyClientForTest(TallyClient client)
         {
@@ -58,8 +63,37 @@ namespace TallyDbLoader.Core.Sync
             if (!IsRunning) return;
             _cts?.Cancel();
             try { _runTask?.Wait(); } catch { }
+            _cts?.Dispose();
             _cts = null;
             Log("Background Sync Engine stopped.");
+        }
+
+        public void TriggerManualSync()
+        {
+            lock (_syncLock)
+            {
+                if (_disposed || !IsRunning)
+                {
+                    Log("Manual sync ignored: Sync engine is not running or has been disposed.");
+                    return;
+                }
+                _forceSyncOnce = true;
+                var oldCts = _wakeUpCts;
+                _wakeUpCts = new CancellationTokenSource();
+                oldCts.Cancel();
+                oldCts.Dispose();
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_syncLock)
+            {
+                if (_disposed) return;
+                _disposed = true;
+            }
+            Stop();
+            _wakeUpCts.Dispose();
         }
 
         private async Task WorkerLoop(CancellationToken token)
@@ -90,12 +124,19 @@ namespace TallyDbLoader.Core.Sync
                         }
                     }
 
+                    bool runManualSync;
+                    lock (_syncLock)
+                    {
+                        runManualSync = _forceSyncOnce;
+                        _forceSyncOnce = false;
+                    }
+
                     var jobs = _repo.GetAllSyncJobs();
                     foreach (var job in jobs)
                     {
                         if (token.IsCancellationRequested) break;
                         
-                        if (SyncOrchestrator.ShouldRun(job, DateTime.Now))
+                        if (runManualSync || SyncOrchestrator.ShouldRun(job, DateTime.Now))
                         {
                             Log($"Starting job '{job.CompanyName}' (Target: '{job.TargetCatalog}')...");
 
@@ -160,6 +201,12 @@ namespace TallyDbLoader.Core.Sync
                                     {
                                         connStr = $"Server={dbProfile.Server};Port={dbProfile.Port};User Id={dbProfile.Username};Password={dbProfile.Password};Database={job.TargetCatalog};";
                                         dbLoader = new MySqlLoader(connStr);
+                                    }
+                                    else if (tech.Contains("sqlite"))
+                                    {
+                                        string dbFile = job.TargetCatalog.EndsWith(".db") ? job.TargetCatalog : $"{job.TargetCatalog}.db";
+                                        connStr = $"Data Source={dbFile}";
+                                        dbLoader = new TallyDbLoader.Core.DatabaseLoaders.SqliteLoader(connStr);
                                     }
                                     else
                                     {
@@ -247,7 +294,7 @@ namespace TallyDbLoader.Core.Sync
                                                 
                                                 if (diffDataTable.Rows.Count > 0)
                                                 {
-                                                    await StagingLoaderHelper.LoadGuidsToStagingAsync(dbLoader, "_diff", diffDataTable.Rows.Cast<DataRow>().Select(r => r["guid"].ToString() ?? "").ToList());
+                                                    await dbLoader.LoadBulkDataAsync(diffDataTable, "_diff");
                                                 }
 
                                                 // Perform delete operations
@@ -329,7 +376,7 @@ namespace TallyDbLoader.Core.Sync
                                                         {
                                                             foreach (var cascade in activeTable.CascadeUpdate)
                                                             {
-                                                                if (tech.Contains("postgres") || tech.Contains("npgsql"))
+                                                                if (tech.Contains("postgres") || tech.Contains("npgsql") || tech.Contains("sqlite"))
                                                                 {
                                                                     cmd.CommandText = $"UPDATE {cascade.Table} AS t SET {cascade.Field} = s.name FROM {activeTable.Name} AS s WHERE s.guid = t._{cascade.Field};";
                                                                 }
@@ -478,7 +525,7 @@ namespace TallyDbLoader.Core.Sync
                                             using (var conn = DatabaseWriter.GetConnection(dbProfile, job.TargetCatalog))
                                             using (var cmd = conn.CreateCommand())
                                             {
-                                                cmd.CommandText = $"TRUNCATE TABLE {table.Name};";
+                                                cmd.CommandText = tech.Contains("sqlite") ? $"DELETE FROM {table.Name};" : $"TRUNCATE TABLE {table.Name};";
                                                 cmd.ExecuteNonQuery();
                                             }
                                             
@@ -527,7 +574,23 @@ namespace TallyDbLoader.Core.Sync
                     TallyDbLoader.Core.Logging.FileLogger.LogError("WorkerLoop Main Check", ex);
                 }
                 
-                try { await Task.Delay(TimeSpan.FromSeconds(60), token); } catch { break; }
+                CancellationToken wakeToken;
+                lock (_syncLock)
+                {
+                    wakeToken = _wakeUpCts.Token;
+                }
+
+                try
+                {
+                    using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, wakeToken))
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(60), linkedCts.Token);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    if (token.IsCancellationRequested) break;
+                }
             }
         }
 

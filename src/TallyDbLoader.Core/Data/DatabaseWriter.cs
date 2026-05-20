@@ -38,6 +38,14 @@ namespace TallyDbLoader.Core.Data
                 conn.Open();
                 return conn;
             }
+            else if (profile.Technology.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+            {
+                string dbFile = catalog.EndsWith(".db") ? catalog : $"{catalog}.db";
+                string connStr = $"Data Source={dbFile}";
+                var conn = new Microsoft.Data.Sqlite.SqliteConnection(connStr);
+                conn.Open();
+                return conn;
+            }
             throw new NotSupportedException($"Database technology '{profile.Technology}' is not supported.");
         }
 
@@ -60,7 +68,7 @@ namespace TallyDbLoader.Core.Data
             {
                 using (var cmd = conn.CreateCommand())
                 {
-                    if (profile.Technology.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+                    if (profile.Technology.Equals("postgres", StringComparison.OrdinalIgnoreCase) || profile.Technology.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
                     {
                         cmd.CommandText = @"
                             CREATE TABLE IF NOT EXISTS ledgers (
@@ -110,7 +118,7 @@ namespace TallyDbLoader.Core.Data
             {
                 using (var cmd = conn.CreateCommand())
                 {
-                    if (tech.Contains("postgres") || tech.Contains("npgsql"))
+                    if (tech.Contains("postgres") || tech.Contains("npgsql") || tech.Contains("sqlite"))
                     {
                         cmd.CommandText = @"
                             CREATE TABLE IF NOT EXISTS config (
@@ -118,7 +126,8 @@ namespace TallyDbLoader.Core.Data
                                 value VARCHAR(1024)
                             );
                             CREATE TABLE IF NOT EXISTS _diff (
-                                guid VARCHAR(64) PRIMARY KEY
+                                guid VARCHAR(64) PRIMARY KEY,
+                                alterid VARCHAR(64) NOT NULL DEFAULT '0'
                             );
                             CREATE TABLE IF NOT EXISTS _delete (
                                 guid VARCHAR(64) PRIMARY KEY
@@ -138,7 +147,8 @@ namespace TallyDbLoader.Core.Data
                             );
                             IF OBJECT_ID('_diff', 'U') IS NULL 
                             CREATE TABLE _diff (
-                                guid VARCHAR(64) PRIMARY KEY
+                                guid VARCHAR(64) PRIMARY KEY,
+                                alterid VARCHAR(64) NOT NULL DEFAULT '0'
                             );
                             IF OBJECT_ID('_delete', 'U') IS NULL 
                             CREATE TABLE _delete (
@@ -158,7 +168,8 @@ namespace TallyDbLoader.Core.Data
                                 value VARCHAR(1024)
                             );
                             CREATE TABLE IF NOT EXISTS _diff (
-                                guid VARCHAR(64) PRIMARY KEY
+                                guid VARCHAR(64) PRIMARY KEY,
+                                alterid VARCHAR(64) NOT NULL DEFAULT '0'
                             );
                             CREATE TABLE IF NOT EXISTS _delete (
                                 guid VARCHAR(64) PRIMARY KEY
@@ -216,7 +227,7 @@ namespace TallyDbLoader.Core.Data
             {
                 using (var cmd = conn.CreateCommand())
                 {
-                    if (tech.Contains("postgres") || tech.Contains("npgsql"))
+                    if (tech.Contains("postgres") || tech.Contains("npgsql") || tech.Contains("sqlite"))
                     {
                         cmd.CommandText = @"
                             INSERT INTO config (name, value) VALUES (@name, @value)
@@ -254,7 +265,7 @@ namespace TallyDbLoader.Core.Data
                 {
                     using (var cmd = conn.CreateCommand())
                     {
-                        if (profile.Technology.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+                        if (profile.Technology.Equals("postgres", StringComparison.OrdinalIgnoreCase) || profile.Technology.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
                         {
                             cmd.CommandText = @"
                                 INSERT INTO ledgers (guid, name, parent, opening_balance, closing_balance)

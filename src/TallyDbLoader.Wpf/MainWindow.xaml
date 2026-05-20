@@ -149,8 +149,8 @@
             </StackPanel>
             
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Content="Start Sync" Click="StartButton_Click" Background="#4CAF50" Margin="0,0,10,0"/>
-                <Button Content="Stop Sync" Click="StopButton_Click" Background="#F44336"/>
+                <Button Content="Start Sync" Click="StartButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#4CAF50" Margin="0,0,10,0"/>
+                <Button Content="Stop Sync" Click="StopButton_Click" IsEnabled="{Binding IsSyncRunning}" Background="#F44336"/>
             </StackPanel>
         </Grid>
 
@@ -218,12 +218,12 @@
                             <ColumnDefinition Width="2*"/>
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,0">
-                            <Button Content="Edit Selected Job" Click="EditJobButton_Click" Background="#4A90E2" Padding="12,5" FontSize="11" Margin="0,0,8,0"/>
-                            <Button Content="Delete Selected Job" Click="DeleteJobButton_Click" Background="#C62828" Padding="12,5" FontSize="11"/>
+                            <Button Content="Edit Selected Job" Click="EditJobButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#4A90E2" Padding="12,5" FontSize="11" Margin="0,0,8,0"/>
+                            <Button Content="Delete Selected Job" Click="DeleteJobButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#C62828" Padding="12,5" FontSize="11"/>
                         </StackPanel>
                         <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,0,0,0">
-                            <Button Content="Edit Selected Target" Click="EditDbProfileButton_Click" Background="#4A90E2" Padding="12,5" FontSize="11" Margin="0,0,8,0"/>
-                            <Button Content="Delete Selected Target" Click="DeleteDbProfileButton_Click" Background="#C62828" Padding="12,5" FontSize="11"/>
+                            <Button Content="Edit Selected Target" Click="EditDbProfileButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#4A90E2" Padding="12,5" FontSize="11" Margin="0,0,8,0"/>
+                            <Button Content="Delete Selected Target" Click="DeleteDbProfileButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#C62828" Padding="12,5" FontSize="11"/>
                         </StackPanel>
                     </Grid>
 
@@ -246,7 +246,7 @@
             <!-- TAB 2: Setup & CRUD configuration -->
             <TabItem Header="Configuration &amp; Profiles">
                 <ScrollViewer Margin="15" VerticalScrollBarVisibility="Auto">
-                    <Grid>
+                    <Grid IsEnabled="{Binding IsSyncNotRunning}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>

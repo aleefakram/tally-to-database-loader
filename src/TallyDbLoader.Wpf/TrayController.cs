@@ -46,14 +46,24 @@ namespace TallyDbLoader.Wpf
 
         private void TriggerManualSync()
         {
-            ShowNotification("Sync Started", "Manual database synchronization has been triggered.");
+            if (_mainWindow.DataContext is MainViewModel vm)
+            {
+                vm.TriggerManualSync();
+            }
         }
 
         private void ShutdownApplication()
         {
             _notifyIcon.Visible = false;
             _notifyIcon.Dispose();
-            System.Windows.Application.Current.Shutdown();
+            if (_mainWindow is MainWindow mainWin)
+            {
+                mainWin.ExitApplication();
+            }
+            else
+            {
+                System.Windows.Application.Current.Shutdown();
+            }
         }
 
         public void Dispose()

@@ -61,12 +61,14 @@ namespace TallyDbLoader.Tests
                 Fields = new List<FieldConfig>
                 {
                     new FieldConfig { Name = "guid", Field = "Guid", Type = "text" },
+                    new FieldConfig { Name = "name", Field = "Name", Type = "text" },
                     new FieldConfig { Name = "is_revenue", Field = "IsRevenue", Type = "logical" }
                 }
             };
 
             var mssqlSql = DynamicTableSchemaGenerator.GenerateCreateTableSql(tableConfig, "mssql");
             Assert.Contains("IF OBJECT_ID('mst_custom_ledger', 'U') IS NULL CREATE TABLE mst_custom_ledger", mssqlSql);
+            Assert.Contains("name nvarchar(1024) not null default ''", mssqlSql);
             Assert.Contains("is_revenue smallint default 0", mssqlSql);
         }
     }

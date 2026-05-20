@@ -1,3 +1,6 @@
+using System;
+using System.Text;
+using System.Security.Cryptography;
 using System.Collections.Generic;
 using Microsoft.Data.Sqlite;
 using Dapper;
@@ -14,15 +17,54 @@ namespace TallyDbLoader.Core.Data
             _connectionString = $"Data Source={dbPath}";
         }
 
+        private string EncryptPassword(string password)
+        {
+            if (string.IsNullOrEmpty(password)) return string.Empty;
+            byte[] plainBytes = Encoding.UTF8.GetBytes(password);
+            byte[] encryptedBytes = ProtectedData.Protect(plainBytes, null, DataProtectionScope.CurrentUser);
+            return "dpapi:" + Convert.ToBase64String(encryptedBytes);
+        }
+
+        private string DecryptPassword(string password)
+        {
+            if (string.IsNullOrEmpty(password)) return string.Empty;
+            if (!password.StartsWith("dpapi:")) return password;
+
+            try
+            {
+                string base64 = password.Substring(6);
+                byte[] encryptedBytes = Convert.FromBase64String(base64);
+                byte[] decryptedBytes = ProtectedData.Unprotect(encryptedBytes, null, DataProtectionScope.CurrentUser);
+                return Encoding.UTF8.GetString(decryptedBytes);
+            }
+            catch (Exception ex)
+            {
+                TallyDbLoader.Core.Logging.FileLogger.LogMessage($"[DPAPI Error] Decryption failed: {ex.Message}");
+                return string.Empty;
+            }
+        }
+
         public void SaveDatabaseProfile(DatabaseProfile profile)
         {
+            var encryptedPassword = EncryptPassword(profile.Password);
             using (var conn = new SqliteConnection(_connectionString))
             {
+                var parameters = new
+                {
+                    profile.Id,
+                    profile.Name,
+                    profile.Technology,
+                    profile.Server,
+                    profile.Port,
+                    profile.Username,
+                    Password = encryptedPassword
+                };
+
                 if (profile.Id == 0)
                 {
                     conn.Execute(@"
                         INSERT INTO database_profiles (name, technology, server, port, username, password)
-                        VALUES (@Name, @Technology, @Server, @Port, @Username, @Password)", profile);
+                        VALUES (@Name, @Technology, @Server, @Port, @Username, @Password)", parameters);
                 }
                 else
                 {
@@ -34,7 +76,7 @@ namespace TallyDbLoader.Core.Data
                             port = @Port, 
                             username = @Username, 
                             password = @Password 
-                        WHERE id = @Id", profile);
+                        WHERE id = @Id", parameters);
                 }
             }
         }
@@ -43,8 +85,13 @@ namespace TallyDbLoader.Core.Data
         {
             using (var conn = new SqliteConnection(_connectionString))
             {
-                return conn.QueryFirstOrDefault<DatabaseProfile>(
+                var profile = conn.QueryFirstOrDefault<DatabaseProfile>(
                     "SELECT * FROM database_profiles WHERE name = @Name", new { Name = name });
+                if (profile != null)
+                {
+                    profile.Password = DecryptPassword(profile.Password);
+                }
+                return profile;
             }
         }
 
@@ -52,8 +99,13 @@ namespace TallyDbLoader.Core.Data
         {
             using (var conn = new SqliteConnection(_connectionString))
             {
-                return conn.QueryFirstOrDefault<DatabaseProfile>(
+                var profile = conn.QueryFirstOrDefault<DatabaseProfile>(
                     "SELECT * FROM database_profiles WHERE id = @Id", new { Id = id });
+                if (profile != null)
+                {
+                    profile.Password = DecryptPassword(profile.Password);
+                }
+                return profile;
             }
         }
 
@@ -61,7 +113,12 @@ namespace TallyDbLoader.Core.Data
         {
             using (var conn = new SqliteConnection(_connectionString))
             {
-                return conn.Query<DatabaseProfile>("SELECT * FROM database_profiles").AsList();
+                var profiles = conn.Query<DatabaseProfile>("SELECT * FROM database_profiles").AsList();
+                foreach (var profile in profiles)
+                {
+                    profile.Password = DecryptPassword(profile.Password);
+                }
+                return profiles;
             }
         }
 

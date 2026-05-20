@@ -19,4 +19,5 @@ adls-config.json
 [Bb]in/
 [Oo]bj/
 *.user
-*.suo
+*.suo
+config.db

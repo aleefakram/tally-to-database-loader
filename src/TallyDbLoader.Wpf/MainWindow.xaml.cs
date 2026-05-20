@@ -7,12 +7,27 @@ namespace TallyDbLoader.Wpf
     public partial class MainWindow : Window
     {
         private TrayController? _trayController;
-        private bool _isExplicitShutdown = false;
+        private bool _isExiting = false;
 
         public MainWindow()
         {
             InitializeComponent();
             Loaded += MainWindow_Loaded;
+            if (System.Windows.Application.Current != null)
+            {
+                System.Windows.Application.Current.SessionEnding += App_SessionEnding;
+            }
+        }
+
+        public void ExitApplication()
+        {
+            _isExiting = true;
+            System.Windows.Application.Current?.Shutdown();
+        }
+
+        private void App_SessionEnding(object sender, SessionEndingCancelEventArgs e)
+        {
+            _isExiting = true;
         }
 
         private void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -43,7 +58,7 @@ namespace TallyDbLoader.Wpf
 
         protected override void OnClosing(CancelEventArgs e)
         {
-            if (!_isExplicitShutdown)
+            if (!_isExiting)
             {
                 e.Cancel = true;
                 Hide();

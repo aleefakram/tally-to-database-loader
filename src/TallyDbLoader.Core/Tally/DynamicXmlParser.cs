@@ -1,8 +1,8 @@
 using System;
 using System.Data;
-using System.Xml.Linq;
+using System.Xml;
+using System.IO;
 using System.Globalization;
-using System.Linq;
 
 namespace TallyDbLoader.Core.Tally
 {
@@ -44,62 +44,62 @@ namespace TallyDbLoader.Core.Tally
             
             try
             {
-                var doc = XDocument.Parse(xmlContent);
-                // Find all elements that contain a child element named "F01"
-                var rowElements = doc.Descendants().Where(e => e.Element("F01") != null);
-                
-                foreach (var rowEl in rowElements)
+                using (var sr = new StringReader(xmlContent))
+                using (var reader = XmlReader.Create(sr))
                 {
-                    var row = dataTable.NewRow();
-                    for (int i = 0; i < tableConfig.Fields.Count; i++)
-                    {
-                        var field = tableConfig.Fields[i];
-                        var tag = $"F{(i + 1):D2}";
-                        var valStr = rowEl.Element(tag)?.Value;
-                        
-                        if (valStr == null)
-                        {
-                            row[field.Name] = DBNull.Value;
-                            continue;
-                        }
-                        
-                        // Parse values based on type
-                        if (field.Type == "logical")
-                        {
-                            row[field.Name] = valStr == "1" || valStr.Equals("true", StringComparison.OrdinalIgnoreCase) || valStr.Equals("yes", StringComparison.OrdinalIgnoreCase);
-                        }
-                        else if (field.Type == "date")
-                        {
-                            if (string.IsNullOrEmpty(valStr) || valStr.Contains("ñ") || valStr == "0")
-                            {
-                                row[field.Name] = DBNull.Value;
-                            }
-                            else if (DateTime.TryParse(valStr, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
-                            {
-                                row[field.Name] = parsedDate;
-                            }
-                            else
-                            {
-                                row[field.Name] = DBNull.Value;
-                            }
-                        }
-                        else if (field.Type == "number" || field.Type == "amount" || field.Type == "quantity" || field.Type == "rate")
-                        {
-                            if (decimal.TryParse(valStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedDecimal))
-                            {
-                                row[field.Name] = parsedDecimal;
-                            }
-                            else
-                            {
-                                row[field.Name] = 0m;
-                            }
-                        }
-                        else // text
-                        {
-                            row[field.Name] = valStr;
-                        }
-                    }
-                    dataTable.Rows.Add(row);
+                    string[] rowValues = new string[tableConfig.Fields.Count];
+                    bool inRow = false;
+                    
+                    while (reader.Read())
+                      {
+                          if (reader.NodeType == XmlNodeType.Element)
+                          {
+                              string name = reader.Name;
+                              
+                              if (name == "F01")
+                              {
+                                  if (inRow)
+                                  {
+                                      AddRowToTable(dataTable, rowValues, tableConfig);
+                                  }
+                                  // Reset row values
+                                  for (int j = 0; j < rowValues.Length; j++) rowValues[j] = null;
+                                  inRow = true;
+                              }
+                              
+                              if (inRow && name.Length > 1 && name.StartsWith("F") && char.IsDigit(name[1]))
+                              {
+                                  if (int.TryParse(name.Substring(1), out int fieldIdx))
+                                  {
+                                      if (fieldIdx >= 1 && fieldIdx <= tableConfig.Fields.Count)
+                                      {
+                                          rowValues[fieldIdx - 1] = reader.ReadElementContentAsString();
+                                      }
+                                  }
+                              }
+                          }
+                          else if (reader.NodeType == XmlNodeType.EndElement)
+                          {
+                              if (inRow && !reader.Name.StartsWith("F"))
+                              {
+                                  AddRowToTable(dataTable, rowValues, tableConfig);
+                                  inRow = false;
+                              }
+                          }
+                      }
+                      
+                      if (inRow)
+                      {
+                          bool hasAnyData = false;
+                          for (int j = 0; j < rowValues.Length; j++)
+                          {
+                              if (rowValues[j] != null) { hasAnyData = true; break; }
+                          }
+                          if (hasAnyData)
+                          {
+                              AddRowToTable(dataTable, rowValues, tableConfig);
+                          }
+                      }
                 }
             }
             catch
@@ -108,6 +108,66 @@ namespace TallyDbLoader.Core.Tally
             }
             
             return dataTable;
+        }
+
+        private static void AddRowToTable(DataTable dataTable, string[] rowValues, TableConfig tableConfig)
+        {
+            var row = dataTable.NewRow();
+            bool hasData = false;
+            
+            for (int i = 0; i < tableConfig.Fields.Count; i++)
+            {
+                var field = tableConfig.Fields[i];
+                var valStr = rowValues[i];
+                
+                if (valStr == null)
+                {
+                    row[field.Name] = DBNull.Value;
+                    continue;
+                }
+                
+                hasData = true;
+                
+                if (field.Type == "logical")
+                {
+                    row[field.Name] = valStr == "1" || valStr.Equals("true", StringComparison.OrdinalIgnoreCase) || valStr.Equals("yes", StringComparison.OrdinalIgnoreCase);
+                }
+                else if (field.Type == "date")
+                {
+                    if (string.IsNullOrEmpty(valStr) || valStr.Contains("ñ") || valStr == "0")
+                    {
+                        row[field.Name] = DBNull.Value;
+                    }
+                    else if (DateTime.TryParse(valStr, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
+                    {
+                        row[field.Name] = parsedDate;
+                    }
+                    else
+                    {
+                        row[field.Name] = DBNull.Value;
+                    }
+                }
+                else if (field.Type == "number" || field.Type == "amount" || field.Type == "quantity" || field.Type == "rate")
+                {
+                    if (decimal.TryParse(valStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedDecimal))
+                    {
+                        row[field.Name] = parsedDecimal;
+                    }
+                    else
+                    {
+                        row[field.Name] = 0m;
+                    }
+                }
+                else
+                {
+                    row[field.Name] = valStr;
+                }
+            }
+            
+            if (hasData)
+            {
+                dataTable.Rows.Add(row);
+            }
         }
     }
 }

@@ -145,7 +145,7 @@ ObservableCollection<DatabaseProfile>        ObservableCollection<SyncJob>
 - Server (string)                            - TargetCatalog (string)
 - Port (int)                                 - SyncIntervalMinutes (int?)
 - Username (string)                          - Status (string)
-- Password (string) - DPAPI Encrypted        - SyncMode (string)
+- Password (string) - Plaintext in memory/UI (encrypted only at repository persistence) - SyncMode (string)
 ```
 
 ### 4.1 System Settings Mappings
@@ -199,7 +199,7 @@ ObservableCollection<DatabaseProfile>        ObservableCollection<SyncJob>
   - Binds completed handler `_worker.OnSyncCompleted += () => { ... }` which invokes `LoadConfiguration()` on the UI dispatcher thread to refresh schedules and statuses.
   - Calls `_worker.Start()`.
 - **Stop Execution:**
-  - Calls `_worker?.Stop()`.
+  - Calls `_worker?.Dispose()` (which stops the task and disposes the cancellation token sources) and sets `_worker = null`.
 
 ---
 

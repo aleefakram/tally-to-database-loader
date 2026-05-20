@@ -54,7 +54,8 @@ namespace TallyDbLoader.Core.Data
                 }
                 else // text
                 {
-                    sqlColumnType = "varchar(1024) not null default ''";
+                    if (isMssql) sqlColumnType = "nvarchar(1024) not null default ''";
+                    else sqlColumnType = "varchar(1024) not null default ''";
                 }
                 
                 sb.Append($"{name} {sqlColumnType}");

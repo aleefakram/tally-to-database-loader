@@ -3845,14 +3845,32 @@ namespace TallyDbLoader.Wpf.Views
 
         <!-- Page Header -->
         <Grid Grid.Row="1" Margin="0,0,0,20">
-            <StackPanel>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
                 <TextBlock Text="{Binding JobCompany, FallbackValue='Edit Sync Profile'}" Style="{StaticResource DisplayTextStyle}"/>
                 <TextBlock Text="Configure extraction boundaries, database mappings, and tables to sync." Style="{StaticResource CaptionTextStyle}"/>
             </StackPanel>
+            
+            <!-- Edits Locked Pill -->
+            <Border Grid.Column="1" CornerRadius="12" Background="#FFFBEB" BorderBrush="#FCD34D" BorderThickness="1" Padding="8,4" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding IsSyncRunning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="Engine running — edits locked" Foreground="#B45309" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </Border>
         </Grid>
 
         <!-- Content Area -->
         <Grid Grid.Row="2">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                            <Setter Property="Opacity" Value="0.94"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
@@ -4018,10 +4036,30 @@ namespace TallyDbLoader.Wpf.Views
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 
-                <Button Grid.Column="0" Content="Delete Profile" Command="{Binding DeleteCompanyProfileCommand}" CommandParameter="{Binding SelectedCompany.Id}" Style="{StaticResource StandardButtonStyle}" Foreground="#EF4444"/>
+                <Button Grid.Column="0" Content="Delete Profile" Command="{Binding DeleteCompanyProfileCommand}" CommandParameter="{Binding SelectedCompany.Id}" Foreground="#EF4444">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                    <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
                     <Button Content="Cancel" Command="{Binding CancelJobEditCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                    <Button Content="Save Sync Profile" Command="{Binding SaveCompanyProfileCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                    <Button Content="Save Sync Profile" Command="{Binding SaveCompanyProfileCommand}">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                        <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
                 </StackPanel>
             </Grid>
         </Border>
@@ -4064,12 +4102,18 @@ namespace TallyDbLoader.Wpf.Views
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <StackPanel>
+            <StackPanel Grid.Column="0">
                 <TextBlock Text="Database Connections" Style="{StaticResource DisplayTextStyle}"/>
                 <TextBlock Text="Manage destinations where synchronized financial data is populated." Style="{StaticResource CaptionTextStyle}"/>
             </StackPanel>
-            <Button Grid.Column="1" Content="Add New Connection" Command="{Binding StartEditingDbProfileCommand}" CommandParameter="0" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Center"/>
+            
+            <!-- Edits Locked Pill -->
+            <Border Grid.Column="1" CornerRadius="12" Background="#FFFBEB" BorderBrush="#FCD34D" BorderThickness="1" Padding="8,4" VerticalAlignment="Center" Margin="0,0,8,0" Visibility="{Binding IsSyncRunning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="Engine running — edits locked" Foreground="#B45309" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </Border>
+            <Button Grid.Column="2" Content="Add New Connection" Command="{Binding StartEditingDbProfileCommand}" CommandParameter="0" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Center"/>
         </Grid>
 
         <!-- Master-Detail 2-Pane Content -->
@@ -4113,6 +4157,15 @@ namespace TallyDbLoader.Wpf.Views
 
             <!-- Editor Pane (Right - Detail) -->
             <Grid Grid.Column="1">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                <Setter Property="Opacity" Value="0.94"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
@@ -4161,7 +4214,17 @@ namespace TallyDbLoader.Wpf.Views
                                              helpers:PasswordBoxHelper.BoundPassword="{Binding DbPassword, Mode=TwoWay}"
                                              Margin="0,0,0,16"/>
 
-                                <Button Content="Test Credentials" Command="{Binding TestDatabaseConnectionCommand}" Style="{StaticResource StandardButtonStyle}" HorizontalAlignment="Left"/>
+                                <Button Content="Test Credentials" Command="{Binding TestDatabaseConnectionCommand}" HorizontalAlignment="Left">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                                    <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
                             </StackPanel>
                         </Border>
 
@@ -4191,10 +4254,30 @@ namespace TallyDbLoader.Wpf.Views
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Content="Delete Profile" Command="{Binding DeleteDatabaseProfileCommand}" CommandParameter="{Binding SelectedDatabaseProfile.Id}" IsEnabled="{Binding SelectedDatabaseProfile, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Foreground="#EF4444"/>
+                        <Button Grid.Column="0" Content="Delete Profile" Command="{Binding DeleteDatabaseProfileCommand}" CommandParameter="{Binding SelectedDatabaseProfile.Id}" IsEnabled="{Binding SelectedDatabaseProfile, Converter={StaticResource NullToBoolConverter}}" Foreground="#EF4444">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                            <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
                         <StackPanel Grid.Column="2" Orientation="Horizontal">
                             <Button Content="Cancel" Command="{Binding CancelDbEditCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                            <Button Content="{Binding DbSaveButtonText}" Command="{Binding SaveDatabaseProfileCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                            <Button Content="{Binding DbSaveButtonText}" Command="{Binding SaveDatabaseProfileCommand}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                                <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -4472,13 +4555,33 @@ namespace TallyDbLoader.Wpf.Views
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,20">
-            <TextBlock Text="System Settings" Style="{StaticResource DisplayTextStyle}"/>
-            <TextBlock Text="Modify global parameters for Tally Prime interfaces and service workers." Style="{StaticResource CaptionTextStyle}"/>
-        </StackPanel>
+        <Grid Grid.Row="0" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="System Settings" Style="{StaticResource DisplayTextStyle}"/>
+                <TextBlock Text="Modify global parameters for Tally Prime interfaces and service workers." Style="{StaticResource CaptionTextStyle}"/>
+            </StackPanel>
+            
+            <!-- Edits Locked Pill -->
+            <Border Grid.Column="1" CornerRadius="12" Background="#FFFBEB" BorderBrush="#FCD34D" BorderThickness="1" Padding="8,4" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding IsSyncRunning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="Engine running — edits locked" Foreground="#B45309" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </Border>
+        </Grid>
 
         <!-- Config Cards -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer.Style>
+                <Style TargetType="ScrollViewer">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                            <Setter Property="Opacity" Value="0.94"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ScrollViewer.Style>
             <StackPanel Width="540" HorizontalAlignment="Left">
                 <!-- Tally Server Interface Card -->
                 <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
@@ -4514,7 +4617,17 @@ namespace TallyDbLoader.Wpf.Views
         <!-- Save Button Footer -->
         <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0" Margin="0,16,0,0">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="Save Global Settings" Command="{Binding SaveTallySettingsCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+                <Button Content="Save Global Settings" Command="{Binding SaveTallySettingsCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                    <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </StackPanel>
         </Border>
     </Grid>

@@ -2234,7 +2234,7 @@ namespace TallyDbLoader.Wpf
         {
             if (State == EngineState.Idle)
             {
-                ShowToast("Engine is idle", "Start the engine to sync.", "warn");
+                ShowToast("Engine is idle — start it to sync.", "", "info");
                 return;
             }
             if (_worker != null)
@@ -2254,7 +2254,7 @@ namespace TallyDbLoader.Wpf
         {
             if (State == EngineState.Idle)
             {
-                ShowToast("Engine is idle", "Start the engine to sync.", "warn");
+                ShowToast("Engine is idle — start it to sync.", "", "info");
                 return;
             }
             if (_worker != null)
@@ -3658,7 +3658,23 @@ namespace TallyDbLoader.Wpf
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="Start All" Command="{Binding StartSyncEngineCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
                 <Button Content="Stop Engine" Command="{Binding StopSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                <Button Content="Pause" Command="{Binding PauseSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}"/>
+                <Button Style="{StaticResource StandardButtonStyle}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                            <Setter Property="Content" Value="Pause"/>
+                            <Setter Property="Command" Value="{Binding PauseSyncEngineCommand}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="Paused">
+                                    <Setter Property="Content" Value="Resume"/>
+                                    <Setter Property="Command" Value="{Binding ResumeSyncEngineCommand}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="Idle">
+                                    <Setter Property="IsEnabled" Value="False"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </StackPanel>
         </Border>
 
@@ -4358,7 +4374,24 @@ namespace TallyDbLoader.Wpf.Views
         <Border Grid.Row="1" Background="{DynamicResource Layer2Brush}" Height="54" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,16" Padding="8,4">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="Export Log File" Command="{Binding ExportLogCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                <Button Content="Clear Stream" Command="{Binding ClearLogCommand}" Style="{StaticResource StandardButtonStyle}"/>
+                <Button Content="Clear Stream" Command="{Binding ClearLogCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
+                <Button Style="{StaticResource StandardButtonStyle}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                            <Setter Property="Content" Value="Pause"/>
+                            <Setter Property="Command" Value="{Binding PauseSyncEngineCommand}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="Paused">
+                                    <Setter Property="Content" Value="Resume"/>
+                                    <Setter Property="Command" Value="{Binding ResumeSyncEngineCommand}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding State}" Value="Idle">
+                                    <Setter Property="IsEnabled" Value="False"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
             </StackPanel>
         </Border>
 

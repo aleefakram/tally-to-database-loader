@@ -1598,6 +1598,7 @@ namespace TallyDbLoader.Core.Sync
               <converters:CountToVisibilityConverter x:Key="CountToVisibilityConverter"/>
               <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
               <converters:AddOneConverter x:Key="AddOneConverter"/>
+              <converters:UppercaseConverter x:Key="UppercaseConverter"/>
               <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
           </ResourceDictionary>
       </Application.Resources>
@@ -2929,6 +2930,7 @@ namespace TallyDbLoader.Wpf
 - Create: `src/TallyDbLoader.Wpf/Converters/NullToVisibilityConverter.cs`
 - Create: `src/TallyDbLoader.Wpf/Converters/CountToVisibilityConverter.cs`
 - Create: `src/TallyDbLoader.Wpf/Converters/AddOneConverter.cs`
+- Create: `src/TallyDbLoader.Wpf/Converters/UppercaseConverter.cs`
 
 - [ ] **Step 1: Write RelativeTimeConverter.cs**
 ```csharp
@@ -3178,6 +3180,26 @@ namespace TallyDbLoader.Wpf.Converters
         {
             if (value is int val) return val + 1;
             return 1;
+        }
+        public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
+    }
+}
+```
+
+- [ ] **Step 10: Write UppercaseConverter.cs**
+```csharp
+using System;
+using System.Globalization;
+using System.Windows.Data;
+
+namespace TallyDbLoader.Wpf.Converters
+{
+    public class UppercaseConverter : IValueConverter
+    {
+        public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        {
+            if (value is string s) return s.ToUpper();
+            return value?.ToString()?.ToUpper() ?? string.Empty;
         }
         public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) => throw new NotImplementedException();
     }
@@ -3760,7 +3782,7 @@ namespace TallyDbLoader.Wpf.Views
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Border Background="{Binding Status, Converter={StaticResource StatusToToneConverter}}" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
-                                <TextBlock Text="{Binding Status}" Foreground="White" FontSize="10" FontWeight="SemiBold" TextTransform="Uppercase"/>
+                                <TextBlock Text="{Binding Status, Converter={StaticResource UppercaseConverter}}" Foreground="White" FontSize="10" FontWeight="SemiBold"/>
                             </Border>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
@@ -4009,7 +4031,7 @@ namespace TallyDbLoader.Wpf.Views
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
                                                 <Border Grid.Column="0" Background="{Binding Status, Converter={StaticResource StatusToToneConverter}}" CornerRadius="3" Padding="4,1" Margin="0,0,8,0" VerticalAlignment="Center">
-                                                    <TextBlock Text="{Binding Status}" Foreground="White" FontSize="9" FontWeight="Bold" TextTransform="Uppercase"/>
+                                                    <TextBlock Text="{Binding Status, Converter={StaticResource UppercaseConverter}}" Foreground="White" FontSize="9" FontWeight="Bold"/>
                                                 </Border>
                                                 <StackPanel Grid.Column="1">
                                                     <TextBlock Text="{Binding StartedAt, StringFormat='{}{0:dd-MMM HH:mm}'}" Style="{StaticResource BodyTextStyle}" FontSize="12"/>
@@ -4143,7 +4165,7 @@ namespace TallyDbLoader.Wpf.Views
                                         <TextBlock Text="{Binding Server, StringFormat='Host: {0}'}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"/>
                                         <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
                                             <Border Background="{DynamicResource Layer2Brush}" CornerRadius="3" Padding="4,1" Margin="0,0,6,0">
-                                                <TextBlock Text="{Binding Technology}" FontSize="9" TextTransform="Uppercase"/>
+                                                <TextBlock Text="{Binding Technology, Converter={StaticResource UppercaseConverter}}" FontSize="9"/>
                                             </Border>
                                             <TextBlock Text="{Binding UsedByCount, StringFormat='{}{0} linked syncs'}" FontSize="10" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center"/>
                                         </StackPanel>
@@ -4409,7 +4431,7 @@ namespace TallyDbLoader.Wpf.Views
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Border Background="{Binding Status, Converter={StaticResource StatusToToneConverter}}" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
-                                    <TextBlock Text="{Binding Status}" Foreground="White" FontSize="10" FontWeight="SemiBold" TextTransform="Uppercase"/>
+                                    <TextBlock Text="{Binding Status, Converter={StaticResource UppercaseConverter}}" Foreground="White" FontSize="10" FontWeight="SemiBold"/>
                                 </Border>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
@@ -4427,10 +4449,10 @@ namespace TallyDbLoader.Wpf.Views
                             <TextBlock Text="{Binding SelectedRun.CompanyName}" Style="{StaticResource SubtitleTextStyle}" FontSize="16" Margin="0,0,0,8"/>
                             <StackPanel Orientation="Horizontal">
                                 <Border Background="{Binding SelectedRun.Status, Converter={StaticResource StatusToToneConverter}}" CornerRadius="4" Padding="6,2" Margin="0,0,8,0">
-                                    <TextBlock Text="{Binding SelectedRun.Status}" Foreground="White" FontSize="10" FontWeight="SemiBold" TextTransform="Uppercase"/>
+                                    <TextBlock Text="{Binding SelectedRun.Status, Converter={StaticResource UppercaseConverter}}" Foreground="White" FontSize="10" FontWeight="SemiBold"/>
                                 </Border>
                                 <Border Background="{DynamicResource Layer2Brush}" CornerRadius="4" Padding="6,2">
-                                    <TextBlock Text="{Binding SelectedRun.Mode}" Foreground="{DynamicResource ForegroundBrush}" FontSize="10" FontWeight="SemiBold" TextTransform="Uppercase"/>
+                                    <TextBlock Text="{Binding SelectedRun.Mode, Converter={StaticResource UppercaseConverter}}" Foreground="{DynamicResource ForegroundBrush}" FontSize="10" FontWeight="SemiBold"/>
                                 </Border>
                             </StackPanel>
                         </StackPanel>
@@ -4491,22 +4513,30 @@ namespace TallyDbLoader.Wpf.Views
                             <TextBlock Text="Entity Breakdown" Style="{StaticResource SubtitleTextStyle}" FontSize="12" Margin="0,0,0,8"/>
                             
                             <StackPanel Margin="0,4,0,0">
-                                <Grid Padding="0,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-                                    <TextBlock Text="Vouchers" Style="{StaticResource BodyTextStyle}"/>
-                                    <TextBlock Text="{Binding SelectedRun.RowsWritten}" HorizontalAlignment="Right" FontFamily="Cascadia Mono" FontWeight="SemiBold"/>
-                                </Grid>
-                                <Grid Padding="0,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-                                    <TextBlock Text="Ledgers" Style="{StaticResource BodyTextStyle}"/>
-                                    <TextBlock Text="Synced" HorizontalAlignment="Right" Foreground="#16a34a"/>
-                                </Grid>
-                                <Grid Padding="0,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
-                                    <TextBlock Text="Stock Items" Style="{StaticResource BodyTextStyle}"/>
-                                    <TextBlock Text="Synced" HorizontalAlignment="Right" Foreground="#16a34a"/>
-                                </Grid>
-                                <Grid Padding="0,4">
-                                    <TextBlock Text="Groups" Style="{StaticResource BodyTextStyle}"/>
-                                    <TextBlock Text="Synced" HorizontalAlignment="Right" Foreground="#16a34a"/>
-                                </Grid>
+                                <Border Padding="0,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                                    <Grid>
+                                        <TextBlock Text="Vouchers" Style="{StaticResource BodyTextStyle}"/>
+                                        <TextBlock Text="{Binding SelectedRun.RowsWritten}" HorizontalAlignment="Right" FontFamily="Cascadia Mono" FontWeight="SemiBold"/>
+                                    </Grid>
+                                </Border>
+                                <Border Padding="0,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                                    <Grid>
+                                        <TextBlock Text="Ledgers" Style="{StaticResource BodyTextStyle}"/>
+                                        <TextBlock Text="Synced" HorizontalAlignment="Right" Foreground="#16a34a"/>
+                                    </Grid>
+                                </Border>
+                                <Border Padding="0,4" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1">
+                                    <Grid>
+                                        <TextBlock Text="Stock Items" Style="{StaticResource BodyTextStyle}"/>
+                                        <TextBlock Text="Synced" HorizontalAlignment="Right" Foreground="#16a34a"/>
+                                    </Grid>
+                                </Border>
+                                <Border Padding="0,4">
+                                    <Grid>
+                                        <TextBlock Text="Groups" Style="{StaticResource BodyTextStyle}"/>
+                                        <TextBlock Text="Synced" HorizontalAlignment="Right" Foreground="#16a34a"/>
+                                    </Grid>
+                                </Border>
                             </StackPanel>
                         </StackPanel>
                     </Border>
@@ -4850,17 +4880,19 @@ namespace TallyDbLoader.Wpf.Views
         </TabControl>
 
         <!-- Navigation Footer -->
-        <Grid Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            
-            <Button Grid.Column="0" Content="Back" Command="{Binding NavigateCommand}" CommandParameter="WizardBack" Style="{StaticResource StandardButtonStyle}"/>
-            <Button Grid.Column="1" Content="Skip &amp; Finish Later" Command="{Binding NavigateCommand}" CommandParameter="Dashboard" Style="{StaticResource HyperlinkButtonStyle}" HorizontalAlignment="Center"/>
-            <Button Grid.Column="2" Content="Continue" Command="{Binding NavigateCommand}" CommandParameter="WizardNext" Style="{StaticResource PrimaryButtonStyle}"/>
-        </Grid>
+        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <Button Grid.Column="0" Content="Back" Command="{Binding NavigateCommand}" CommandParameter="WizardBack" Style="{StaticResource StandardButtonStyle}"/>
+                <Button Grid.Column="1" Content="Skip &amp; Finish Later" Command="{Binding NavigateCommand}" CommandParameter="Dashboard" Style="{StaticResource HyperlinkButtonStyle}" HorizontalAlignment="Center"/>
+                <Button Grid.Column="2" Content="Continue" Command="{Binding NavigateCommand}" CommandParameter="WizardNext" Style="{StaticResource PrimaryButtonStyle}"/>
+            </Grid>
+        </Border>
     </Grid>
 </Page>
 ```

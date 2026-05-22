@@ -3665,7 +3665,7 @@ namespace TallyDbLoader.Wpf
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="Start All" Command="{Binding StartSyncEngineCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
                 <Button Content="Stop Engine" Command="{Binding StopSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                <Button Content="Pause" Command="{Binding PauseSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}">
+                <Button Content="Pause" Command="{Binding PauseSyncEngineCommand}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -3677,7 +3677,7 @@ namespace TallyDbLoader.Wpf
                         </Style>
                     </Button.Style>
                 </Button>
-                <Button Content="Resume" Command="{Binding ResumeSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}">
+                <Button Content="Resume" Command="{Binding ResumeSyncEngineCommand}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -4389,7 +4389,7 @@ namespace TallyDbLoader.Wpf.Views
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="Export Log File" Command="{Binding ExportLogCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
                 <Button Content="Clear Stream" Command="{Binding ClearLogCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                <Button Content="Pause" Command="{Binding PauseSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0">
+                <Button Content="Pause" Command="{Binding PauseSyncEngineCommand}" Margin="0,0,8,0">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -4401,7 +4401,7 @@ namespace TallyDbLoader.Wpf.Views
                         </Style>
                     </Button.Style>
                 </Button>
-                <Button Content="Resume" Command="{Binding ResumeSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}">
+                <Button Content="Resume" Command="{Binding ResumeSyncEngineCommand}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
                             <Setter Property="Visibility" Value="Collapsed"/>

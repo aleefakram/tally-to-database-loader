@@ -2261,7 +2261,14 @@ namespace TallyDbLoader.Wpf
             {
                 int? companyId = parameter as int?;
                 _worker.TriggerManualSync(companyId);
-                ShowToast("Sync queued", "Schedule tick requested.", "info");
+                
+                string name = "Company";
+                if (companyId.HasValue)
+                {
+                    var company = Companies.FirstOrDefault(c => c.Id == companyId.Value);
+                    if (company != null) name = company.Name;
+                }
+                ShowToast("Sync queued", $"{name} will run on the next worker tick.", "info");
             }
         }
 
@@ -3658,18 +3665,25 @@ namespace TallyDbLoader.Wpf
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="Start All" Command="{Binding StartSyncEngineCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
                 <Button Content="Stop Engine" Command="{Binding StopSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                <Button Style="{StaticResource StandardButtonStyle}">
+                <Button Content="Pause" Command="{Binding PauseSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
-                            <Setter Property="Content" Value="Pause"/>
-                            <Setter Property="Command" Value="{Binding PauseSyncEngineCommand}"/>
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="Running">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <Button Content="Resume" Command="{Binding ResumeSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding State}" Value="Paused">
-                                    <Setter Property="Content" Value="Resume"/>
-                                    <Setter Property="Command" Value="{Binding ResumeSyncEngineCommand}"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding State}" Value="Idle">
-                                    <Setter Property="IsEnabled" Value="False"/>
+                                    <Setter Property="Visibility" Value="Visible"/>
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>
@@ -4375,18 +4389,25 @@ namespace TallyDbLoader.Wpf.Views
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="Export Log File" Command="{Binding ExportLogCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
                 <Button Content="Clear Stream" Command="{Binding ClearLogCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                <Button Style="{StaticResource StandardButtonStyle}">
+                <Button Content="Pause" Command="{Binding PauseSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0">
                     <Button.Style>
                         <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
-                            <Setter Property="Content" Value="Pause"/>
-                            <Setter Property="Command" Value="{Binding PauseSyncEngineCommand}"/>
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="Running">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <Button Content="Resume" Command="{Binding ResumeSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
                             <Style.Triggers>
                                 <DataTrigger Binding="{Binding State}" Value="Paused">
-                                    <Setter Property="Content" Value="Resume"/>
-                                    <Setter Property="Command" Value="{Binding ResumeSyncEngineCommand}"/>
-                                </DataTrigger>
-                                <DataTrigger Binding="{Binding State}" Value="Idle">
-                                    <Setter Property="IsEnabled" Value="False"/>
+                                    <Setter Property="Visibility" Value="Visible"/>
                                 </DataTrigger>
                             </Style.Triggers>
                         </Style>

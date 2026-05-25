@@ -1,0 +1,9 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style x:Key="CommandBarPanelStyle" TargetType="StackPanel">
+        <Setter Property="Height" Value="54"/>
+        <Setter Property="Background" Value="{DynamicResource Layer2Brush}"/>
+        <Setter Property="Orientation" Value="Horizontal"/>
+        <Setter Property="Margin" Value="0"/>
+    </Style>
+</ResourceDictionary>

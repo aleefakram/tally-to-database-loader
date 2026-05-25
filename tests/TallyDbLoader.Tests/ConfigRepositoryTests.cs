@@ -41,7 +41,7 @@ namespace TallyDbLoader.Tests
         }
 
         [Fact]
-        public void Test_SyncJob_CRUD()
+        public void Test_CompanyProfile_CRUD()
         {
             string testDbPath = "test_jobs.db";
             if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);
@@ -61,22 +61,22 @@ namespace TallyDbLoader.Tests
             repo.SaveDatabaseProfile(profile);
             var savedProfile = repo.GetDatabaseProfileByName("TargetPostgres");
 
-            var job = new SyncJob
+            var company = new CompanyProfile
             {
-                CompanyName = "Yaghma Kababs",
+                Name = "Yaghma Kababs",
                 DbProfileId = savedProfile.Id,
                 TargetCatalog = "yaghma_db",
-                SyncIntervalMinutes = 15,
-                DailyTimeLocal = null,
-                Status = "Idle"
+                IntervalMinutes = 15,
+                Status = "Idle",
+                Enabled = true
             };
 
-            repo.SaveSyncJob(job);
-            var jobs = repo.GetAllSyncJobs();
+            repo.SaveCompanyProfile(company);
+            var companies = repo.GetAllCompanyProfiles();
 
-            Assert.Single(jobs);
-            Assert.Equal("Yaghma Kababs", jobs[0].CompanyName);
-            Assert.Equal(savedProfile.Id, jobs[0].DbProfileId);
+            Assert.Single(companies);
+            Assert.Equal("Yaghma Kababs", companies[0].Name);
+            Assert.Equal(savedProfile.Id, companies[0].DbProfileId);
 
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);
@@ -100,18 +100,19 @@ namespace TallyDbLoader.Tests
             repo.SaveDatabaseProfile(profile);
             var savedProfile = repo.GetAllDatabaseProfiles().First();
 
-            var job = new SyncJob
+            var company = new CompanyProfile
             {
-                CompanyName = "Company A",
+                Name = "Company A",
                 DbProfileId = savedProfile.Id,
                 TargetCatalog = "catalog_a",
-                SyncIntervalMinutes = 30,
-                SyncMode = "incremental"
+                IntervalMinutes = 30,
+                Mode = "incremental",
+                Enabled = true
             };
 
-            repo.SaveSyncJob(job);
-            var retrieved = repo.GetAllSyncJobs().First();
-            Assert.Equal("incremental", retrieved.SyncMode);
+            repo.SaveCompanyProfile(company);
+            var retrieved = repo.GetAllCompanyProfiles().First();
+            Assert.Equal("incremental", retrieved.Mode);
 
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);

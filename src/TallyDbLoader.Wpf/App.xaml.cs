@@ -34,6 +34,7 @@ namespace TallyDbLoader.Wpf
                 }
                 catch (ObjectDisposedException) { }
                 catch (ApplicationException) { }
+                catch (AbandonedMutexException) { }
                 _mutex.Dispose();
             }
             base.OnExit(e);

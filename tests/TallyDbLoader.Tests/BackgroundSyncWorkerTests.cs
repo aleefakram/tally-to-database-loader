@@ -29,6 +29,10 @@ namespace TallyDbLoader.Tests
                 {
                     contentStr = CompanyInfoResponse;
                 }
+                else if (requestContent.Contains("MyReportLedgerTable"))
+                {
+                    contentStr = "<ENVELOPE><BODY><DATA><ROW><NAME>TestCompany</NAME><ISGROUP>false</ISGROUP></ROW></DATA></BODY></ENVELOPE>";
+                }
                 else
                 {
                     contentStr = TableDataResponse;
@@ -66,17 +70,17 @@ namespace TallyDbLoader.Tests
             repo.SaveDatabaseProfile(profile);
             var savedProfile = repo.GetDatabaseProfileByName("LocalPg");
 
-            // Add sync job
-            var job = new SyncJob
+            // Add sync profile
+            var job = new CompanyProfile
             {
-                CompanyName = "TestCompany",
+                Name = "TestCompany",
                 DbProfileId = savedProfile.Id,
                 TargetCatalog = "test_catalog",
-                SyncIntervalMinutes = 1,
-                DailyTimeLocal = null,
-                Status = "Idle"
+                IntervalMinutes = 1,
+                Status = "Idle",
+                Enabled = true
             };
-            repo.SaveSyncJob(job);
+            repo.SaveCompanyProfile(job);
 
             // Write temporary yaml config to execution directory
             var yamlContent = @"
@@ -112,11 +116,10 @@ transaction: []
             await Task.Delay(2000);
             worker.Stop();
 
-            // Check if YAML was parsed and job orchestration started
-            Assert.Contains(logs, l => l.Contains("Loading Tally definition file"));
-            Assert.Contains(logs, l => l.Contains("Parsed YAML configuration"));
-            Assert.Contains(logs, l => l.Contains("Target database technology: sqlite"));
-            Assert.Contains(logs, l => l.Contains("completed successfully"));
+            // Check if sync loop processed the job
+            Assert.Contains(logs, l => l.Contains("Background Sync Engine started."));
+            Assert.Contains(logs, l => l.Contains("Starting sync for company 'TestCompany'"));
+            Assert.Contains(logs, l => l.Contains("sync finished. Wrote"));
 
             // Cleanup
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
@@ -149,18 +152,18 @@ transaction: []
             repo.SaveDatabaseProfile(profile);
             var savedProfile = repo.GetDatabaseProfileByName("LocalPg");
 
-            // Add sync job with incremental mode
-            var job = new SyncJob
+            // Add sync profile with incremental mode
+            var job = new CompanyProfile
             {
-                CompanyName = "TestCompany",
+                Name = "TestCompany",
                 DbProfileId = savedProfile.Id,
                 TargetCatalog = "test_catalog_inc",
-                SyncIntervalMinutes = 1,
-                DailyTimeLocal = null,
+                IntervalMinutes = 1,
                 Status = "Idle",
-                SyncMode = "incremental"
+                Mode = "incremental",
+                Enabled = true
             };
-            repo.SaveSyncJob(job);
+            repo.SaveCompanyProfile(job);
 
             // Pre-initialize the target table so deletes don't fail
             var tableConfig = new TableConfig
@@ -217,10 +220,11 @@ transaction: []
             await Task.Delay(2000);
             worker.Stop();
 
-            // Check if incremental sync log calls were made
-            Assert.Contains(logs, l => l.Contains("Performing incremental sync"));
-            Assert.Contains(logs, l => l.Contains("completed successfully"));
-            Assert.DoesNotContain(logs, l => l.Contains("failed:"));
+            // Check if sync log calls were made
+            Assert.Contains(logs, l => l.Contains("Background Sync Engine started."));
+            Assert.Contains(logs, l => l.Contains("Starting sync for company 'TestCompany'"));
+            Assert.Contains(logs, l => l.Contains("sync finished. Wrote"));
+            Assert.DoesNotContain(logs, l => l.Contains("failed"));
 
             // Cleanup
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
@@ -251,16 +255,16 @@ transaction: []
             repo.SaveDatabaseProfile(profile);
             var savedProfile = repo.GetDatabaseProfileByName("LocalPg");
 
-            var job = new SyncJob
+            var job = new CompanyProfile
             {
-                CompanyName = "TestCompany",
+                Name = "TestCompany",
                 DbProfileId = savedProfile.Id,
                 TargetCatalog = "test_manual_catalog",
-                SyncIntervalMinutes = 60, // Set high so it doesn't trigger automatically on interval
-                DailyTimeLocal = null,
-                Status = "Idle"
+                IntervalMinutes = 60, // Set high so it doesn't trigger automatically on interval
+                Status = "Idle",
+                Enabled = true
             };
-            repo.SaveSyncJob(job);
+            repo.SaveCompanyProfile(job);
 
             var yamlContent = @"
 master:

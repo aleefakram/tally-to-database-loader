@@ -1,0 +1,91 @@
+<Page x:Class="TallyDbLoader.Wpf.Views.SettingsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      DataContext="{Binding}"
+      Title="System Settings">
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="System Settings" Style="{StaticResource DisplayTextStyle}"/>
+                <TextBlock Text="Modify global parameters for Tally Prime interfaces and service workers." Style="{StaticResource CaptionTextStyle}"/>
+            </StackPanel>
+            
+            <!-- Edits Locked Pill -->
+            <Border Grid.Column="1" CornerRadius="12" Background="#FFFBEB" BorderBrush="#FCD34D" BorderThickness="1" Padding="8,4" VerticalAlignment="Center" Margin="8,0,0,0" Visibility="{Binding IsSyncRunning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="Engine running — edits locked" Foreground="#B45309" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </Border>
+        </Grid>
+
+        <!-- Config Cards -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <ScrollViewer.Style>
+                <Style TargetType="ScrollViewer">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                            <Setter Property="Opacity" Value="0.94"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </ScrollViewer.Style>
+            <StackPanel Width="540" HorizontalAlignment="Left">
+                <!-- Tally Server Interface Card -->
+                <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
+                    <StackPanel>
+                        <TextBlock Text="Tally Prime Server Interface" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,12"/>
+
+                        <TextBlock Text="Tally Host / Server" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding TallyServer, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,12"/>
+
+                        <TextBlock Text="Tally Port Number" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding TallyPort, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,16"/>
+
+                        <CheckBox Content="Automatically start Tally executable if offline" IsChecked="{Binding AutoStartTally, Mode=TwoWay}" Margin="0,0,0,12"/>
+                        <Button Content="Test Interface Link" Command="{Binding TestTallyConnectionCommand}" Style="{StaticResource StandardButtonStyle}" HorizontalAlignment="Left"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Tally Exe Paths Card -->
+                <Border Style="{StaticResource FluentCardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Executable File Paths" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,12"/>
+
+                        <TextBlock Text="Path to Tally.exe" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding TallyExePath, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,12"/>
+
+                        <TextBlock Text="Path to Tally.ini Configuration" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                        <TextBox Text="{Binding TallyIniPath, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Save Button Footer -->
+        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0" Margin="0,16,0,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Save Global Settings" Command="{Binding SaveTallySettingsCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                    <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Page>

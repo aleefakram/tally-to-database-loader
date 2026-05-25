@@ -1,40 +1,30 @@
 using System;
 using System.ComponentModel;
 using System.Windows;
+using System.Windows.Controls;
+using TallyDbLoader.Wpf.Views;
 
 namespace TallyDbLoader.Wpf
 {
     public partial class MainWindow : Window
     {
+        private readonly MainViewModel _vm;
         private TrayController? _trayController;
         private bool _isExiting = false;
 
         public MainWindow()
         {
             InitializeComponent();
-            Loaded += MainWindow_Loaded;
-            if (System.Windows.Application.Current != null)
-            {
-                System.Windows.Application.Current.SessionEnding += App_SessionEnding;
-            }
-        }
 
-        public void ExitApplication()
-        {
-            _isExiting = true;
-            System.Windows.Application.Current?.Shutdown();
-        }
+            // Instantiate VM directly — do NOT rely on DataContext being set by XAML
+            _vm = new MainViewModel("config.db");
+            DataContext = _vm;
 
-        private void App_SessionEnding(object sender, SessionEndingCancelEventArgs e)
-        {
-            _isExiting = true;
-        }
+            _vm.PropertyChanged += OnVmPropertyChanged;
 
-        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
-        {
+            // Setup tray controller and company picker callback
             _trayController = new TrayController(this);
-            var vm = new MainViewModel("config.db");
-            vm.CompanySelector = (companies) =>
+            _vm.CompanySelector = (companies) =>
             {
                 var dialog = new CompanySelectionWindow(companies);
                 dialog.Owner = this;
@@ -44,7 +34,31 @@ namespace TallyDbLoader.Wpf
                 }
                 return null;
             };
-            DataContext = vm;
+
+            // Session ending handler
+            if (System.Windows.Application.Current != null)
+            {
+                System.Windows.Application.Current.SessionEnding += App_SessionEnding;
+            }
+
+            NavigateToRoute(_vm.CurrentRoute);
+        }
+
+        private void App_SessionEnding(object sender, SessionEndingCancelEventArgs e)
+        {
+            if (_isExiting) return;
+            _isExiting = true;
+            _vm.Dispose();
+            _trayController?.Dispose();
+        }
+
+        public void ExitApplication()
+        {
+            if (_isExiting) return;
+            _isExiting = true;
+            _vm.Dispose();
+            _trayController?.Dispose();
+            System.Windows.Application.Current?.Shutdown();
         }
 
         protected override void OnStateChanged(EventArgs e)
@@ -67,120 +81,52 @@ namespace TallyDbLoader.Wpf
             base.OnClosing(e);
         }
 
-        private void StartButton_Click(object sender, RoutedEventArgs e)
+        private void OnVmPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (DataContext is MainViewModel vm)
+            if (e.PropertyName == nameof(MainViewModel.CurrentRoute))
             {
-                vm.StartSyncEngine();
+                NavigateToRoute(_vm.CurrentRoute);
             }
         }
 
-        private void StopButton_Click(object sender, RoutedEventArgs e)
+        private void NavigateToRoute(NavigationRoute route)
         {
-            if (DataContext is MainViewModel vm)
-            {
-                vm.StopSyncEngine();
-            }
-        }
-        private void SaveTallyButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                vm.SaveTallySettings();
-            }
-        }
+            var frame = (Frame)FindName("NavigationFrame");
+            if (frame == null) return;
 
-        private void SaveDbProfileButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
+            Page? page = null;
+            switch (route.Screen)
             {
-                vm.SaveDatabaseProfile();
+                case RouteScreen.Dashboard:
+                    page = new DashboardPage();
+                    break;
+                case RouteScreen.Companies:
+                    page = new CompaniesPage();
+                    break;
+                case RouteScreen.CompanyProfile:
+                    page = new CompanyProfilePage();
+                    break;
+                case RouteScreen.Databases:
+                    page = new DatabasesPage();
+                    break;
+                case RouteScreen.Log:
+                    page = new LogPage();
+                    break;
+                case RouteScreen.History:
+                    page = new HistoryPage();
+                    break;
+                case RouteScreen.Settings:
+                    page = new SettingsPage();
+                    break;
+                case RouteScreen.Wizard:
+                    page = new SetupWizardPage();
+                    break;
             }
-        }
 
-        private void AddSyncJobButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
+            if (page != null)
             {
-                vm.AddSyncJob();
-            }
-        }
-
-        private void DeleteJobButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                if (vm.SelectedSyncJob != null)
-                {
-                    vm.DeleteSyncJob(vm.SelectedSyncJob);
-                }
-            }
-        }
-
-        private void DeleteDbProfileButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                if (vm.SelectedDatabaseProfile != null)
-                {
-                    vm.DeleteDatabaseProfile(vm.SelectedDatabaseProfile);
-                }
-            }
-        }
-
-        private void TestConnectionButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                vm.TestDatabaseConnection();
-            }
-        }
-
-        private async void DetectCompaniesButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                await vm.DetectActiveCompaniesAsync();
-            }
-        }
-
-        private void EditJobButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                if (vm.SelectedSyncJob != null)
-                {
-                    vm.StartEditingSyncJob(vm.SelectedSyncJob);
-                    MainTabControl.SelectedIndex = 1;
-                }
-            }
-        }
-
-        private void EditDbProfileButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                if (vm.SelectedDatabaseProfile != null)
-                {
-                    vm.StartEditingDbProfile(vm.SelectedDatabaseProfile);
-                    MainTabControl.SelectedIndex = 1;
-                }
-            }
-        }
-
-        private void CancelDbEditButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                vm.CancelDbEdit();
-            }
-        }
-
-        private void CancelJobEditButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (DataContext is MainViewModel vm)
-            {
-                vm.CancelJobEdit();
+                page.DataContext = _vm;
+                frame.Navigate(page);
             }
         }
     }

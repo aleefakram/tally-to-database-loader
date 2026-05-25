@@ -1,367 +1,96 @@
 <Window x:Class="TallyDbLoader.Wpf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Tally-to-Database Sync Utility" Height="700" Width="980"
-        Background="#121212" Foreground="#FFFFFF" FontFamily="Segoe UI" WindowStartupLocation="CenterScreen">
+        xmlns:local="clr-namespace:TallyDbLoader.Wpf"
+        Title="Tally to Database Loader" Height="700" Width="1100"
+        Background="{DynamicResource BackgroundBrush}"
+        Foreground="{DynamicResource ForegroundBrush}">
     
-    <Window.Resources>
-        <!-- Dark Theme Control Templates to override OS forced styling -->
-        <Style TargetType="TabControl">
-            <Setter Property="Background" Value="#1A1A1A"/>
-            <Setter Property="BorderBrush" Value="#2D2D2D"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="5"/>
-        </Style>
-        
-        <Style TargetType="TabItem">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TabItem">
-                        <Border x:Name="Border" BorderThickness="1,1,1,1" BorderBrush="#2D2D2D" CornerRadius="4,4,0,0" Padding="15,8" Margin="0,0,4,0">
-                            <ContentPresenter x:Name="ContentSite" ContentSource="Header" RecognizesAccessKey="True" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="#4A90E2"/>
-                                <Setter TargetName="Border" Property="BorderBrush" Value="#4A90E2"/>
-                                <Setter Property="Foreground" Value="#FFFFFF"/>
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="False">
-                                <Setter TargetName="Border" Property="Background" Value="#222222"/>
-                                <Setter TargetName="Border" Property="BorderBrush" Value="#2D2D2D"/>
-                                <Setter Property="Foreground" Value="#CCCCCC"/>
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Border" Property="Background" Value="#333333"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition>
+                <ColumnDefinition.Style>
+                    <Style TargetType="ColumnDefinition">
+                        <Setter Property="Width" Value="240"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding CurrentRoute.Screen}" Value="{x:Static local:RouteScreen.Wizard}">
+                                <Setter Property="Width" Value="0"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </ColumnDefinition.Style>
+            </ColumnDefinition>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
 
-        <Style TargetType="DataGrid">
-            <Setter Property="Background" Value="#1E1E1E"/>
-            <Setter Property="RowBackground" Value="#252525"/>
-            <Setter Property="AlternatingRowBackground" Value="#1E1E1E"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#333333"/>
-            <Setter Property="HorizontalGridLinesBrush" Value="#2A2A2A"/>
-            <Setter Property="VerticalGridLinesBrush" Value="#2A2A2A"/>
-            <Setter Property="RowHeaderWidth" Value="0"/>
-            <Setter Property="GridLinesVisibility" Value="Horizontal"/>
-        </Style>
+        <!-- Navigation Drawer Rail -->
+        <Border Grid.Column="0" Background="{DynamicResource DrawerBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding CurrentRoute.Screen}" Value="{x:Static local:RouteScreen.Wizard}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Grid Margin="10,20,10,20">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-        <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="#2A2A2A"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="Padding" Value="10,8"/>
-            <Setter Property="BorderThickness" Value="0,0,0,1"/>
-            <Setter Property="BorderBrush" Value="#3D3D3D"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-        </Style>
+                <TextBlock Text="Tally Db Loader" Style="{DynamicResource DisplayTextStyle}" FontSize="20" Margin="10,0,0,20"/>
 
-        <Style TargetType="DataGridCell">
-            <Setter Property="Padding" Value="10,8"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Style.Triggers>
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#3A78C4"/>
-                    <Setter Property="Foreground" Value="#FFFFFF"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+                <StackPanel Grid.Row="1">
+                    <Button Content="Dashboard" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.Dashboard}"/>
+                    <Button Content="Companies" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.Companies}"/>
+                    <Button Content="Database Profiles" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.Databases}"/>
+                    <Button Content="Execution Log" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.Log}"/>
+                    <Button Content="Run History" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.History}"/>
+                </StackPanel>
 
-        <Style TargetType="TextBox">
-            <Setter Property="Background" Value="#2D2D2D"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#444444"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="Margin" Value="0,0,0,10"/>
-        </Style>
-
-        <!-- ComboBox Dark Mode Customization -->
-        <Style TargetType="ComboBox">
-            <Setter Property="Background" Value="#2D2D2D"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderBrush" Value="#444444"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="Margin" Value="0,0,0,10"/>
-            <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-        </Style>
-
-        <Style TargetType="ComboBoxItem">
-            <Setter Property="Background" Value="#2D2D2D"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="Padding" Value="8,5"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#4A90E2"/>
-                    <Setter Property="Foreground" Value="#FFFFFF"/>
-                </Trigger>
-                <Trigger Property="IsSelected" Value="True">
-                    <Setter Property="Background" Value="#3A78C4"/>
-                    <Setter Property="Foreground" Value="#FFFFFF"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style TargetType="Button">
-            <Setter Property="Background" Value="#4A90E2"/>
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="15,8"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#5AA0F2"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style TargetType="CheckBox">
-            <Setter Property="Foreground" Value="#FFFFFF"/>
-            <Setter Property="Margin" Value="0,0,0,10"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
-    </Window.Resources>
-
-    <Grid Margin="15">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
-
-        <!-- Header Controls Deck -->
-        <Grid Grid.Row="0" Margin="0,0,0,15">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            
-            <StackPanel Grid.Column="0">
-                <TextBlock Text="Tally-to-Database Sync Utility" FontSize="26" FontWeight="Bold" Foreground="#4A90E2"/>
-                <TextBlock Text="Live synchronization orchestrator and SQLite administration client" FontSize="12" Foreground="#888888" Margin="0,2,0,0"/>
-            </StackPanel>
-            
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Content="Start Sync" Click="StartButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#4CAF50" Margin="0,0,10,0"/>
-                <Button Content="Stop Sync" Click="StopButton_Click" IsEnabled="{Binding IsSyncRunning}" Background="#F44336"/>
-            </StackPanel>
-        </Grid>
-
-        <!-- Main Workspace Tabs -->
-        <TabControl x:Name="MainTabControl" Grid.Row="1">
-            
-            <!-- TAB 1: Live Monitor -->
-            <TabItem Header="Dashboard Monitor">
-                <Grid Margin="15">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="*"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="180"/>
-                    </Grid.RowDefinitions>
- 
-                    <Grid Grid.Row="0" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="3*"/>
-                            <ColumnDefinition Width="2*"/>
-                        </Grid.ColumnDefinitions>
- 
-                        <!-- Sync Jobs Table -->
-                        <Border Grid.Column="0" Background="#1A1A1A" CornerRadius="6" Padding="12" Margin="0,0,8,0">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="Active Sync Schedules" FontSize="15" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,10"/>
-                                <DataGrid Grid.Row="1" ItemsSource="{Binding SyncJobs}" AutoGenerateColumns="False" IsReadOnly="True" SelectedItem="{Binding SelectedSyncJob, Mode=TwoWay}">
-                                    <DataGrid.Columns>
-                                        <DataGridTextColumn Header="Company Name" Binding="{Binding CompanyName}" Width="2*"/>
-                                        <DataGridTextColumn Header="Catalog Name" Binding="{Binding TargetCatalog}" Width="*"/>
-                                        <DataGridTextColumn Header="Sync Mode" Binding="{Binding SyncMode}" Width="90"/>
-                                        <DataGridTextColumn Header="Interval" Binding="{Binding SyncIntervalMinutes}" Width="80"/>
-                                        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="100"/>
-                                    </DataGrid.Columns>
-                                </DataGrid>
-                            </Grid>
-                        </Border>
- 
-                        <!-- Database Profiles Table -->
-                        <Border Grid.Column="1" Background="#1A1A1A" CornerRadius="6" Padding="12" Margin="8,0,0,0">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="Database Targets" FontSize="15" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,10"/>
-                                <DataGrid Grid.Row="1" ItemsSource="{Binding DatabaseProfiles}" AutoGenerateColumns="False" IsReadOnly="True" SelectedItem="{Binding SelectedDatabaseProfile, Mode=TwoWay}">
-                                    <DataGrid.Columns>
-                                        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*"/>
-                                        <DataGridTextColumn Header="Technology" Binding="{Binding Technology}" Width="100"/>
-                                        <DataGridTextColumn Header="Server" Binding="{Binding Server}" Width="*"/>
-                                    </DataGrid.Columns>
-                                </DataGrid>
-                            </Grid>
-                        </Border>
-                    </Grid>
- 
-                    <!-- CRUD Action Row directly under tables -->
-                    <Grid Grid.Row="1" Margin="0,0,0,15">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="3*"/>
-                            <ColumnDefinition Width="2*"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,0,8,0">
-                            <Button Content="Edit Selected Job" Click="EditJobButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#4A90E2" Padding="12,5" FontSize="11" Margin="0,0,8,0"/>
-                            <Button Content="Delete Selected Job" Click="DeleteJobButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#C62828" Padding="12,5" FontSize="11"/>
-                        </StackPanel>
-                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="8,0,0,0">
-                            <Button Content="Edit Selected Target" Click="EditDbProfileButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#4A90E2" Padding="12,5" FontSize="11" Margin="0,0,8,0"/>
-                            <Button Content="Delete Selected Target" Click="DeleteDbProfileButton_Click" IsEnabled="{Binding IsSyncNotRunning}" Background="#C62828" Padding="12,5" FontSize="11"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <!-- Real-Time Monospace Logs -->
-                    <Border Grid.Row="2" Background="#1A1A1A" CornerRadius="6" Padding="12">
+                <!-- Engine Pulse Dot inside Drawer Footer -->
+                <StackPanel Grid.Row="2" Margin="10">
+                    <Border CornerRadius="8" Background="{DynamicResource LayerBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="10">
                         <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="*"/>
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Text="Sync Orchestrator Log Output" FontSize="14" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,8"/>
-                            <TextBox Grid.Row="1" Text="{Binding LogOutput, Mode=OneWay}" Background="#0E0E0E" Foreground="#00FF33" 
-                                     FontFamily="Consolas" FontSize="11" IsReadOnly="True" BorderThickness="0"
-                                     VerticalScrollBarVisibility="Auto" AcceptsReturn="True" TextWrapping="Wrap"/>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Ellipse Width="10" Height="10" Fill="{Binding State, Converter={StaticResource EngineStateToColorConverter}}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Grid.Column="1" Text="{Binding StateText}" Style="{DynamicResource BodyStrongTextStyle}" VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
-                </Grid>
-            </TabItem>
+                    <Button Content="Settings" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.Settings}" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
 
-            <!-- TAB 2: Setup & CRUD configuration -->
-            <TabItem Header="Configuration &amp; Profiles">
-                <ScrollViewer Margin="15" VerticalScrollBarVisibility="Auto">
-                    <Grid IsEnabled="{Binding IsSyncNotRunning}">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+        <!-- Frame view container -->
+        <Frame x:Name="NavigationFrame" Grid.Column="1" JournalOwnership="OwnsJournal" NavigationUIVisibility="Hidden"/>
 
-                        <!-- Left Column: Tally Settings & Database Profiles CRUD -->
-                        <StackPanel Grid.Column="0" Margin="0,0,15,0">
-                            
-                            <!-- Global Tally Config -->
-                            <Border Background="#1A1A1A" CornerRadius="6" Padding="15" Margin="0,0,0,15">
-                                <StackPanel>
-                                    <TextBlock Text="Global Tally Configuration" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
-                                    
-                                    <TextBlock Text="Tally XML Host IP / Server" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding TallyServer, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Tally XML Port" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding TallyPort, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Tally.exe Path" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding TallyExePath, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Tally.ini Path (Optional)" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding TallyIniPath, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <CheckBox Content="Auto-start Tally Prime service if offline" IsChecked="{Binding AutoStartTally}" Margin="0,5,0,12"/>
-
-                                    <Button Content="Save Tally Settings" Click="SaveTallyButton_Click" HorizontalAlignment="Right" Background="#4A90E2"/>
-                                </StackPanel>
-                            </Border>
-
-                            <!-- Add Database Target Form -->
-                            <Border Background="#1A1A1A" CornerRadius="6" Padding="15">
-                                <StackPanel>
-                                    <TextBlock Text="{Binding DbFormHeader}" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
-
-                                    <TextBlock Text="Profile Display Name" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding DbName, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Technology (postgres / mssql)" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <ComboBox SelectedValuePath="Content" SelectedValue="{Binding DbTech, UpdateSourceTrigger=PropertyChanged}">
-                                        <ComboBoxItem Content="postgres" IsSelected="True"/>
-                                        <ComboBoxItem Content="mssql"/>
-                                    </ComboBox>
-
-                                    <TextBlock Text="Server Address" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding DbServer, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Server Port" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding DbPort, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Username" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding DbUsername, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Password" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding DbPassword, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Button Grid.Column="0" Content="Test Connection" Click="TestConnectionButton_Click" HorizontalAlignment="Left" Background="#7B1FA2"/>
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
-                                            <Button Content="Cancel" Click="CancelDbEditButton_Click" Background="#555555" Margin="0,0,8,0" Visibility="{Binding IsEditingDbProfileVisibility}"/>
-                                            <Button Content="{Binding DbSaveButtonText}" Click="SaveDbProfileButton_Click" Background="#4A90E2"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-
-                        <!-- Right Column: Sync Jobs CRUD -->
-                        <StackPanel Grid.Column="1" Margin="15,0,0,0">
-                            
-                            <!-- Add Sync Job Form -->
-                            <Border Background="#1A1A1A" CornerRadius="6" Padding="15">
-                                <StackPanel>
-                                    <TextBlock Text="{Binding JobFormHeader}" FontSize="16" FontWeight="SemiBold" Foreground="#4A90E2" Margin="0,0,0,12"/>
-
-                                    <TextBlock Text="Tally Target Company Name" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <Grid Margin="0,0,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBox Grid.Column="0" Text="{Binding JobCompany, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,5,10"/>
-                                        <Button Grid.Column="1" Content="Detect" Click="DetectCompaniesButton_Click" Background="#4A90E2" Padding="10,5" FontSize="11" Margin="0,0,0,10"/>
-                                    </Grid>
-
-                                    <TextBlock Text="Target Database Catalog" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding JobTargetCatalog, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Sync Interval (Minutes)" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <TextBox Text="{Binding JobInterval, UpdateSourceTrigger=PropertyChanged}"/>
-
-                                    <TextBlock Text="Database Target Connection Profile" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <ComboBox ItemsSource="{Binding DatabaseProfiles}" DisplayMemberPath="Name" SelectedItem="{Binding JobSelectedProfile, UpdateSourceTrigger=PropertyChanged}" Background="#2D2D2D"/>
-
-                                    <TextBlock Text="Sync Mode" FontSize="11" Foreground="#CCCCCC" Margin="0,0,0,4"/>
-                                    <ComboBox SelectedValuePath="Content" SelectedValue="{Binding JobSyncMode, UpdateSourceTrigger=PropertyChanged}" Background="#2D2D2D">
-                                        <ComboBoxItem Content="full"/>
-                                        <ComboBoxItem Content="incremental"/>
-                                    </ComboBox>
-
-                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                        <Button Content="Cancel" Click="CancelJobEditButton_Click" Background="#555555" Margin="0,0,8,0" Visibility="{Binding IsEditingJobVisibility}"/>
-                                        <Button Content="{Binding JobSaveButtonText}" Click="AddSyncJobButton_Click" Background="#4A90E2"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                    </Grid>
-                </ScrollViewer>
-            </TabItem>
-        </TabControl>
+        <!-- Toast Notification Overlay Stack -->
+        <ItemsControl Grid.Column="1" ItemsSource="{Binding Toasts}" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,0,18,32" Panel.ZIndex="99">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Background="{DynamicResource LayerBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6" Width="280" Margin="0,8,0,0" Padding="12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="6"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="{Binding Kind, Converter={StaticResource StatusToToneConverter}}" CornerRadius="3" Width="4"/>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                <TextBlock Text="{Binding Title}" Style="{DynamicResource SubtitleTextStyle}"/>
+                                <TextBlock Text="{Binding Body}" Style="{DynamicResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
     </Grid>
 </Window>

@@ -1,0 +1,217 @@
+<Page x:Class="TallyDbLoader.Wpf.Views.SetupWizardPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:helpers="clr-namespace:TallyDbLoader.Wpf.Helpers"
+      DataContext="{Binding}"
+      Title="Setup Wizard">
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Top Step Indicators -->
+        <Border Grid.Row="0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,16" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                
+                <TextBlock Grid.Column="1" Style="{StaticResource DisplayTextStyle}" FontSize="18" TextAlignment="Center">
+                    <Run Text="Step "/>
+                    <Run Text="{Binding WizardStepIndex, Converter={StaticResource AddOneConverter}, Mode=OneWay}"/>
+                    <Run Text=" of 6"/>
+                </TextBlock>
+            </Grid>
+        </Border>
+
+        <!-- Wizard Steps Container -->
+        <TabControl Grid.Row="1" SelectedIndex="{Binding WizardStepIndex}" BorderThickness="0" Background="Transparent">
+            <TabControl.ItemContainerStyle>
+                <Style TargetType="TabItem">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Style>
+            </TabControl.ItemContainerStyle>
+
+            <!-- Step 1: Welcome -->
+            <TabItem>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="480">
+                    <StackPanel>
+                        <TextBlock Text="Welcome to Tally Db Loader" Style="{StaticResource DisplayTextStyle}" FontSize="24" HorizontalAlignment="Center" Margin="0,0,0,12"/>
+                        <TextBlock Text="This wizard will help you configure your database connection, link your Tally Prime company, and set up your initial extraction schedules." 
+                                   Style="{StaticResource BodyTextStyle}" TextAlignment="Center" TextWrapping="Wrap" Margin="0,0,0,24"/>
+                        <Button Content="Get Started →" Command="{Binding NavigateCommand}" CommandParameter="WizardNext" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Center" Width="200" Height="40"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Step 2: Tally Settings -->
+            <TabItem>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="480">
+                    <StackPanel>
+                        <TextBlock Text="Configure Tally Prime Connection" Style="{StaticResource DisplayTextStyle}" FontSize="20" Margin="0,0,0,4"/>
+                        <TextBlock Text="Enter details of your local or remote Tally Prime port." Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,16"/>
+
+                        <TextBlock Text="Tally Host / Server" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding TallyServer, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
+
+                        <TextBlock Text="Tally Port" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding TallyPort, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,16"/>
+
+                        <CheckBox Content="Automatically start Tally if not running" IsChecked="{Binding AutoStartTally, Mode=TwoWay}" Margin="0,0,0,16"/>
+
+                        <Button Content="Test Tally Reachability" Command="{Binding TestTallyConnectionCommand}" Style="{StaticResource StandardButtonStyle}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Step 3: Database Destination -->
+            <TabItem>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="480">
+                    <StackPanel>
+                        <TextBlock Text="Database Target Configuration" Style="{StaticResource DisplayTextStyle}" FontSize="20" Margin="0,0,0,4"/>
+                        <TextBlock Text="Set up the database destination where company data will be loaded." Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,16"/>
+
+                        <TextBlock Text="Quick Paste Connection String" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding ConnectionStringPasteText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
+
+                        <TextBlock Text="Database Profile Name" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding DbName, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Margin="0,0,8,0">
+                                <TextBlock Text="Technology" Style="{StaticResource CaptionMuteTextStyle}"/>
+                                <ComboBox SelectedValue="{Binding DbTech, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,4,0,12">
+                                    <ComboBoxItem Content="PostgreSQL" Tag="postgres"/>
+                                    <ComboBoxItem Content="SQL Server" Tag="mssql"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Margin="8,0,0,0">
+                                <TextBlock Text="Port" Style="{StaticResource CaptionMuteTextStyle}"/>
+                                <TextBox Text="{Binding DbPort, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Text="Server Address" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding DbServer, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
+
+                        <TextBlock Text="Username" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding DbUsername, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
+
+                        <TextBlock Text="Password" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <PasswordBox helpers:PasswordBoxHelper.BindBehavior="True" 
+                                     helpers:PasswordBoxHelper.BoundPassword="{Binding DbPassword, Mode=TwoWay}"
+                                     Margin="0,4,0,16"/>
+
+                        <Button Content="Test Connection" Command="{Binding TestDatabaseConnectionCommand}" Style="{StaticResource StandardButtonStyle}" HorizontalAlignment="Left" Margin="0,0,0,12"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Step 4: Choose Company -->
+            <TabItem>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="480">
+                    <StackPanel>
+                        <TextBlock Text="Link Tally Company Profile" Style="{StaticResource DisplayTextStyle}" FontSize="20" Margin="0,0,0,4"/>
+                        <TextBlock Text="Choose a company active in Tally Prime to sync." Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,16"/>
+
+                        <TextBlock Text="Selected Company" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding JobCompany, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,16"/>
+
+                        <Button Content="Detect Active Company from Tally" Command="{Binding DetectActiveCompaniesCommand}" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Left" Margin="0,0,0,16"/>
+
+                        <TextBlock Text="Target Database Name" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding JobTargetCatalog, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
+
+                        <TextBlock Text="Table Prefix" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <TextBox Text="{Binding JobTablePrefix, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Step 5: Schedule Settings -->
+            <TabItem>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="480">
+                    <StackPanel>
+                        <TextBlock Text="Configure Sync Schedule" Style="{StaticResource DisplayTextStyle}" FontSize="20" Margin="0,0,0,4"/>
+                        <TextBlock Text="Define synchronization interval and active tables." Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,16"/>
+
+                        <TextBlock Text="Extraction Mode" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <ComboBox SelectedValue="{Binding JobSyncMode, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,4,0,12">
+                            <ComboBoxItem Content="Full Extraction" Tag="full"/>
+                            <ComboBoxItem Content="Incremental (AlterID)" Tag="incremental"/>
+                        </ComboBox>
+
+                        <TextBlock Text="Sync Interval" Style="{StaticResource CaptionMuteTextStyle}"/>
+                        <ComboBox SelectedValue="{Binding JobInterval, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,4,0,16">
+                            <ComboBoxItem Content="15 Minutes" Tag="15"/>
+                            <ComboBoxItem Content="30 Minutes" Tag="30"/>
+                            <ComboBoxItem Content="1 Hour" Tag="60"/>
+                            <ComboBoxItem Content="2 Hours" Tag="120"/>
+                        </ComboBox>
+
+                        <TextBlock Text="Tables to Synchronize" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,8"/>
+                        <UniformGrid Columns="2">
+                            <CheckBox Content="Vouchers" IsChecked="{Binding JobSyncVouchers, Mode=TwoWay}" Margin="0,0,0,8"/>
+                            <CheckBox Content="Ledgers" IsChecked="{Binding JobSyncLedgers, Mode=TwoWay}" Margin="0,0,0,8"/>
+                            <CheckBox Content="Stock Items" IsChecked="{Binding JobSyncStockItems, Mode=TwoWay}" Margin="0,0,0,8"/>
+                            <CheckBox Content="Groups" IsChecked="{Binding JobSyncGroups, Mode=TwoWay}" Margin="0,0,0,8"/>
+                        </UniformGrid>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <!-- Step 6: Review -->
+            <TabItem>
+                <Grid VerticalAlignment="Center" HorizontalAlignment="Center" Width="480">
+                    <StackPanel>
+                        <TextBlock Text="Confirm Configuration" Style="{StaticResource DisplayTextStyle}" FontSize="20" Margin="0,0,0,4"/>
+                        <TextBlock Text="Verify your configuration before finishing the setup." Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,16"/>
+
+                        <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                
+                                <TextBlock Grid.Row="0" Text="{Binding TallyServer, StringFormat='Tally Host: {0}'}" Style="{StaticResource BodyTextStyle}" Margin="0,2"/>
+                                <TextBlock Grid.Row="1" Text="{Binding DbName, StringFormat='Database Profile: {0}'}" Style="{StaticResource BodyTextStyle}" Margin="0,2"/>
+                                <TextBlock Grid.Row="2" Text="{Binding JobCompany, StringFormat='Company Name: {0}'}" Style="{StaticResource BodyTextStyle}" Margin="0,2"/>
+                                <TextBlock Grid.Row="3" Text="{Binding JobInterval, StringFormat='Sync Interval: {0} minutes'}" Style="{StaticResource BodyTextStyle}" Margin="0,2"/>
+                            </Grid>
+                        </Border>
+
+                        <TextBlock Text="Clicking Finish will save all configuration profiles, initialize the database schema, and launch the background loader engine."
+                                   Style="{StaticResource CaptionTextStyle}" TextWrapping="Wrap" Margin="0,0,0,16"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Navigation Footer -->
+        <Border Grid.Row="2" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <Button Grid.Column="0" Content="Back" Command="{Binding NavigateCommand}" CommandParameter="WizardBack" Style="{StaticResource StandardButtonStyle}"/>
+                <Button Grid.Column="1" Content="Skip &amp; Finish Later" Command="{Binding NavigateCommand}" CommandParameter="Dashboard" Style="{StaticResource HyperlinkButtonStyle}" HorizontalAlignment="Center"/>
+                <Button Grid.Column="2" Content="Continue" Command="{Binding NavigateCommand}" CommandParameter="WizardNext" Style="{StaticResource PrimaryButtonStyle}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

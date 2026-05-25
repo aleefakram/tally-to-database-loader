@@ -1,0 +1,201 @@
+<Page x:Class="TallyDbLoader.Wpf.Views.DatabasesPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:helpers="clr-namespace:TallyDbLoader.Wpf.Helpers"
+      DataContext="{Binding}"
+      Title="Database Connections">
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Database Connections" Style="{StaticResource DisplayTextStyle}"/>
+                <TextBlock Text="Manage destinations where synchronized financial data is populated." Style="{StaticResource CaptionTextStyle}"/>
+            </StackPanel>
+            
+            <!-- Edits Locked Pill -->
+            <Border Grid.Column="1" CornerRadius="12" Background="#FFFBEB" BorderBrush="#FCD34D" BorderThickness="1" Padding="8,4" VerticalAlignment="Center" Margin="0,0,8,0" Visibility="{Binding IsSyncRunning, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <TextBlock Text="Engine running — edits locked" Foreground="#B45309" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            </Border>
+            <Button Grid.Column="2" Content="Add New Connection" Command="{Binding StartEditingDbProfileCommand}" CommandParameter="0" Style="{StaticResource PrimaryButtonStyle}" VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- Master-Detail 2-Pane Content -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Connection List (Left - Master) -->
+            <Border Grid.Column="0" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,1,0" Padding="0,0,16,0" Margin="0,0,16,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    
+                    <TextBlock Grid.Row="0" Text="Saved Profiles" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,8"/>
+                    
+                    <ListBox Grid.Row="1" ItemsSource="{Binding DatabaseProfiles}" SelectedItem="{Binding SelectedDatabaseProfile, Mode=TwoWay}"
+                             Background="Transparent" BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="8" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Margin="0,2">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="13"/>
+                                        <TextBlock Text="{Binding Server, StringFormat='Host: {0}'}" FontSize="11" Foreground="{DynamicResource MutedTextBrush}"/>
+                                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                            <Border Background="{DynamicResource Layer2Brush}" CornerRadius="3" Padding="4,1" Margin="0,0,6,0">
+                                                <TextBlock Text="{Binding Technology, Converter={StaticResource UppercaseConverter}}" FontSize="9"/>
+                                            </Border>
+                                            <TextBlock Text="{Binding UsedByCount, StringFormat='{}{0} linked syncs'}" FontSize="10" Foreground="{DynamicResource MutedTextBrush}" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
+            <!-- Editor Pane (Right - Detail) -->
+            <Grid Grid.Column="1">
+                <Grid.Style>
+                    <Style TargetType="Grid">
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                <Setter Property="Opacity" Value="0.94"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Grid.Style>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <!-- Main Fields Card -->
+                        <Border Style="{StaticResource FluentCardStyle}" Margin="0,0,0,16">
+                            <StackPanel>
+                                <TextBlock Text="{Binding DbFormHeader}" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,16"/>
+
+                                <!-- Quick Paste -->
+                                <TextBlock Text="Quick Paste Connection String (Optional)" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                                <TextBox Text="{Binding ConnectionStringPasteText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,16"/>
+
+                                <TextBlock Text="Profile Name" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                                <TextBox Text="{Binding DbName, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,12"/>
+
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="2*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                        <TextBlock Text="Database Technology" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                                        <ComboBox SelectedValue="{Binding DbTech, Mode=TwoWay}" SelectedValuePath="Tag">
+                                            <ComboBoxItem Content="PostgreSQL" Tag="postgres"/>
+                                            <ComboBoxItem Content="SQL Server" Tag="mssql"/>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                        <TextBlock Text="Port Number" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                                        <TextBox Text="{Binding DbPort, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <TextBlock Text="Host Address / Server Name" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,12,0,4"/>
+                                <TextBox Text="{Binding DbServer, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,12"/>
+
+                                <TextBlock Text="Login Username" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                                <TextBox Text="{Binding DbUsername, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,12"/>
+
+                                <TextBlock Text="Login Password" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                                <PasswordBox helpers:PasswordBoxHelper.BindBehavior="True" 
+                                             helpers:PasswordBoxHelper.BoundPassword="{Binding DbPassword, Mode=TwoWay}"
+                                             Margin="0,0,0,16"/>
+
+                                <Button Content="Test Credentials" Command="{Binding TestDatabaseConnectionCommand}" HorizontalAlignment="Left">
+                                    <Button.Style>
+                                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                                    <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Linked Sync Profiles Card -->
+                        <Border Style="{StaticResource FluentCardStyle}" Visibility="{Binding SelectedDatabaseProfile, Converter={StaticResource NullToVisibilityConverter}}">
+                            <StackPanel>
+                                <TextBlock Text="Linked Sync Profiles using this Connection" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,8"/>
+                                <TextBlock Text="If you modify or delete this profile, it will affect the following company sync schedules:" Style="{StaticResource CaptionTextStyle}" Margin="0,0,0,12"/>
+                                
+                                <ItemsControl ItemsSource="{Binding CompaniesUsingSelectedDb}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Name, StringFormat='• {0}'}" Style="{StaticResource BodyTextStyle}" Margin="0,4"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- Actions Footer -->
+                <Border Grid.Row="1" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0" Margin="0,16,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Content="Delete Profile" Command="{Binding DeleteDatabaseProfileCommand}" CommandParameter="{Binding SelectedDatabaseProfile.Id}" IsEnabled="{Binding SelectedDatabaseProfile, Converter={StaticResource NullToBoolConverter}}" Foreground="#EF4444">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                            <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button Content="Cancel" Command="{Binding CancelDbEditCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
+                            <Button Content="{Binding DbSaveButtonText}" Command="{Binding SaveDatabaseProfileCommand}">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsSyncRunning}" Value="True">
+                                                <Setter Property="ToolTip" Value="Stop the engine to save changes."/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+    </Grid>
+</Page>

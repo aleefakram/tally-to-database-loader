@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>Tally Sync — UI/UX Spec v2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<style>
+  :root{
+    --bg:#f3f3f3;
+    --layer:#ffffff;
+    --layer-2:#fafafa;
+    --rail:rgba(255,255,255,0.62);
+    --titlebar:rgba(243,243,243,0.88);
+    --stroke:rgba(0,0,0,0.0578);
+    --stroke-strong:rgba(0,0,0,0.1622);
+    --divider:rgba(0,0,0,0.0803);
+    --text:#1a1a1a;
+    --text-muted:rgba(0,0,0,0.6063);
+    --text-subtle:rgba(0,0,0,0.4458);
+    --accent:#0067c0;
+    --accent-2:#003e92;
+    --accent-soft:rgba(0,103,192,0.10);
+    --code-bg:#f6f6f6;
+    --table-stripe:#fafafa;
+    --mica:
+      radial-gradient(1200px 600px at 100% -10%, rgba(0,103,192,0.06), transparent 60%),
+      radial-gradient(900px 600px at 0% 100%, rgba(124,58,237,0.04), transparent 55%),
+      linear-gradient(180deg, #f6f6f6 0%, #efefef 100%);
+  }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden;
+    font-family:"Segoe UI Variable Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+    background:var(--mica); color:var(--text);
+  }
+  .heading-font{ font-family:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif; }
+  .mono{ font-family:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,monospace; }
+
+  /* Title bar */
+  .titlebar{
+    height:36px; flex:0 0 auto; display:flex; align-items:center;
+    background:var(--titlebar); border-bottom:1px solid var(--stroke);
+    backdrop-filter: saturate(180%) blur(20px); padding:0 14px; gap:10px;
+    font-size:12px;
+  }
+  .titlebar .badge{
+    width:18px; height:18px; border-radius:4px;
+    background:linear-gradient(135deg, var(--accent), var(--accent-2));
+    color:#fff; display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:10px;
+    box-shadow:inset 0 -1px 0 rgba(0,0,0,0.18);
+  }
+  .titlebar .v{
+    margin-left:6px; padding:1px 6px; border-radius:10px;
+    background:var(--accent-soft); color:var(--accent); font-size:10.5px;
+  }
+  .titlebar .right{margin-left:auto; display:flex; gap:6px;}
+  .titlebar .right a{
+    color:var(--text); text-decoration:none; font-size:12px;
+    padding:5px 10px; border-radius:4px;
+    border:1px solid var(--stroke); border-bottom-color:var(--stroke-strong);
+    background:rgba(255,255,255,0.7);
+  }
+  .titlebar .right a.pri{
+    background:var(--accent); color:#fff; border-color:transparent;
+    border-bottom:1px solid rgba(0,0,0,0.30);
+  }
+  .titlebar .right a:hover{ filter:brightness(0.97); }
+
+  /* Body */
+  .body{ position:absolute; inset:36px 0 0 0; display:flex; }
+
+  /* Sidebar */
+  .side{
+    width:260px; flex:0 0 260px; height:100%;
+    background:var(--rail); backdrop-filter:saturate(180%) blur(20px);
+    border-right:1px solid var(--stroke);
+    padding:14px 8px; box-sizing:border-box; overflow:auto;
+  }
+  .side h4{
+    margin:8px 12px 4px; font-size:10.5px; letter-spacing:0.04em;
+    text-transform:uppercase; color:var(--text-subtle);
+  }
+  .side a{
+    display:flex; align-items:center; gap:10px;
+    padding:7px 12px; margin:1px 4px; border-radius:5px;
+    color:var(--text); text-decoration:none; font-size:13px;
+    position:relative;
+  }
+  .side a:hover{ background:rgba(0,0,0,0.04); }
+  .side a.active{ background:rgba(0,0,0,0.04); font-weight:600; }
+  .side a.active::before{
+    content:""; position:absolute; left:-1px; top:8px; bottom:8px;
+    width:3px; background:var(--accent); border-radius:2px;
+  }
+  .side a .n{
+    width:22px; height:22px; border-radius:4px; background:var(--layer-2);
+    display:flex; align-items:center; justify-content:center; font-size:11px;
+    color:var(--text-muted); font-variant-numeric:tabular-nums;
+  }
+  .side .promo{
+    margin:14px 8px 6px; padding:12px; border-radius:8px;
+    background:var(--accent-soft); border:1px solid color-mix(in srgb, var(--accent) 14%, transparent);
+    font-size:12px;
+  }
+  .side .promo a{
+    margin:6px 0 0; padding:0; background:none;
+    color:var(--accent); text-decoration:underline; font-weight:600;
+    display:inline-block;
+  }
+
+  /* Main */
+  .main{
+    flex:1; min-width:0; height:100%; overflow:auto;
+    padding:28px 6vw 80px; box-sizing:border-box; max-width:none;
+  }
+  article{
+    max-width:880px; margin:0 auto; line-height:1.6; font-size:14.5px;
+  }
+  article h1{
+    font-family:"Segoe UI Variable Display","Segoe UI Variable",system-ui,sans-serif;
+    font-size:30px; font-weight:600; letter-spacing:-0.01em; margin: 8px 0 6px;
+  }
+  article h2{
+    font-family:"Segoe UI Variable Display","Segoe UI Variable",system-ui,sans-serif;
+    font-size:21px; font-weight:600; margin-top:36px; padding-bottom:6px;
+    border-bottom:1px solid var(--divider);
+  }
+  article h3{ font-size:16px; font-weight:600; margin-top:26px; }
+  article h4{ font-size:14px; font-weight:600; margin-top:18px; }
+  article p{ margin: 10px 0; }
+  article a{ color:var(--accent); text-decoration:none; }
+  article a:hover{ text-decoration:underline; }
+  article ul, article ol{ padding-left:22px; }
+  article li{ margin:4px 0; }
+  article code{
+    font-family:"Cascadia Mono","Cascadia Code",Consolas,ui-monospace,monospace;
+    background:var(--code-bg); padding:1px 5px; border-radius:3px; font-size:0.85em;
+    border:1px solid var(--stroke);
+  }
+  article pre{
+    background:var(--code-bg); border:1px solid var(--stroke);
+    border-radius:6px; padding:12px 14px; overflow:auto; font-size:12.5px; line-height:1.5;
+  }
+  article pre code{ background:none; padding:0; border:0; }
+  article table{
+    border-collapse:collapse; margin:14px 0; width:100%; font-size:13px;
+    background:var(--layer); border:1px solid var(--stroke); border-radius:6px;
+    overflow:hidden;
+  }
+  article th, article td{
+    text-align:left; padding:8px 12px; border-bottom:1px solid var(--divider);
+    vertical-align:top;
+  }
+  article th{
+    background:var(--layer-2); font-weight:600; font-size:11.5px;
+    text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);
+  }
+  article tr:last-child td{ border-bottom:0; }
+  article tr:nth-child(odd) td{ background:var(--table-stripe); }
+  article blockquote{
+    margin:14px 0; padding:8px 14px; border-left:3px solid var(--accent);
+    background:var(--accent-soft); border-radius:0 6px 6px 0; color:var(--text-muted);
+  }
+  article hr{ border:0; border-top:1px solid var(--divider); margin:30px 0; }
+
+  /* Loading + error states */
+  .loading, .errbox{
+    max-width:880px; margin:80px auto; text-align:center;
+    color:var(--text-muted); font-size:13px;
+  }
+  .errbox{
+    padding:16px; background:#fff5f5; border:1px solid #fecaca;
+    border-radius:8px; color:#991b1b; text-align:left;
+  }
+  .errbox pre{ background:#fef2f2; border:0; padding:8px; margin-top:6px; }
+
+  /* Footer */
+  .footer{
+    max-width:880px; margin:60px auto 0; padding-top:16px;
+    border-top:1px solid var(--divider); display:flex; gap:16px;
+    color:var(--text-subtle); font-size:11.5px; align-items:center;
+  }
+  .footer .sp{ flex:1; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="badge">T</div>
+  <span>Tally Sync · UI/UX Spec</span>
+  <span class="v">v2</span>
+  <div class="right">
+    <a href="../Tally Sync Wireframes.html">Wireframes</a>
+    <a href="../Tally Sync Hi-fi.html" class="pri">Hi-fi prototype →</a>
+  </div>
+</div>
+
+<div class="body">
+  <nav class="side" id="side">
+    <h4>Spec</h4>
+    <a data-md="README.md" class="active"><span class="n">★</span><span>Index</span></a>
+    <a data-md="01-overview.md"><span class="n">01</span><span>Overview &amp; IA</span></a>
+    <a data-md="02-design-tokens.md"><span class="n">02</span><span>Design tokens</span></a>
+    <a data-md="03-components.md"><span class="n">03</span><span>Components</span></a>
+    <a data-md="04-screens.md"><span class="n">04</span><span>Screens</span></a>
+    <a data-md="05-behavior.md"><span class="n">05</span><span>Behavior &amp; state</span></a>
+    <a data-md="06-data-bindings.md"><span class="n">06</span><span>Data bindings</span></a>
+    <a data-md="07-migration.md"><span class="n">07</span><span>v1 → v2 migration</span></a>
+
+    <div class="promo">
+      <div style="font-weight:600; margin-bottom:4px;">For AI coding agents</div>
+      Read <a data-md="README.md">README</a> first, then jump straight to <a data-md="06-data-bindings.md">§06 Data bindings</a> and <a data-md="07-migration.md">§07 Migration</a> for the porting work.
+    </div>
+  </nav>
+
+  <main class="main" id="main">
+    <article id="article">
+      <div class="loading">Loading…</div>
+    </article>
+    <div class="footer">
+      <span>Tally Sync · UI/UX Spec v2</span>
+      <span class="sp"></span>
+      <span id="currentFile" class="mono"></span>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script>
+  const article = document.getElementById('article');
+  const currentFile = document.getElementById('currentFile');
+
+  // Configure marked to be permissive and emit GFM tables/links
+  marked.setOptions({ gfm: true, breaks: false, headerIds: true, mangle: false });
+
+  // Rewrite relative MD links inside the rendered HTML to use our router
+  function rewriteLinks(html) {
+    return html.replace(/href="([^"#]+\.md)(#[^"]*)?"/g, (_, file, hash) => {
+      return `href="#${file}${hash || ''}" data-md-link="${file}${hash || ''}"`;
+    });
+  }
+
+  async function loadDoc(file) {
+    // Update side nav highlight
+    document.querySelectorAll('#side a').forEach(a => a.classList.toggle('active', a.dataset.md === file));
+    currentFile.textContent = 'docs/' + file;
+    article.innerHTML = '<div class="loading">Loading ' + file + '…</div>';
+    try {
+      const r = await fetch(file, { cache: 'no-store' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const md = await r.text();
+      const html = rewriteLinks(marked.parse(md));
+      article.innerHTML = html;
+      // Scroll to top or hash target
+      const m = location.hash.match(/#[^#]+#(.+)$/);
+      if (m) {
+        const el = document.getElementById(m[1]);
+        if (el) el.scrollIntoView({ block: 'start' });
+        else article.parentElement.scrollTop = 0;
+      } else {
+        article.parentElement.scrollTop = 0;
+      }
+    } catch (e) {
+      article.innerHTML = '<div class="errbox"><b>Failed to load ' + file + '</b><pre>' + (e && e.message || e) + '</pre><p>If you are opening this file directly from disk, fetch() may be blocked. Open it via a local web server (e.g. <code>python -m http.server</code>) or use the project preview.</p></div>';
+    }
+  }
+
+  // Side nav clicks
+  document.getElementById('side').addEventListener('click', e => {
+    const a = e.target.closest('a[data-md]');
+    if (!a) return;
+    e.preventDefault();
+    const file = a.dataset.md;
+    history.pushState({ file }, '', '#' + file);
+    loadDoc(file);
+  });
+
+  // Cross-links inside rendered content
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[data-md-link]');
+    if (!a) return;
+    e.preventDefault();
+    const target = a.dataset.mdLink;
+    const [file, hash] = target.split('#');
+    history.pushState({ file, hash }, '', '#' + target);
+    loadDoc(file);
+  });
+
+  // Initial load + back/forward
+  function fromHash() {
+    const h = location.hash.replace(/^#/, '');
+    const file = (h.split('#')[0] || 'README.md');
+    loadDoc(file);
+  }
+  window.addEventListener('popstate', fromHash);
+  fromHash();
+</script>
+
+</body>
+</html>

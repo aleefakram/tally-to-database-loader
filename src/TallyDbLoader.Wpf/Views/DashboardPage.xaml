@@ -1,0 +1,87 @@
+<Page x:Class="TallyDbLoader.Wpf.Views.DashboardPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      DataContext="{Binding}"
+      Title="Dashboard">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Page Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Dashboard" Style="{StaticResource DisplayTextStyle}"/>
+            <TextBlock Text="Monitor synchronization profiles and active sync jobs." Style="{StaticResource CaptionTextStyle}"/>
+        </StackPanel>
+
+        <!-- CommandBar -->
+        <Border Grid.Row="1" Background="{DynamicResource Layer2Brush}" Height="54" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Margin="0,0,0,16" Padding="8,4">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Content="Start All" Command="{Binding StartSyncEngineCommand}" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
+                <Button Content="Stop Engine" Command="{Binding StopSyncEngineCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
+                <Button Content="Pause" Command="{Binding PauseSyncEngineCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="Running">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+                <Button Content="Resume" Command="{Binding ResumeSyncEngineCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource StandardButtonStyle}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding State}" Value="Paused">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </StackPanel>
+        </Border>
+
+        <!-- Cards Grid list -->
+        <ListView Grid.Row="2" ItemsSource="{Binding Companies}" BorderThickness="0" Background="Transparent"
+                  Visibility="{Binding Companies.Count, Converter={StaticResource CountToVisibilityConverter}}">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Border Style="{StaticResource FluentCardStyle}" Margin="0,4,0,4">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Name}" Style="{StaticResource SubtitleTextStyle}"/>
+                                <TextBlock Text="{Binding TargetCatalog}" Style="{StaticResource CaptionTextStyle}"/>
+                                <TextBlock Text="{Binding Status}" Foreground="{Binding Status, Converter={StaticResource StatusToToneConverter}}" Style="{StaticResource BodyStrongTextStyle}" Margin="0,4,0,0"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Content="Run Now" Command="{Binding DataContext.RunCompanyCommand, RelativeSource={RelativeSource AncestorType=Page}}" CommandParameter="{Binding Id}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
+                                <Button Content="Edit" Command="{Binding DataContext.StartEditingCompanyCommand, RelativeSource={RelativeSource AncestorType=Page}}" CommandParameter="{Binding Id}" Style="{StaticResource StandardButtonStyle}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <!-- Empty State (shown when no companies exist) -->
+        <Border Grid.Row="2" Style="{StaticResource FluentCardStyle}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="400"
+                Visibility="{Binding Companies.Count, Converter={StaticResource CountToVisibilityConverter}, ConverterParameter='invert'}">
+            <StackPanel HorizontalAlignment="Center" Margin="32">
+                <TextBlock Text="No companies linked yet" Style="{StaticResource SubtitleTextStyle}" FontSize="18" HorizontalAlignment="Center" Margin="0,0,0,8"/>
+                <TextBlock Text="Open a company in Tally Prime, then click Detect to link it and start syncing." Style="{StaticResource CaptionTextStyle}" TextAlignment="Center" TextWrapping="Wrap" Margin="0,0,0,20"/>
+                <Button Content="Detect from Tally" Command="{Binding DetectActiveCompaniesCommand}" Style="{StaticResource PrimaryButtonStyle}" HorizontalAlignment="Center" Width="200"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Page>

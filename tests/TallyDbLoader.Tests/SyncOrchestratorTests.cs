@@ -10,29 +10,43 @@ namespace TallyDbLoader.Tests
         [Fact]
         public void Test_ShouldRunJob_Interval()
         {
-            var job = new SyncJob
+            var profile = new CompanyProfile
             {
-                SyncIntervalMinutes = 15,
-                LastRunTime = DateTime.UtcNow.AddMinutes(-16).ToString("o")
+                Enabled = true,
+                IntervalMinutes = 15,
+                LastRunAt = DateTime.UtcNow.AddMinutes(-16)
             };
             
-            bool shouldRun = SyncOrchestrator.ShouldRun(job, DateTime.UtcNow);
+            bool shouldRun = SyncOrchestrator.ShouldRun(profile, DateTime.UtcNow);
             Assert.True(shouldRun);
         }
-        
+
         [Fact]
-        public void Test_ShouldRunJob_TimeOfDay()
+        public void Test_ShouldNotRun_IntervalNotElapsed()
         {
-            var job = new SyncJob
+            var profile = new CompanyProfile
             {
-                DailyTimeLocal = "02:00:00",
-                LastRunTime = DateTime.Today.AddDays(-1).AddHours(2).ToString("o")
+                Enabled = true,
+                IntervalMinutes = 15,
+                LastRunAt = DateTime.UtcNow.AddMinutes(-10)
             };
             
-            // Test running at exactly 02:05 AM today
-            var now = DateTime.Today.AddHours(2).AddMinutes(5);
-            bool shouldRun = SyncOrchestrator.ShouldRun(job, now);
-            Assert.True(shouldRun);
+            bool shouldRun = SyncOrchestrator.ShouldRun(profile, DateTime.UtcNow);
+            Assert.False(shouldRun);
+        }
+
+        [Fact]
+        public void Test_ShouldNotRun_Disabled()
+        {
+            var profile = new CompanyProfile
+            {
+                Enabled = false,
+                IntervalMinutes = 15,
+                LastRunAt = DateTime.UtcNow.AddMinutes(-20)
+            };
+            
+            bool shouldRun = SyncOrchestrator.ShouldRun(profile, DateTime.UtcNow);
+            Assert.False(shouldRun);
         }
     }
 }

@@ -35,6 +35,7 @@ namespace TallyDbLoader.Tests
             DatabaseHelper.InitializeDatabase(dbPath);
 
             var vm = new MainViewModel(dbPath);
+            vm.DisableDispatcher = true;
             vm.TallyServer = "localhost";
             vm.TallyPort = 9000;
 
@@ -80,6 +81,7 @@ namespace TallyDbLoader.Tests
             DatabaseHelper.InitializeDatabase(dbPath);
 
             var vm = new MainViewModel(dbPath);
+            vm.DisableDispatcher = true;
             vm.TallyServer = "localhost";
             vm.TallyPort = 9000;
 
@@ -135,6 +137,7 @@ namespace TallyDbLoader.Tests
             DatabaseHelper.InitializeDatabase(dbPath);
 
             var vm = new MainViewModel(dbPath);
+            vm.DisableDispatcher = true;
             vm.TallyServer = "localhost";
             vm.TallyPort = 9000;
             vm.JobCompany = "Initial Company";
@@ -187,6 +190,7 @@ namespace TallyDbLoader.Tests
             DatabaseHelper.InitializeDatabase(dbPath);
 
             var vm = new MainViewModel(dbPath);
+            vm.DisableDispatcher = true;
 
             // Verify initial state
             Assert.False(vm.IsSyncRunning);

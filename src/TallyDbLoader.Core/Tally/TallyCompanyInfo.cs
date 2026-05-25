@@ -9,6 +9,8 @@ namespace TallyDbLoader.Core.Tally
         public bool IsGroup { get; set; }
         public DateTime? BooksFrom { get; set; }
         public DateTime? BooksTo { get; set; }
+        public long AltMstId { get; set; }
+        public long AltVchId { get; set; }
 
         public override string ToString()
         {

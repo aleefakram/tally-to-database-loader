@@ -62,5 +62,16 @@ namespace TallyDbLoader.Core.DatabaseLoaders
                 }
             }
         }
+
+        public string TruncateSql(string tableName) => $"DELETE FROM {tableName}";
+
+        public string CascadeUpdateSql(string primaryTable, string childTable, string field) =>
+            $"UPDATE {childTable} SET {field} = (SELECT name FROM {primaryTable} WHERE guid = {childTable}._{field}) WHERE EXISTS (SELECT 1 FROM {primaryTable} WHERE guid = {childTable}._{field});";
+
+        public string VoucherNumberUpdateSql() =>
+            "UPDATE trn_voucher SET voucher_number = (SELECT voucher_number FROM _vchnumber WHERE guid = trn_voucher.guid) WHERE EXISTS (SELECT 1 FROM _vchnumber WHERE guid = trn_voucher.guid);";
+
+        public string CountAutoNumberVoucherTypesSql() =>
+            "SELECT COUNT(*) AS c FROM mst_vouchertype WHERE numbering_method LIKE '%Auto%' ;";
     }
 }

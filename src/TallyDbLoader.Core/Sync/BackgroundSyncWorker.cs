@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
+using System.Data.Common;
 using TallyDbLoader.Core.Data;
 using TallyDbLoader.Core.Tally;
 using TallyDbLoader.Core.DatabaseLoaders;
@@ -58,7 +59,8 @@ namespace TallyDbLoader.Core.Sync
                 if (IsRunning) return;
                 _isPaused = false;
                 _cts = new CancellationTokenSource();
-                _runTask = Task.Run(() => WorkerLoop(_cts.Token));
+                var token = _cts.Token;
+                _runTask = Task.Run(() => WorkerLoop(token));
                 Log("Background Sync Engine started.");
             }
         }
@@ -333,10 +335,14 @@ namespace TallyDbLoader.Core.Sync
                 }
 
                 // Use existing dynamic table pipeline (YAML config → TDL XML → DataTable → Bulk Load)
-                var yamlPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tally-export-config.yaml");
+                var configFilename = (company.Mode?.ToLowerInvariant() == "incremental")
+                    ? "tally-export-config-incremental.yaml"
+                    : "tally-export-config.yaml";
+
+                var yamlPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, configFilename);
                 if (!System.IO.File.Exists(yamlPath))
                 {
-                    yamlPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "tally-export-config.yaml");
+                    yamlPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), configFilename);
                 }
 
                 if (!System.IO.File.Exists(yamlPath))
@@ -348,29 +354,44 @@ namespace TallyDbLoader.Core.Sync
                 var config = YamlConfigParser.Parse(yamlContent);
 
                 var dates = await GetCompanyDatesAsync(client, company.Name);
-                var tablesToSync = new System.Collections.Generic.List<TableConfig>();
-                tablesToSync.AddRange(config.Master);
-                tablesToSync.AddRange(config.Transaction);
-
-                // Filter tables by entity flags bitmask
-                EntityFlags flags = (EntityFlags)company.EntityFlags;
-                var filteredTables = tablesToSync.Where(t => ShouldSyncTable(t, flags)).ToList();
-
                 long totalRows = 0;
 
-                foreach (var table in filteredTables)
+                DbConnection targetConn;
+                if (tech.Contains("postgres") || tech.Contains("npgsql"))
                 {
-                    if (token.IsCancellationRequested) break;
+                    targetConn = new Npgsql.NpgsqlConnection(connStr);
+                }
+                else if (tech.Contains("mssql") || tech.Contains("sqlserver"))
+                {
+                    targetConn = new Microsoft.Data.SqlClient.SqlConnection(connStr);
+                }
+                else if (tech.Contains("mysql"))
+                {
+                    targetConn = new MySqlConnector.MySqlConnection(connStr);
+                }
+                else if (tech.Contains("sqlite"))
+                {
+                    targetConn = new Microsoft.Data.Sqlite.SqliteConnection(connStr);
+                }
+                else
+                {
+                    throw new NotSupportedException($"Technology '{dbProfile.Technology}' not supported.");
+                }
 
-                    Log($"[Sync] Extracting '{table.Name}' for '{company.Name}'...");
-                    var xmlQuery = DynamicTdlXmlGenerator.GenerateXml(table, company.Name, dates.fromDate.ToString("yyyyMMdd"), dates.toDate.ToString("yyyyMMdd"));
-                    var responseXml = await client.PostXMLAsync(xmlQuery);
-                    var dataTable = DynamicXmlParser.ParseXml(responseXml, table);
+                using (targetConn)
+                {
+                    await targetConn.OpenAsync(token);
 
-                    if (dataTable.Rows.Count > 0)
+                    if (company.Mode?.ToLowerInvariant() == "incremental")
                     {
-                        await dbLoader.LoadBulkDataAsync(dataTable, table.Name);
-                        totalRows += dataTable.Rows.Count;
+                        var runner = new IncrementalSyncRunner(client, dbLoader);
+                        await runner.RunAsync(config, company.Name, dates.fromDate, dates.toDate, targetConn);
+                        totalRows = 0; // Incremental tracks watermark, rows count is secondary
+                    }
+                    else
+                    {
+                        var runner = new FullSyncRunner(client, dbLoader);
+                        totalRows = await runner.Run(config, company.Name, dates.fromDate, dates.toDate, targetConn);
                     }
                 }
 

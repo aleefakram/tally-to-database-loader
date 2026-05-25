@@ -142,5 +142,60 @@ namespace TallyDbLoader.Tests
 
             Assert.Equal(mockXmlResponse, response);
         }
+
+        [Fact]
+        public async Task Test_FetchCompanyInfoAsync_Success()
+        {
+            var companyName = "Acme & Co";
+            // Format: "Guid","Name","BooksFrom","LastVoucherDate","AltMstId","AltVchId","†"
+            var mockTallyResponse = "\"guid-123\",\"Acme & Co\",\"20260401\",\"20260525\",\"150\",\"320\",\"†\",\r\n";
+
+            var mockHandler = new MockHttpMessageHandler(async (req) =>
+            {
+                var content = await req.Content.ReadAsStringAsync();
+                Assert.Contains("FilterActiveCompany", content);
+                Assert.Contains("Acme &amp; Co", content);
+
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(mockTallyResponse, Encoding.Unicode, "text/xml")
+                };
+            });
+
+            var httpClient = new HttpClient(mockHandler);
+            var client = new TallyClient(httpClient, "localhost", 9000);
+
+            var info = await client.FetchCompanyInfoAsync(companyName);
+
+            Assert.NotNull(info);
+            Assert.Equal("guid-123", info.Guid);
+            Assert.Equal("Acme & Co", info.Name);
+            Assert.Equal(new DateTime(2026, 4, 1), info.BooksFrom);
+            Assert.Equal(new DateTime(2026, 5, 25), info.BooksTo);
+            Assert.Equal(150, info.AltMstId);
+            Assert.Equal(320, info.AltVchId);
+        }
+
+        [Fact]
+        public async Task Test_FetchCompanyInfoAsync_ClosedCompany()
+        {
+            var companyName = "Acme & Co";
+            var mockTallyResponse = ""; // Tally returns empty string if target company is closed
+
+            var mockHandler = new MockHttpMessageHandler((req) =>
+            {
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(mockTallyResponse, Encoding.Unicode, "text/xml")
+                });
+            });
+
+            var httpClient = new HttpClient(mockHandler);
+            var client = new TallyClient(httpClient, "localhost", 9000);
+
+            var info = await client.FetchCompanyInfoAsync(companyName);
+
+            Assert.Null(info);
+        }
     }
 }

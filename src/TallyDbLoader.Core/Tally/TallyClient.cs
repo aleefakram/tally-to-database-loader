@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace TallyDbLoader.Core.Tally
 {
-    public class TallyClient
+    public class TallyClient : ITallyClient
     {
         private readonly HttpClient _httpClient;
         private readonly string _tallyUrl;
@@ -169,6 +169,66 @@ namespace TallyDbLoader.Core.Tally
                 names.Add(c.Name);
             }
             return names;
+        }
+
+        public async Task<TallyCompanyInfo?> FetchCompanyInfoAsync(string companyName)
+        {
+            var xmlCompany = WatermarkXmlBuilder.Build(companyName);
+            var response = await PostXMLAsync(xmlCompany);
+
+            if (string.IsNullOrEmpty(response))
+            {
+                return null;
+            }
+
+            // Clean the EOL marker
+            string clean = response.Replace("\",\"†\",\r\n", "")
+                                   .Replace("\",\"†\",\n", "")
+                                   .Replace("\",\"†\"", "")
+                                   .Trim();
+
+            if (clean.StartsWith("\""))
+            {
+                clean = clean.Substring(1);
+            }
+            if (clean.EndsWith("\""))
+            {
+                clean = clean.Substring(0, clean.Length - 1);
+            }
+
+            var parts = clean.Split(new[] { "\",\"" }, StringSplitOptions.None);
+            if (parts.Length < 6)
+            {
+                return null;
+            }
+
+            var info = new TallyCompanyInfo
+            {
+                Guid = parts[0],
+                Name = parts[1]
+            };
+
+            if (DateTime.TryParseExact(parts[2], "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var booksFrom))
+            {
+                info.BooksFrom = booksFrom;
+            }
+
+            if (DateTime.TryParseExact(parts[3], "yyyyMMdd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var booksTo))
+            {
+                info.BooksTo = booksTo;
+            }
+
+            if (long.TryParse(parts[4], out var altMstId))
+            {
+                info.AltMstId = altMstId;
+            }
+
+            if (long.TryParse(parts[5], out var altVchId))
+            {
+                info.AltVchId = altVchId;
+            }
+
+            return info;
         }
     }
 }

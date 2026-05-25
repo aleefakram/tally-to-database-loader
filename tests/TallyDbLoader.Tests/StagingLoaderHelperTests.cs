@@ -20,6 +20,11 @@ namespace TallyDbLoader.Tests
                 LastTableLoaded = tableName;
                 return Task.CompletedTask;
             }
+
+            public string TruncateSql(string tableName) => "";
+            public string CascadeUpdateSql(string primaryTable, string childTable, string field) => "";
+            public string VoucherNumberUpdateSql() => "";
+            public string CountAutoNumberVoucherTypesSql() => "";
         }
 
         [Fact]

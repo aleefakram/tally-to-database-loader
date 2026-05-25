@@ -25,7 +25,7 @@ namespace TallyDbLoader.Tests
                 var contentStr = "";
                 // Inspect request XML content to decide response
                 var requestContent = request.Content?.ReadAsStringAsync(cancellationToken).Result ?? "";
-                if (requestContent.Contains("TallyDatabaseLoaderReport"))
+                if (requestContent.Contains("TallyDatabaseLoaderReport") || requestContent.Contains("FilterActiveCompany"))
                 {
                     contentStr = CompanyInfoResponse;
                 }
@@ -81,6 +81,18 @@ namespace TallyDbLoader.Tests
                 Enabled = true
             };
             repo.SaveCompanyProfile(job);
+
+            // Pre-initialize the target table so deletes/truncates don't fail
+            var tableConfig = new TableConfig
+            {
+                Name = "mst_test",
+                Collection = "Ledger",
+                Fields = new List<FieldConfig>
+                {
+                    new FieldConfig { Name = "guid", Field = "Guid", Type = "text" }
+                }
+            };
+            DatabaseWriter.InitializeTargetTableDynamic(profile, "test_catalog", tableConfig);
 
             // Write temporary yaml config to execution directory
             var yamlContent = @"
@@ -197,7 +209,7 @@ master:
         type: number
 transaction: []
 ";
-            var yamlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tally-export-config.yaml");
+            var yamlPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tally-export-config-incremental.yaml");
             File.WriteAllText(yamlPath, yamlContent);
 
             // Setup Mock Client
@@ -220,7 +232,6 @@ transaction: []
             await Task.Delay(2000);
             worker.Stop();
 
-            // Check if sync log calls were made
             Assert.Contains(logs, l => l.Contains("Background Sync Engine started."));
             Assert.Contains(logs, l => l.Contains("Starting sync for company 'TestCompany'"));
             Assert.Contains(logs, l => l.Contains("sync finished. Wrote"));
@@ -265,6 +276,18 @@ transaction: []
                 Enabled = true
             };
             repo.SaveCompanyProfile(job);
+
+            // Pre-initialize the target table so deletes/truncates don't fail
+            var tableConfig = new TableConfig
+            {
+                Name = "mst_test",
+                Collection = "Ledger",
+                Fields = new List<FieldConfig>
+                {
+                    new FieldConfig { Name = "guid", Field = "Guid", Type = "text" }
+                }
+            };
+            DatabaseWriter.InitializeTargetTableDynamic(profile, "test_manual_catalog", tableConfig);
 
             var yamlContent = @"
 master:

@@ -87,14 +87,14 @@
                                 <ColumnDefinition Width="2*"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <StackPanel Margin="0,0,8,0">
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
                                 <TextBlock Text="Technology" Style="{StaticResource CaptionMuteTextStyle}"/>
                                 <ComboBox SelectedValue="{Binding DbTech, Mode=TwoWay}" SelectedValuePath="Tag" Margin="0,4,0,12">
                                     <ComboBoxItem Content="PostgreSQL" Tag="postgres"/>
                                     <ComboBoxItem Content="SQL Server" Tag="mssql"/>
                                 </ComboBox>
                             </StackPanel>
-                            <StackPanel Margin="8,0,0,0">
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
                                 <TextBlock Text="Port" Style="{StaticResource CaptionMuteTextStyle}"/>
                                 <TextBox Text="{Binding DbPort, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,4,0,12"/>
                             </StackPanel>

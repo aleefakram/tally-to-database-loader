@@ -353,7 +353,6 @@ namespace TallyDbLoader.Core.Sync
                 var yamlContent = System.IO.File.ReadAllText(yamlPath);
                 var config = YamlConfigParser.Parse(yamlContent);
 
-                var dates = await GetCompanyDatesAsync(client, company.Name);
                 long totalRows = 0;
 
                 DbConnection targetConn;
@@ -382,16 +381,35 @@ namespace TallyDbLoader.Core.Sync
                 {
                     await targetConn.OpenAsync(token);
 
+                    // Ensure configuration and staging tables exist before persisting info
+                    var staging = new StagingTableManager(targetConn);
+                    await staging.EnsureStagingTablesAsync();
+
+                    long? prevMaster = null;
+                    long? prevTxn = null;
+                    if (company.Mode?.ToLowerInvariant() == "incremental")
+                    {
+                        var repo = new WatermarkRepository(targetConn);
+                        var (m, t) = await repo.ReadAsync();
+                        prevMaster = m;
+                        prevTxn = t;
+                    }
+
+                    var fetcher = new CompanyInfoFetcher(client);
+                    var companyInfo = await fetcher.FetchAndPersist(company.Name, targetConn);
+                    var fromDate = companyInfo.BooksFrom ?? new DateTime(2000, 1, 1);
+                    var toDate = companyInfo.BooksTo ?? DateTime.Today;
+
                     if (company.Mode?.ToLowerInvariant() == "incremental")
                     {
                         var runner = new IncrementalSyncRunner(client, dbLoader);
-                        await runner.RunAsync(config, company.Name, dates.fromDate, dates.toDate, targetConn);
+                        await runner.RunAsync(config, company.Name, fromDate, toDate, targetConn, prevMaster, prevTxn);
                         totalRows = 0; // Incremental tracks watermark, rows count is secondary
                     }
                     else
                     {
                         var runner = new FullSyncRunner(client, dbLoader);
-                        totalRows = await runner.Run(config, company.Name, dates.fromDate, dates.toDate, targetConn);
+                        totalRows = await runner.Run(config, company.Name, fromDate, toDate, targetConn);
                     }
                 }
 

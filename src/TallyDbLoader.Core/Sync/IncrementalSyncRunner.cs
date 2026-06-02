@@ -21,13 +21,17 @@ namespace TallyDbLoader.Core.Sync
         }
 
         public async Task RunAsync(TallyExportConfig config, string companyName,
-            DateTime fromDate, DateTime toDate, DbConnection conn)
+            DateTime fromDate, DateTime toDate, DbConnection conn,
+            long? previousMasterAlterId = null, long? previousTxnAlterId = null)
         {
             var staging = new StagingTableManager(conn);
             await staging.EnsureStagingTablesAsync();
 
             var repo = new WatermarkRepository(conn);
             var (lastMasterDb, lastTxnDb) = await repo.ReadAsync();
+
+            if (previousMasterAlterId.HasValue) lastMasterDb = previousMasterAlterId.Value;
+            if (previousTxnAlterId.HasValue) lastTxnDb = previousTxnAlterId.Value;
 
             var companyInfo = await _tally.FetchCompanyInfoAsync(companyName);
             if (companyInfo == null)

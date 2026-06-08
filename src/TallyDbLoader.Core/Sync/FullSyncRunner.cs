@@ -26,8 +26,14 @@ namespace TallyDbLoader.Core.Sync
 
             var stagedTables = new List<TableConfig>();
             var stageResults = new Dictionary<TableConfig, StageResult>();
-            long totalRows = 0;
+            // 0. Centralized SQL identifier validation
+            var provider = targetConn.GetType().Name;
+            foreach (var table in all)
+            {
+                DbIdentifierPolicy.ValidateTableConfig(table, provider);
+            }
 
+            long totalRows = 0;
             try
             {
                 // 1. Fetch, Parse, and Stage one-by-one (outside transaction) to optimize memory

@@ -27,13 +27,19 @@ namespace TallyDbLoader.Tests
 
             var promoter = new PostgresFullSyncTablePromoter();
 
+            var runId = Guid.NewGuid().ToString("n").Substring(0, 8);
+            var groupTable = $"__tally_test_mst_group_{runId}";
+            var ledgerTable = $"__tally_test_mst_ledger_{runId}";
+
             await RunSmokeTestForProvider(
                 conn,
                 promoter,
-                "DROP TABLE IF EXISTS \"mst_group\" CASCADE;",
-                "CREATE TABLE \"mst_group\" (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT);",
-                "DROP TABLE IF EXISTS \"mst_ledger\" CASCADE;",
-                "CREATE TABLE \"mst_ledger\" (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(255) UNIQUE, alterid BIGINT);"
+                groupTable,
+                ledgerTable,
+                $"DROP TABLE IF EXISTS \"{groupTable}\" CASCADE;",
+                $"CREATE TABLE \"{groupTable}\" (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT);",
+                $"DROP TABLE IF EXISTS \"{ledgerTable}\" CASCADE;",
+                $"CREATE TABLE \"{ledgerTable}\" (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(255) UNIQUE, alterid BIGINT);"
             );
         }
 
@@ -48,13 +54,19 @@ namespace TallyDbLoader.Tests
 
             var promoter = new MssqlFullSyncTablePromoter();
 
+            var runId = Guid.NewGuid().ToString("n").Substring(0, 8);
+            var groupTable = $"__tally_test_mst_group_{runId}";
+            var ledgerTable = $"__tally_test_mst_ledger_{runId}";
+
             await RunSmokeTestForProvider(
                 conn,
                 promoter,
-                "IF OBJECT_ID('dbo.mst_group', 'U') IS NOT NULL DROP TABLE dbo.mst_group;",
-                "CREATE TABLE dbo.mst_group (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT);",
-                "IF OBJECT_ID('dbo.mst_ledger', 'U') IS NOT NULL DROP TABLE dbo.mst_ledger;",
-                "CREATE TABLE dbo.mst_ledger (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(255) UNIQUE, alterid BIGINT);"
+                groupTable,
+                ledgerTable,
+                $"IF OBJECT_ID('dbo.{groupTable}', 'U') IS NOT NULL DROP TABLE dbo.{groupTable};",
+                $"CREATE TABLE dbo.{groupTable} (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT);",
+                $"IF OBJECT_ID('dbo.{ledgerTable}', 'U') IS NOT NULL DROP TABLE dbo.{ledgerTable};",
+                $"CREATE TABLE dbo.{ledgerTable} (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(255) UNIQUE, alterid BIGINT);"
             );
         }
 
@@ -69,19 +81,41 @@ namespace TallyDbLoader.Tests
 
             var promoter = new MysqlFullSyncTablePromoter();
 
+            var runId = Guid.NewGuid().ToString("n").Substring(0, 8);
+            var groupTable = $"__tally_test_mst_group_{runId}";
+            var ledgerTable = $"__tally_test_mst_ledger_{runId}";
+
             await RunSmokeTestForProvider(
                 conn,
                 promoter,
-                "DROP TABLE IF EXISTS `mst_group`;",
-                "CREATE TABLE `mst_group` (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT) ENGINE=InnoDB;",
-                "DROP TABLE IF EXISTS `mst_ledger`;",
-                "CREATE TABLE `mst_ledger` (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(255) UNIQUE, alterid BIGINT) ENGINE=InnoDB;"
+                groupTable,
+                ledgerTable,
+                $"DROP TABLE IF EXISTS `{groupTable}`;",
+                $"CREATE TABLE `{groupTable}` (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT) ENGINE=InnoDB;",
+                $"DROP TABLE IF EXISTS `{ledgerTable}`;",
+                $"CREATE TABLE `{ledgerTable}` (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(255) UNIQUE, alterid BIGINT) ENGINE=InnoDB;"
             );
+        }
+
+        private string Quote(string identifier, DbConnection conn)
+        {
+            var typeName = conn.GetType().Name;
+            if (typeName.Contains("SqlConnection"))
+            {
+                return $"[{identifier.Replace("]", "]]")}]";
+            }
+            if (typeName.Contains("MySqlConnection"))
+            {
+                return $"`{identifier.Replace("`", "``")}`";
+            }
+            return $"\"{identifier.Replace("\"", "\"\"")}\""; // Default to double quotes for SQLite/Postgres
         }
 
         private async Task RunSmokeTestForProvider(
             DbConnection conn,
             IFullSyncTablePromoter promoter,
+            string groupTable,
+            string ledgerTable,
             string dropGroupSql,
             string createGroupSql,
             string dropLedgerSql,
@@ -95,13 +129,16 @@ namespace TallyDbLoader.Tests
 
             try
             {
+                var qGroup = Quote(groupTable, conn);
+                var qLedger = Quote(ledgerTable, conn);
+
                 // 2. Insert initial rows
-                await conn.ExecuteAsync("INSERT INTO mst_group (guid, name, alterid) VALUES ('g_initial', 'Initial Group', 10)");
-                await conn.ExecuteAsync("INSERT INTO mst_ledger (guid, name, alterid) VALUES ('l_initial', 'Initial Ledger', 20)");
+                await conn.ExecuteAsync($"INSERT INTO {qGroup} (guid, name, alterid) VALUES ('g_initial', 'Initial Group', 10)");
+                await conn.ExecuteAsync($"INSERT INTO {qLedger} (guid, name, alterid) VALUES ('l_initial', 'Initial Ledger', 20)");
 
                 var table1 = new TableConfig
                 {
-                    Name = "mst_group",
+                    Name = groupTable,
                     Collection = "Group",
                     Nature = "Primary",
                     Fields = new List<FieldConfig>
@@ -113,7 +150,7 @@ namespace TallyDbLoader.Tests
                 };
                 var table2 = new TableConfig
                 {
-                    Name = "mst_ledger",
+                    Name = ledgerTable,
                     Collection = "Ledger",
                     Nature = "Primary",
                     Fields = new List<FieldConfig>
@@ -136,14 +173,14 @@ namespace TallyDbLoader.Tests
                     var total = await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
 
                     Assert.Equal(2L, total);
-                    var groupCount = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
+                    var groupCount = await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {qGroup}");
                     Assert.Equal(1L, groupCount);
-                    var groupName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_new'");
+                    var groupName = await conn.QueryFirstOrDefaultAsync<string>($"SELECT name FROM {qGroup} WHERE guid = 'g_new'");
                     Assert.Equal("New Group", groupName);
 
-                    var ledgerCount = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_ledger");
+                    var ledgerCount = await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {qLedger}");
                     Assert.Equal(1L, ledgerCount);
-                    var ledgerName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_ledger WHERE guid = 'l_new'");
+                    var ledgerName = await conn.QueryFirstOrDefaultAsync<string>($"SELECT name FROM {qLedger} WHERE guid = 'l_new'");
                     Assert.Equal("New Ledger", ledgerName);
                 }
 
@@ -161,9 +198,9 @@ namespace TallyDbLoader.Tests
                     });
 
                     // Assert group table still has 'g_new' and not 'g_never'
-                    var groupName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_new'");
+                    var groupName = await conn.QueryFirstOrDefaultAsync<string>($"SELECT name FROM {qGroup} WHERE guid = 'g_new'");
                     Assert.Equal("New Group", groupName);
-                    var neverName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_never'");
+                    var neverName = await conn.QueryFirstOrDefaultAsync<string>($"SELECT name FROM {qGroup} WHERE guid = 'g_never'");
                     Assert.Null(neverName);
                 }
 
@@ -181,9 +218,9 @@ namespace TallyDbLoader.Tests
                     });
 
                     // Assert group table still has 'g_new' and not 'g_never2'
-                    var groupName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_new'");
+                    var groupName = await conn.QueryFirstOrDefaultAsync<string>($"SELECT name FROM {qGroup} WHERE guid = 'g_new'");
                     Assert.Equal("New Group", groupName);
-                    var neverName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_never2'");
+                    var neverName = await conn.QueryFirstOrDefaultAsync<string>($"SELECT name FROM {qGroup} WHERE guid = 'g_never2'");
                     Assert.Null(neverName);
                 }
             }

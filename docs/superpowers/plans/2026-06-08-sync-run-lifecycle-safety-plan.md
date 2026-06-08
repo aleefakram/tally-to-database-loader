@@ -100,7 +100,7 @@
   ```
 
 - [ ] **Step 2: Implement methods in ConfigRepository**
-  Implement these methods in `src/TallyDbLoader.Core/Data/ConfigRepository.cs`. Update `AddSyncRun` to return `long`.
+  Implement these methods in `src/TallyDbLoader.Core/Data/ConfigRepository.cs`. Update `AddSyncRun` to return `long` and store `ended_at` as NULL while the run is active (i.e. status is `"running"` or EndedAt has not been explicitly set).
 
   ```csharp
   // Modify AddSyncRun in ConfigRepository.cs to return long:
@@ -114,6 +114,10 @@
           {
               try
               {
+                  string? endedAtStr = (run.Status == "running" || run.EndedAt == default(DateTime)) 
+                      ? null 
+                      : run.EndedAt.ToString("o");
+
                   conn.Execute(@"
                       INSERT INTO sync_runs (company_id, started_at, ended_at, mode, status, retries, rows_in, rows_written, by_entity_json, result_summary, log_excerpt)
                       VALUES (@CompanyId, @StartedAt, @EndedAt, @Mode, @Status, @Retries, @RowsIn, @RowsWritten, @ByEntityJson, @ResultSummary, @LogExcerpt)",
@@ -121,7 +125,7 @@
                       {
                           run.CompanyId,
                           StartedAt = run.StartedAt.ToString("o"),
-                          EndedAt = run.EndedAt.ToString("o"),
+                          EndedAt = endedAtStr,
                           run.Mode,
                           run.Status,
                           run.Retries,
@@ -255,6 +259,8 @@
           {
               try
               {
+                  string? endedAtStr = (run.EndedAt == default(DateTime)) ? null : run.EndedAt.ToString("o");
+
                   conn.Execute(@"
                       UPDATE sync_runs
                       SET ended_at = @EndedAt,
@@ -269,7 +275,7 @@
                       new
                       {
                           Id = run.Id,
-                          EndedAt = run.EndedAt.ToString("o"),
+                          EndedAt = endedAtStr,
                           run.Status,
                           run.Retries,
                           run.RowsIn,
@@ -453,13 +459,32 @@
               Assert.Equal("unknown", runs[0].Status);
               Assert.Contains("Interrupted by application restart", runs[0].ResultSummary);
           }
+
+          [Fact]
+          public void AddSyncRun_SetsEndedAtToNullForActiveRuns()
+          {
+              var profile = SeedCompany("idle");
+              var run = new SyncRun
+              {
+                  CompanyId = profile.Id,
+                  CompanyName = profile.Name,
+                  StartedAt = DateTime.Now,
+                  Mode = "full",
+                  Status = "running"
+              };
+              _repo.AddSyncRun(run);
+
+              var runs = _repo.GetSyncRunsForCompany(profile.Id);
+              Assert.Single(runs);
+              Assert.Null(runs[0].EndedAtRaw); // We check direct DB string or Raw mapping is null
+          }
       }
   }
   ```
 
 - [ ] **Step 2: Run tests to verify they pass**
   Run: `dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --filter SyncLifecycleSafetyTests`
-  Expected: 4 passed, 0 failed.
+  Expected: 5 passed, 0 failed.
 
 - [ ] **Step 3: Commit**
   ```bash
@@ -474,8 +499,8 @@
 **Files:**
 - Modify: `src/TallyDbLoader.Core/Sync/BackgroundSyncWorker.cs`
 
-- [ ] **Step 1: Integrate ReconcileStaleRuns on Worker Start**
-  Update the `Start()` method in `BackgroundSyncWorker.cs` to run startup reconciliation of profiles and runs.
+- [ ] **Step 1: Integrate ReconcileStaleRuns on Worker Start and Fail Closed**
+  Update the `Start()` method in `BackgroundSyncWorker.cs` to run startup reconciliation. If it fails, fail closed: log the error and do not spin up the background worker thread.
 
   ```csharp
   // Modify Start() in BackgroundSyncWorker.cs:
@@ -494,7 +519,8 @@
           }
           catch (Exception ex)
           {
-              Log($"[Engine ERROR] Startup reconciliation failed: {ex.Message}");
+              Log($"[Engine ERROR] Startup reconciliation failed: {ex.Message}. Scheduler will not start.");
+              return; // Fail-closed: do not set _cts, do not spawn task.
           }
 
           _cts = new CancellationTokenSource();
@@ -520,8 +546,11 @@
 
       if (runManualSync)
       {
-          shouldSync = !manualCompanyId.HasValue || manualCompanyId.Value == company.Id;
-          if (!shouldSync)
+          if (manualCompanyId.HasValue && manualCompanyId.Value == company.Id)
+          {
+              shouldSync = true;
+          }
+          else
           {
               skipReason = "NotTargetedByManualTrigger";
           }
@@ -568,7 +597,7 @@
   2. Safe-insert the `SyncRun` (reverting to `unknown` if metadata write fails).
   3. Execute sync task.
   4. Preserve watermarks (avoid updating watermark if final status is not `completed`).
-  5. Apply conservative status mapping inside the `finally` block and call `CompleteCompanyProfileRun` & `UpdateSyncRun`.
+  5. Apply conservative status mapping inside the `finally` block and call `CompleteCompanyProfileRun` & `UpdateSyncRun`. Ensure `isError` is marked true on metadata failures to increment error count.
 
   ```csharp
   // Replace SyncCompany in BackgroundSyncWorker.cs with the following safety-hardened lifecycle implementation:
@@ -844,6 +873,7 @@
           {
               Log($"[Sync ERROR] Failed to update SyncRun record: {ex.Message}");
               finalStatus = "unknown"; // Post-commit metadata failure -> fail-closed to unknown
+              isError = true;          // Force isError = true to increment error count
           }
 
           // 5. Update Company Profile runtime status safely (Targeted repository method)
@@ -882,7 +912,7 @@
 - Modify: `tests/TallyDbLoader.Tests/SyncLifecycleSafetyTests.cs`
 
 - [ ] **Step 1: Implement preflight check TryRequestManualSync**
-  Add the `SyncStartResult` type and implement `TryRequestManualSync` in `BackgroundSyncWorker.cs`. Replace the existing `TriggerManualSync` method.
+  Add the `SyncStartResult` type and implement `TryRequestManualSync` in `BackgroundSyncWorker.cs`. Replace the existing `TriggerManualSync` method. Expose a mockable/testable `IsRunning` indicator or paused state so manual preflight tests do not trigger active network processing.
 
   ```csharp
   // Add SyncStartResult definition to BackgroundSyncWorker.cs (or Models.cs):
@@ -1072,8 +1102,8 @@
   }
   ```
 
-- [ ] **Step 3: Add unit tests verifying preflight checks**
-  Add unit tests in `tests/TallyDbLoader.Tests/SyncLifecycleSafetyTests.cs` to assert the behavior of manual triggers.
+- [ ] **Step 3: Add unit tests verifying preflight checks and watermark safety on failure**
+  Add unit tests in `tests/TallyDbLoader.Tests/SyncLifecycleSafetyTests.cs` to assert the behavior of manual triggers (without triggering network behavior by running the worker in a paused state) and check incremental sync watermark behavior.
 
   ```csharp
   // Add the following test methods to SyncLifecycleSafetyTests.cs:
@@ -1084,6 +1114,7 @@
       using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
       {
           worker.Start();
+          worker.Pause(); // Keeps engine paused, preventing scheduler processing
           var result = worker.TryRequestManualSync(profile.Id);
           Assert.True(result.Accepted);
           Assert.Equal("PendingDispatch", result.ReasonCode);
@@ -1097,6 +1128,7 @@
       using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
       {
           worker.Start();
+          worker.Pause();
           var result = worker.TryRequestManualSync(profile.Id);
           Assert.False(result.Accepted);
           Assert.Equal("Disabled", result.ReasonCode);
@@ -1112,6 +1144,7 @@
           using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
           {
               worker.Start();
+              worker.Pause();
               var result = worker.TryRequestManualSync(profile.Id);
               Assert.False(result.Accepted);
               Assert.Equal("SafetyBlocked", result.ReasonCode);
@@ -1126,16 +1159,60 @@
       using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
       {
           worker.Start();
+          worker.Pause();
           var result = worker.TryRequestManualSync(profile.Id);
           Assert.False(result.Accepted);
           Assert.Equal("AlreadyRunning", result.ReasonCode);
+      }
+  }
+
+  [Fact]
+  public async Task IncrementalSync_DoesNotAdvanceWatermark_OnFailure()
+  {
+      // 1. Initialize temporary test database
+      string dbFile = Path.Combine(Path.GetTempPath(), $"tally_watermark_test_{Guid.NewGuid()}.db");
+      var connStr = $"Data Source={dbFile}";
+      
+      using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connStr))
+      {
+          await conn.OpenAsync();
+          
+          // Initialize watermark schema
+          var watermarkRepo = new WatermarkRepository(conn);
+          await watermarkRepo.EnsureWatermarkTableAsync();
+          
+          // Seed initial watermarks
+          await watermarkRepo.UpdateAsync(100, 200);
+          
+          // 2. Instantiate loader and inject a failing run simulation
+          var client = new TallyClient("localhost", 9000);
+          var dbLoader = new TallyDbLoader.Core.DatabaseLoaders.SqliteLoader(connStr);
+          var runner = new IncrementalSyncRunner(client, dbLoader);
+
+          // Configure a mock schema that will fail to force failure
+          var config = new TallyExportConfig(); // Empty table list will throw
+          
+          await Assert.ThrowsAnyAsync<Exception>(async () =>
+          {
+              await runner.RunAsync(config, "FailingCompany", DateTime.Today, DateTime.Today, conn, 100, 200);
+          });
+          
+          // 3. Confirm watermarks remain unchanged
+          var (master, txn) = await watermarkRepo.ReadAsync();
+          Assert.Equal(100, master);
+          Assert.Equal(200, txn);
+      }
+      
+      if (File.Exists(dbFile))
+      {
+          try { File.Delete(dbFile); } catch { }
       }
   }
   ```
 
 - [ ] **Step 4: Run all unit tests**
   Run: `dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj`
-  Expected: All 96 tests pass successfully.
+  Expected: All 97 tests pass successfully.
 
 - [ ] **Step 5: Commit**
   ```bash

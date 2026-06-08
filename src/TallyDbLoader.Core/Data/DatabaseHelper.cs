@@ -153,6 +153,12 @@ namespace TallyDbLoader.Core.Data
                             conn.Execute("PRAGMA user_version = 2;", null, transaction);
                         }
 
+                        if (version < 3)
+                        {
+                            conn.Execute("UPDATE company_profiles SET status = 'idle' WHERE status IS NULL OR TRIM(status) = '';", null, transaction);
+                            conn.Execute("PRAGMA user_version = 3;", null, transaction);
+                        }
+
                         transaction.Commit();
                     }
                     catch (Exception)

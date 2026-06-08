@@ -136,7 +136,7 @@ namespace TallyDbLoader.Core.Data
                                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                                     company_id INTEGER NOT NULL REFERENCES company_profiles(id) ON DELETE CASCADE,
                                     started_at TEXT NOT NULL,
-                                    ended_at TEXT NOT NULL,
+                                    ended_at TEXT,
                                     mode TEXT NOT NULL,
                                     status TEXT NOT NULL,
                                     retries INTEGER NOT NULL DEFAULT 0,
@@ -156,6 +156,54 @@ namespace TallyDbLoader.Core.Data
                         if (version < 3)
                         {
                             conn.Execute("UPDATE company_profiles SET status = 'idle' WHERE status IS NULL OR TRIM(status) = '';", null, transaction);
+
+                            // Migrate sync_runs to make ended_at nullable in existing user databases (v2 -> v3)
+                            bool syncRunsExists = conn.ExecuteScalar<int>(
+                                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sync_runs';", null, transaction) > 0;
+                            if (syncRunsExists)
+                            {
+                                // Check if ended_at is not null
+                                var columns = conn.Query("PRAGMA table_info(sync_runs);", null, transaction);
+                                bool endedAtNotNull = false;
+                                foreach (var col in columns)
+                                {
+                                    var colName = ((dynamic)col).name as string;
+                                    var notnull = (long)((dynamic)col).notnull;
+                                    if (string.Equals(colName, "ended_at", System.StringComparison.OrdinalIgnoreCase) && notnull == 1)
+                                    {
+                                        endedAtNotNull = true;
+                                        break;
+                                    }
+                                }
+
+                                if (endedAtNotNull)
+                                {
+                                    conn.Execute(@"
+                                        CREATE TABLE sync_runs_new (
+                                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                            company_id INTEGER NOT NULL REFERENCES company_profiles(id) ON DELETE CASCADE,
+                                            started_at TEXT NOT NULL,
+                                            ended_at TEXT,
+                                            mode TEXT NOT NULL,
+                                            status TEXT NOT NULL,
+                                            retries INTEGER NOT NULL DEFAULT 0,
+                                            rows_in INTEGER NOT NULL DEFAULT 0,
+                                            rows_written INTEGER NOT NULL DEFAULT 0,
+                                            by_entity_json TEXT NOT NULL DEFAULT '{}',
+                                            result_summary TEXT NULL,
+                                            log_excerpt TEXT NULL
+                                        );", null, transaction);
+
+                                    conn.Execute(@"
+                                        INSERT INTO sync_runs_new (id, company_id, started_at, ended_at, mode, status, retries, rows_in, rows_written, by_entity_json, result_summary, log_excerpt)
+                                        SELECT id, company_id, started_at, ended_at, mode, status, retries, rows_in, rows_written, by_entity_json, result_summary, log_excerpt FROM sync_runs;", null, transaction);
+
+                                    conn.Execute("DROP TABLE sync_runs;", null, transaction);
+                                    conn.Execute("ALTER TABLE sync_runs_new RENAME TO sync_runs;", null, transaction);
+                                    conn.Execute("CREATE INDEX IF NOT EXISTS ix_sync_runs_company_id_started_at ON sync_runs(company_id, started_at DESC);", null, transaction);
+                                }
+                            }
+
                             conn.Execute("PRAGMA user_version = 3;", null, transaction);
                         }
 

@@ -165,6 +165,7 @@ namespace TallyDbLoader.Core.Data
                 {
                     try
                     {
+                        var status = string.IsNullOrWhiteSpace(company.Status) ? "idle" : company.Status.Trim().ToLowerInvariant();
                         var parameters = new
                         {
                             company.Id,
@@ -183,7 +184,7 @@ namespace TallyDbLoader.Core.Data
                             company.NotifyOnError,
                             company.PauseOnTallyClose,
                             company.EntityFlags,
-                            company.Status,
+                            Status = status,
                             LastRunAt = company.LastRunAt?.ToString("o"),
                             company.LastDurationMs,
                             company.LastRowsWritten,
@@ -507,7 +508,7 @@ namespace TallyDbLoader.Core.Data
                             new
                             {
                                 Id = id,
-                                FinalStatus = finalStatus,
+                                FinalStatus = finalStatus?.Trim().ToLowerInvariant() ?? "idle",
                                 EndedAt = endedAt.ToString("o"),
                                 DurationMs = durationMs,
                                 RowsWritten = rowsWritten,

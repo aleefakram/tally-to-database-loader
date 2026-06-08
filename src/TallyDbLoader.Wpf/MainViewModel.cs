@@ -602,8 +602,15 @@ namespace TallyDbLoader.Wpf
             }
             if (_worker != null)
             {
-                _worker.TriggerManualSync(null);
-                ShowToast("Sync queued", "Schedule tick requested.", "info");
+                var result = _worker.TriggerManualSync(null);
+                if (result.Accepted)
+                {
+                    ShowToast("Sync queued", result.Message, "ok");
+                }
+                else
+                {
+                    ShowToast("Sync rejected", $"{result.Message} ({result.ReasonCode})", "err");
+                }
             }
         }
 
@@ -625,15 +632,22 @@ namespace TallyDbLoader.Wpf
             if (_worker != null)
             {
                 int? companyId = parameter as int?;
-                _worker.TriggerManualSync(companyId);
+                var result = _worker.TriggerManualSync(companyId);
                 
-                string name = "Company";
-                if (companyId.HasValue)
+                if (result.Accepted)
                 {
-                    var company = Companies.FirstOrDefault(c => c.Id == companyId.Value);
-                    if (company != null) name = company.Name;
+                    string name = "Company";
+                    if (companyId.HasValue)
+                    {
+                        var company = Companies.FirstOrDefault(c => c.Id == companyId.Value);
+                        if (company != null) name = company.Name;
+                    }
+                    ShowToast("Sync queued", $"{name} will run on the next worker tick.", "ok");
                 }
-                ShowToast("Sync queued", $"{name} will run on the next worker tick.", "info");
+                else
+                {
+                    ShowToast("Sync rejected", $"{result.Message} ({result.ReasonCode})", "err");
+                }
             }
         }
 

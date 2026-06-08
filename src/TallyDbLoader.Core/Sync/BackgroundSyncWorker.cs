@@ -408,7 +408,10 @@ namespace TallyDbLoader.Core.Sync
                     }
                     else
                     {
-                        var runner = new FullSyncRunner(client, dbLoader);
+                        IFullSyncTablePromoter promoter = tech.Contains("sqlite")
+                            ? new SqliteFullSyncTablePromoter()
+                            : new UnsupportedFullSyncTablePromoter();
+                        var runner = new FullSyncRunner(client, promoter);
                         totalRows = await runner.Run(config, company.Name, fromDate, toDate, targetConn);
                     }
                 }

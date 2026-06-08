@@ -1,7 +1,6 @@
 using System;
 using System.Data.Common;
 using System.Threading.Tasks;
-using TallyDbLoader.Core.DatabaseLoaders;
 using TallyDbLoader.Core.Tally;
 
 namespace TallyDbLoader.Core.Sync
@@ -9,12 +8,12 @@ namespace TallyDbLoader.Core.Sync
     public class FullSyncRunner
     {
         private readonly ITallyClient _tally;
-        private readonly IDatabaseLoader _loader;
+        private readonly IFullSyncTablePromoter _promoter;
 
-        public FullSyncRunner(ITallyClient tally, IDatabaseLoader loader)
+        public FullSyncRunner(ITallyClient tally, IFullSyncTablePromoter promoter)
         {
             _tally = tally ?? throw new ArgumentNullException(nameof(tally));
-            _loader = loader ?? throw new ArgumentNullException(nameof(loader));
+            _promoter = promoter ?? throw new ArgumentNullException(nameof(promoter));
         }
 
         public async Task<long> Run(TallyExportConfig config, string companyName,
@@ -32,17 +31,8 @@ namespace TallyDbLoader.Core.Sync
                 var response = await _tally.PostXMLAsync(xml);
                 var dt = DynamicXmlParser.ParseXml(response, table);
 
-                using (var trunc = targetConn.CreateCommand())
-                {
-                    trunc.CommandText = _loader.TruncateSql(table.Name);
-                    trunc.ExecuteNonQuery();
-                }
-
-                if (dt.Rows.Count > 0)
-                {
-                    await _loader.LoadBulkDataAsync(dt, table.Name);
-                    total += dt.Rows.Count;
-                }
+                var promotedCount = await _promoter.StageValidateAndPromoteAsync(dt, table, targetConn);
+                total += promotedCount;
             }
             return total;
         }

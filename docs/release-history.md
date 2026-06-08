@@ -1,5 +1,16 @@
 ## Release History
 
+**Version: 2.0.0-beta [08-Jun-2026]**<br>
+Added:
+* Implement .NET Port of the utility with UI-free core library and WPF shell interface
+* Support for split-phase database atomicity in Full Sync (stage, validate, promote, cleanup)
+* SQL identifier policy normalization, length validation, and collision checks
+
+Certification Status:
+* SQLite split-phase full sync: verified by default tests.
+* PostgreSQL/MSSQL/MySQL split-phase full sync: implemented with opt-in smoke tests, pending certification on a machine/CI runner with disposable database services.
+* Note: Provider parity is pending until those opt-in tests pass.
+
 **Version: 1.0.37 [09-Aug-2025]**<br>
 Fixed:
 * For MySQL incremental sync was not working due to issue in SQL statement compatibility

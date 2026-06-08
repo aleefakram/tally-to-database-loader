@@ -189,8 +189,8 @@
           {
               try
               {
-                  // Log the reason parameter for audit tracking
-                  System.Diagnostics.Trace.WriteLine($"Company profile {id} marked unknown: {reason}");
+                  // Durable audit logging using existing FileLogger
+                  TallyDbLoader.Core.Logging.FileLogger.LogMessage($"[Safety] Company profile {id} marked unknown. Reason: {reason}");
 
                   conn.Execute(@"
                       UPDATE company_profiles
@@ -361,6 +361,8 @@
   using Xunit;
   using TallyDbLoader.Core.Data;
   using TallyDbLoader.Core.Models;
+  using Microsoft.Data.Sqlite;
+  using Dapper;
 
   namespace TallyDbLoader.Tests
   {
@@ -477,9 +479,12 @@
               };
               _repo.AddSyncRun(run);
 
-              var runs = _repo.GetSyncRunsForCompany(profile.Id);
-              Assert.Single(runs);
-              Assert.Null(runs[0].EndedAtRaw); // We check direct DB string or Raw mapping is null
+              // Query database directly to assert SQLite column is written as NULL
+              using (var conn = new SqliteConnection(_dbPath))
+              {
+                  var endedAt = conn.QuerySingle<string?>("SELECT ended_at FROM sync_runs WHERE company_id = @CompanyId", new { CompanyId = profile.Id });
+                  Assert.Null(endedAt);
+              }
           }
       }
   }
@@ -506,7 +511,7 @@
   Update the `Start()` method in `BackgroundSyncWorker.cs` to run startup reconciliation. Accept a `bool startScheduler = true` parameter. If reconciliation fails, fail closed: log the error and do not spin up the background worker thread. If `startScheduler` is false, initialize the cancellation token source to mark `IsRunning = true` but do NOT spawn the scheduler worker loop task (eliminating test race conditions).
 
   ```csharp
-  // Modify Start() in BackgroundSyncWorker.cs:
+  // Modify Start(bool startScheduler = true) in BackgroundSyncWorker.cs:
   public void Start(bool startScheduler = true)
   {
       lock (_syncLock)
@@ -541,67 +546,7 @@
   }
   ```
 
-- [ ] **Step 2: Update Scheduler Eligibility Rules**
-  Refactor `BackgroundSyncWorker.WorkerLoop` to apply safety eligibility rules and skip blocked jobs with explicit reasoning logs.
-
-  ```csharp
-  // In BackgroundSyncWorker.cs, update the company profile loop inside WorkerLoop (approx lines 205-225):
-  var companies = _repo.GetAllCompanyProfiles();
-  foreach (var company in companies)
-  {
-      if (token.IsCancellationRequested) break;
-
-      bool shouldSync = false;
-      string skipReason = string.Empty;
-
-      if (runManualSync)
-      {
-          if (manualCompanyId.HasValue && manualCompanyId.Value == company.Id)
-          {
-              shouldSync = true;
-          }
-          else
-          {
-              skipReason = "NotTargetedByManualTrigger";
-          }
-      }
-      else
-      {
-          // Scheduler evaluation rules:
-          if (!company.Enabled)
-          {
-              skipReason = "JobDisabled";
-          }
-          else if (company.Status == "running")
-          {
-              skipReason = "AlreadyRunning";
-          }
-          else if (company.Status == "review_required" || company.Status == "attention_required" || company.Status == "unknown")
-          {
-              skipReason = "SafetyBlocked";
-          }
-          else if (!SyncOrchestrator.ShouldRun(company, DateTime.Now))
-          {
-              skipReason = "IntervalNotMet";
-          }
-          else
-          {
-              shouldSync = true;
-          }
-      }
-
-      if (shouldSync)
-      {
-          await SyncCompany(company, client, token);
-      }
-      else if (!string.IsNullOrEmpty(skipReason) && skipReason != "IntervalNotMet" && skipReason != "NotTargetedByManualTrigger")
-      {
-          Log($"[Scheduler] Skipping job '{company.Name}' (Reason: {skipReason}, Current Status: {company.Status})");
-      }
-  }
-  ```
-
-- [ ] **Step 3: Update SyncCompany with Safe Lifecycle Steps & Error Mapping**
+- [ ] **Step 2: Update SyncCompany with Safe Lifecycle Steps & Error Mapping**
   Revamp `SyncCompany` to:
   1. Atomically attempt to lock profile status to `running`.
   2. Safe-insert the `SyncRun` (reverting to `unknown` if metadata write fails).
@@ -903,11 +848,11 @@
   }
   ```
 
-- [ ] **Step 4: Run build to verify compilation**
+- [ ] **Step 3: Run build to verify compilation**
   Run: `dotnet build src/TallyDbLoader.sln`
   Expected: Build succeeds.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
   ```bash
   git add src/TallyDbLoader.Core/Sync/BackgroundSyncWorker.cs
   git commit -m "feat(sync): integrate safety eligibility, startup reconciliation, and error mapping in background worker"

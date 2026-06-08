@@ -32,6 +32,8 @@ We normalize state values to track scheduler eligibility and historical executio
 * Modify `SyncRun` mapping to support updating existing runs.
 * Add an index on `company_profiles(status)` to optimize reconciliation/scheduler lookups if needed.
 * Ensure `ended_at` in the `sync_runs` SQLite schema is nullable or initially populated with a placeholder/default that is overwritten on completion.
+* **Migration of NULL/blank Status**: During database/engine startup initialization, migrate any existing NULL or blank `status` values in `company_profiles` to `'idle'`.
+
 
 ---
 
@@ -52,6 +54,11 @@ namespace TallyDbLoader.Core.Data
         /// Also requires enabled = 1.
         /// </summary>
         bool TryStartCompanyProfile(int id);
+
+        /// <summary>
+        /// Mark a company profile as unknown due to metadata/system failures.
+        /// </summary>
+        void MarkCompanyProfileUnknown(int id, string reason, DateTime now);
 
         /// <summary>
         /// Updates only the runtime statistics and final status of a company profile.
@@ -91,9 +98,17 @@ namespace TallyDbLoader.Core.Data
   SET status = 'running'
   WHERE id = @Id
     AND enabled = 1
-    AND status NOT IN ('running', 'review_required', 'attention_required', 'unknown');
+    AND status IN ('idle', 'completed', 'failed');
   ```
   *Returns `true` if rows affected > 0; otherwise `false`.*
+
+* **`MarkCompanyProfileUnknown`**:
+  ```sql
+  UPDATE company_profiles
+  SET status = 'unknown',
+      last_run_at = @Now
+  WHERE id = @Id;
+  ```
 
 * **`CompleteCompanyProfileRun`**:
   ```sql
@@ -148,7 +163,7 @@ To support reliable UI triggers without hidden queues:
   - If `Status` is safety-blocked (`review_required`, `attention_required`, `unknown`), return `SyncStartResult(Accepted = false, ReasonCode = "SafetyBlocked", Message = "Sync blocked. Requires manual resolution.")`.
   - If `Enabled == false`, return `SyncStartResult(Accepted = false, ReasonCode = "Disabled", Message = "Profile is disabled.")`.
   - If `_manualCompanyProfileId != null`, return `SyncStartResult(Accepted = false, ReasonCode = "WorkerBusy", Message = "Another manual run request is already pending.")`.
-  - Otherwise, set `_manualCompanyProfileId = companyProfileId` and signal the worker token to wake up. Return `SyncStartResult(Accepted = true, ReasonCode = "Queued", Message = "Sync run requested.")`.
+  - Otherwise, set `_manualCompanyProfileId = companyProfileId` and signal the worker token to wake up. Return `SyncStartResult(Accepted = true, ReasonCode = "PendingDispatch", Message = "Sync run requested.")`.
 
 ### 3.3 Authoritative Worker Recheck
 
@@ -164,9 +179,9 @@ When the worker wakes up and handles a manual request for `_manualCompanyProfile
 
 For every run that begins:
 
-1. Transition `CompanyProfile.Status` to `running` via `TryStartCompanyProfile(id)`.
-2. Create `SyncRun` with status `running` and insert via `AddSyncRun(run)`.
-   - **Crucial Safety Gate**: Wrap the insert in a try-catch. If `AddSyncRun` throws an exception, atomically revert `CompanyProfile.Status` to `unknown` to fail closed, log `MetadataWriteError`, and terminate immediately.
+ 1. Transition `CompanyProfile.Status` to `running` via `TryStartCompanyProfile(id)`.
+ 2. Create `SyncRun` with status `running` and insert via `AddSyncRun(run)`.
+    - **Crucial Safety Gate**: Wrap the insert in a try-catch. If `AddSyncRun` throws an exception, call `MarkCompanyProfileUnknown(id, reason, now)` to fail closed, log `MetadataWriteError`, and terminate immediately.
 3. Perform synchronization work (fetch, parse, stage, validate, promote).
 4. For Incremental Sync: Watermarks are written **only** inside/after a successful database promotion transaction. If the run results in any status other than `completed`, watermarks are not advanced.
 5. In the `finally` block of the execution path:

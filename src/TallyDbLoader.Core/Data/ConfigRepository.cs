@@ -378,7 +378,115 @@ namespace TallyDbLoader.Core.Data
             }
         }
 
-        public void AddSyncRun(SyncRun run)
+        public long AddSyncRun(SyncRun run)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        string? endedAtStr = (run.Status == "running" || run.EndedAt == default(System.DateTime)) 
+                            ? null 
+                            : run.EndedAt.ToString("o");
+
+                        conn.Execute(@"
+                            INSERT INTO sync_runs (company_id, started_at, ended_at, mode, status, retries, rows_in, rows_written, by_entity_json, result_summary, log_excerpt)
+                            VALUES (@CompanyId, @StartedAt, @EndedAt, @Mode, @Status, @Retries, @RowsIn, @RowsWritten, @ByEntityJson, @ResultSummary, @LogExcerpt)",
+                            new
+                            {
+                                run.CompanyId,
+                                StartedAt = run.StartedAt.ToString("o"),
+                                EndedAt = endedAtStr,
+                                run.Mode,
+                                run.Status,
+                                run.Retries,
+                                run.RowsIn,
+                                run.RowsWritten,
+                                run.ByEntityJson,
+                                run.ResultSummary,
+                                run.LogExcerpt
+                            }, transaction);
+                        
+                        long id = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
+                        transaction.Commit();
+                        run.Id = id;
+                        return id;
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public bool TryStartCompanyProfile(int id)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        int affected = conn.Execute(@"
+                            UPDATE company_profiles
+                            SET status = 'running'
+                            WHERE id = @Id
+                              AND enabled = 1
+                              AND status IN ('idle', 'completed', 'failed');", new { Id = id }, transaction);
+                        transaction.Commit();
+                        return affected > 0;
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public void MarkCompanyProfileUnknown(int id, string reason, System.DateTime now)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        TallyDbLoader.Core.Logging.FileLogger.LogMessage($"[Safety] Company profile {id} marked unknown. Reason: {reason}");
+
+                        conn.Execute(@"
+                            UPDATE company_profiles
+                            SET status = 'unknown',
+                                last_run_at = @Now
+                            WHERE id = @Id;", new { Id = id, Now = now.ToString("o") }, transaction);
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public void CompleteCompanyProfileRun(
+            int id,
+            string finalStatus,
+            System.DateTime endedAt,
+            int durationMs,
+            long rowsWritten,
+            bool incrementErrorCount)
         {
             using (var conn = new SqliteConnection(_connectionString))
             {
@@ -389,14 +497,60 @@ namespace TallyDbLoader.Core.Data
                     try
                     {
                         conn.Execute(@"
-                            INSERT INTO sync_runs (company_id, started_at, ended_at, mode, status, retries, rows_in, rows_written, by_entity_json, result_summary, log_excerpt)
-                            VALUES (@CompanyId, @StartedAt, @EndedAt, @Mode, @Status, @Retries, @RowsIn, @RowsWritten, @ByEntityJson, @ResultSummary, @LogExcerpt)",
+                            UPDATE company_profiles
+                            SET status = @FinalStatus,
+                                last_run_at = @EndedAt,
+                                last_duration_ms = @DurationMs,
+                                last_rows_written = @RowsWritten,
+                                error_count_24h = CASE WHEN @IncrementErrorCount = 1 THEN error_count_24h + 1 ELSE 0 END
+                            WHERE id = @Id;",
                             new
                             {
-                                run.CompanyId,
-                                StartedAt = run.StartedAt.ToString("o"),
-                                EndedAt = run.EndedAt.ToString("o"),
-                                run.Mode,
+                                Id = id,
+                                FinalStatus = finalStatus,
+                                EndedAt = endedAt.ToString("o"),
+                                DurationMs = durationMs,
+                                RowsWritten = rowsWritten,
+                                IncrementErrorCount = incrementErrorCount ? 1 : 0
+                            }, transaction);
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public void UpdateSyncRun(SyncRun run)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        string? endedAtStr = (run.EndedAt == default(System.DateTime)) ? null : run.EndedAt.ToString("o");
+
+                        conn.Execute(@"
+                            UPDATE sync_runs
+                            SET ended_at = @EndedAt,
+                                status = @Status,
+                                retries = @Retries,
+                                rows_in = @RowsIn,
+                                rows_written = @RowsWritten,
+                                by_entity_json = @ByEntityJson,
+                                result_summary = @ResultSummary,
+                                log_excerpt = @LogExcerpt
+                            WHERE id = @Id;",
+                            new
+                            {
+                                Id = run.Id,
+                                EndedAt = endedAtStr,
                                 run.Status,
                                 run.Retries,
                                 run.RowsIn,
@@ -405,6 +559,40 @@ namespace TallyDbLoader.Core.Data
                                 run.ResultSummary,
                                 run.LogExcerpt
                             }, transaction);
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public void ReconcileStaleRuns(System.DateTime now)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        conn.Execute(@"
+                            UPDATE sync_runs
+                            SET status = 'unknown',
+                                ended_at = @Now,
+                                result_summary = 'Interrupted by application restart before completion',
+                                log_excerpt = 'Startup reconciliation found stale running state.'
+                            WHERE status = 'running';", new { Now = now.ToString("o") }, transaction);
+
+                        conn.Execute(@"
+                            UPDATE company_profiles
+                            SET status = 'unknown'
+                            WHERE status = 'running';", null, transaction);
+
                         transaction.Commit();
                     }
                     catch

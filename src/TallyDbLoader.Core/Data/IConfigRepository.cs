@@ -15,8 +15,20 @@ namespace TallyDbLoader.Core.Data
         TallySettings GetTallySettings();
         void SaveTallySettings(TallySettings settings);
         void DeleteDatabaseProfile(int id);
-        void AddSyncRun(SyncRun run);
+        long AddSyncRun(SyncRun run);
         List<SyncRun> GetRecentSyncRuns(int limit = 50);
         List<SyncRun> GetSyncRunsForCompany(int companyId, int limit = 50);
+
+        bool TryStartCompanyProfile(int id);
+        void MarkCompanyProfileUnknown(int id, string reason, System.DateTime now);
+        void CompleteCompanyProfileRun(
+            int id,
+            string finalStatus,
+            System.DateTime endedAt,
+            int durationMs,
+            long rowsWritten,
+            bool incrementErrorCount);
+        void UpdateSyncRun(SyncRun run);
+        void ReconcileStaleRuns(System.DateTime now);
     }
 }

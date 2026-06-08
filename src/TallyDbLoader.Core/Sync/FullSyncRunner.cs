@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Data.Common;
 using System.Threading.Tasks;
 using TallyDbLoader.Core.Tally;
@@ -19,22 +20,72 @@ namespace TallyDbLoader.Core.Sync
         public async Task<long> Run(TallyExportConfig config, string companyName,
             DateTime fromDate, DateTime toDate, DbConnection targetConn)
         {
-            long total = 0;
-            var all = new System.Collections.Generic.List<TableConfig>();
+            var all = new List<TableConfig>();
             all.AddRange(config.Master);
             all.AddRange(config.Transaction);
 
-            foreach (var table in all)
-            {
-                var xml = DynamicTdlXmlGenerator.GenerateXml(table, companyName,
-                    fromDate.ToString("yyyyMMdd"), toDate.ToString("yyyyMMdd"));
-                var response = await _tally.PostXMLAsync(xml);
-                var dt = DynamicXmlParser.ParseXml(response, table);
+            var stagedTables = new List<TableConfig>();
+            var stageResults = new Dictionary<TableConfig, StageResult>();
+            long totalRows = 0;
 
-                var promotedCount = await _promoter.StageValidateAndPromoteAsync(dt, table, targetConn);
-                total += promotedCount;
+            try
+            {
+                // 1. Fetch, Parse, and Stage one-by-one (outside transaction) to optimize memory
+                foreach (var table in all)
+                {
+                    var xml = DynamicTdlXmlGenerator.GenerateXml(table, companyName,
+                        fromDate.ToString("yyyyMMdd"), toDate.ToString("yyyyMMdd"));
+                    var response = await _tally.PostXMLAsync(xml);
+                    var dt = DynamicXmlParser.ParseXml(response, table);
+
+                    var stageResult = await _promoter.StageAsync(dt, table, targetConn);
+                    stagedTables.Add(table);
+                    stageResults[table] = stageResult;
+                    totalRows += stageResult.RowCount;
+                }
+
+                // 2. Validate all staging tables (outside transaction)
+                foreach (var table in stagedTables)
+                {
+                    await _promoter.ValidateStagingAsync(table, targetConn);
+                }
+
+                // 3. Promote all staged tables (inside short transaction)
+                using (var transaction = targetConn.BeginTransaction())
+                {
+                    try
+                      {
+                        foreach (var table in stagedTables)
+                        {
+                            var result = stageResults[table];
+                            await _promoter.PromoteStagedAsync(table, result.Columns, targetConn, transaction);
+                        }
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
             }
-            return total;
+            finally
+            {
+                // 4. Cleanup staging tables (best-effort, outside transaction)
+                foreach (var table in stagedTables)
+                {
+                    try
+                    {
+                        await _promoter.CleanupStagingAsync(table, targetConn);
+                    }
+                    catch (Exception ex)
+                    {
+                        TallyDbLoader.Core.Logging.FileLogger.LogMessage($"[Staging Cleanup Warning] Failed to drop staging table for '{table.Name}': {ex.Message}");
+                    }
+                }
+            }
+
+            return totalRows;
         }
     }
 }

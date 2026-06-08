@@ -42,69 +42,89 @@ namespace TallyDbLoader.Core.Tally
                 return dataTable;
             }
             
-            try
+            using (var sr = new StringReader(xmlContent))
+            using (var reader = XmlReader.Create(sr))
             {
-                using (var sr = new StringReader(xmlContent))
-                using (var reader = XmlReader.Create(sr))
+                string[] rowValues = new string[tableConfig.Fields.Count];
+                bool inRow = false;
+                int activeFieldIdx = -1;
+                
+                while (reader.Read())
                 {
-                    string[] rowValues = new string[tableConfig.Fields.Count];
-                    bool inRow = false;
-                    
-                    while (reader.Read())
-                      {
-                          if (reader.NodeType == XmlNodeType.Element)
-                          {
-                              string name = reader.Name;
-                              
-                              if (name == "F01")
-                              {
-                                  if (inRow)
-                                  {
-                                      AddRowToTable(dataTable, rowValues, tableConfig);
-                                  }
-                                  // Reset row values
-                                  for (int j = 0; j < rowValues.Length; j++) rowValues[j] = null;
-                                  inRow = true;
-                              }
-                              
-                              if (inRow && name.Length > 1 && name.StartsWith("F") && char.IsDigit(name[1]))
-                              {
-                                  if (int.TryParse(name.Substring(1), out int fieldIdx))
-                                  {
-                                      if (fieldIdx >= 1 && fieldIdx <= tableConfig.Fields.Count)
-                                      {
-                                          rowValues[fieldIdx - 1] = reader.ReadElementContentAsString();
-                                      }
-                                  }
-                              }
-                          }
-                          else if (reader.NodeType == XmlNodeType.EndElement)
-                          {
-                              if (inRow && !reader.Name.StartsWith("F"))
-                              {
-                                  AddRowToTable(dataTable, rowValues, tableConfig);
-                                  inRow = false;
-                              }
-                          }
-                      }
-                      
-                      if (inRow)
-                      {
-                          bool hasAnyData = false;
-                          for (int j = 0; j < rowValues.Length; j++)
-                          {
-                              if (rowValues[j] != null) { hasAnyData = true; break; }
-                          }
-                          if (hasAnyData)
-                          {
-                              AddRowToTable(dataTable, rowValues, tableConfig);
-                          }
-                      }
+                    if (reader.NodeType == XmlNodeType.Element)
+                    {
+                        string name = reader.Name;
+                        
+                        if (name == "F01")
+                        {
+                            if (inRow)
+                            {
+                                AddRowToTable(dataTable, rowValues, tableConfig);
+                            }
+                            // Reset row values
+                            for (int j = 0; j < rowValues.Length; j++) rowValues[j] = null;
+                            inRow = true;
+                        }
+                        
+                        if (inRow && name.Length > 1 && name.StartsWith("F") && char.IsDigit(name[1]))
+                        {
+                            if (int.TryParse(name.Substring(1), out int fieldIdx))
+                            {
+                                if (fieldIdx >= 1 && fieldIdx <= tableConfig.Fields.Count)
+                                {
+                                    activeFieldIdx = fieldIdx - 1;
+                                    if (reader.IsEmptyElement)
+                                    {
+                                        rowValues[activeFieldIdx] = "";
+                                        activeFieldIdx = -1;
+                                    }
+                                }
+                                else
+                                {
+                                    activeFieldIdx = -1;
+                                }
+                            }
+                            else
+                            {
+                                activeFieldIdx = -1;
+                            }
+                        }
+                        else
+                        {
+                            activeFieldIdx = -1;
+                        }
+                    }
+                    else if (reader.NodeType == XmlNodeType.Text || reader.NodeType == XmlNodeType.CDATA)
+                    {
+                        if (activeFieldIdx >= 0 && activeFieldIdx < rowValues.Length)
+                        {
+                            rowValues[activeFieldIdx] = reader.Value;
+                        }
+                    }
+                    else if (reader.NodeType == XmlNodeType.EndElement)
+                    {
+                        string name = reader.Name;
+                        if (inRow && !name.StartsWith("F"))
+                        {
+                            AddRowToTable(dataTable, rowValues, tableConfig);
+                            inRow = false;
+                        }
+                        activeFieldIdx = -1;
+                    }
                 }
-            }
-            catch
-            {
-                // Fallback gracefully on parsing errors
+                
+                if (inRow)
+                {
+                    bool hasAnyData = false;
+                    for (int j = 0; j < rowValues.Length; j++)
+                    {
+                        if (rowValues[j] != null) { hasAnyData = true; break; }
+                    }
+                    if (hasAnyData)
+                    {
+                        AddRowToTable(dataTable, rowValues, tableConfig);
+                    }
+                }
             }
             
             return dataTable;
@@ -122,7 +142,22 @@ namespace TallyDbLoader.Core.Tally
                 
                 if (valStr == null)
                 {
-                    row[field.Name] = DBNull.Value;
+                    if (field.Type == "logical")
+                    {
+                        row[field.Name] = false;
+                    }
+                    else if (field.Type == "number" || field.Type == "amount" || field.Type == "quantity" || field.Type == "rate")
+                    {
+                        row[field.Name] = 0m;
+                    }
+                    else if (field.Type == "date")
+                    {
+                        row[field.Name] = DBNull.Value;
+                    }
+                    else // text
+                    {
+                        row[field.Name] = "";
+                    }
                     continue;
                 }
                 
@@ -134,7 +169,7 @@ namespace TallyDbLoader.Core.Tally
                 }
                 else if (field.Type == "date")
                 {
-                    if (string.IsNullOrEmpty(valStr) || valStr.Contains("ñ") || valStr == "0")
+                    if (string.IsNullOrEmpty(valStr) || valStr.Trim() == "" || valStr.Contains("ñ") || valStr == "0")
                     {
                         row[field.Name] = DBNull.Value;
                     }
@@ -144,18 +179,22 @@ namespace TallyDbLoader.Core.Tally
                     }
                     else
                     {
-                        row[field.Name] = DBNull.Value;
+                        throw new FormatException($"Failed to parse date value '{valStr}' for field '{field.Name}'.");
                     }
                 }
                 else if (field.Type == "number" || field.Type == "amount" || field.Type == "quantity" || field.Type == "rate")
                 {
-                    if (decimal.TryParse(valStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedDecimal))
+                    if (string.IsNullOrEmpty(valStr) || valStr.Trim() == "")
+                    {
+                        row[field.Name] = DBNull.Value;
+                    }
+                    else if (decimal.TryParse(valStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedDecimal))
                     {
                         row[field.Name] = parsedDecimal;
                     }
                     else
                     {
-                        row[field.Name] = 0m;
+                        throw new FormatException($"Failed to parse numeric value '{valStr}' for field '{field.Name}'.");
                     }
                 }
                 else

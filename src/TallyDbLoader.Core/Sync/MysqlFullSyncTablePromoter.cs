@@ -8,11 +8,11 @@ using TallyDbLoader.Core.Tally;
 
 namespace TallyDbLoader.Core.Sync
 {
-    public class SqliteFullSyncTablePromoter : IFullSyncTablePromoter
+    public class MysqlFullSyncTablePromoter : IFullSyncTablePromoter
     {
         private string Quote(string identifier)
         {
-            return $"\"{identifier.Replace("\"", "\"\"")}\"";
+            return $"`{identifier.Replace("`", "``")}`";
         }
 
         public async Task<StageResult> StageAsync(DataTable data, TableConfig table, DbConnection conn)

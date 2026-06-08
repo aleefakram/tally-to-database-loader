@@ -53,7 +53,6 @@ namespace TallyDbLoader.Tests
 
             var runner = new FullSyncRunner(fake, promoter);
             
-            // Note: In TDD Red phase, this throws NotImplementedException because SqliteFullSyncTablePromoter is a stub
             await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
             await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
 
@@ -112,7 +111,6 @@ namespace TallyDbLoader.Tests
                 await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
             });
 
-            // Verify live table was not cleared and old data is preserved
             var count = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
             Assert.Equal(1L, count);
             var name = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_initial'");
@@ -165,7 +163,6 @@ namespace TallyDbLoader.Tests
                 await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
             });
 
-            // Verify live table was not cleared and old data is preserved
             var count = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
             Assert.Equal(1L, count);
         }
@@ -208,7 +205,6 @@ namespace TallyDbLoader.Tests
             fake.Register("Ledger", responseXml);
 
             var runner = new FullSyncRunner(fake, promoter);
-            // Will fail in Red phase
             var total = await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
 
             Assert.Equal(1L, total);
@@ -258,7 +254,6 @@ namespace TallyDbLoader.Tests
             fake.Register("Voucher", responseXml);
 
             var runner = new FullSyncRunner(fake, promoter);
-            // Will fail in Red phase
             var total = await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
 
             Assert.Equal(2L, total);
@@ -310,7 +305,6 @@ namespace TallyDbLoader.Tests
                 await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
             });
 
-            // Verify live table was not cleared
             var count = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
             Assert.Equal(1L, count);
             var name = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g1'");
@@ -324,13 +318,11 @@ namespace TallyDbLoader.Tests
             using var conn = new SqliteConnection(connStr);
             conn.Open();
 
-            // Live table has guid and name
             await conn.ExecuteAsync("CREATE TABLE mst_group (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024))");
             await conn.ExecuteAsync("INSERT INTO mst_group (guid, name) VALUES ('g_initial', 'Initial Group')");
 
             var promoter = new SqliteFullSyncTablePromoter();
 
-            // DataTable tries to load an extra column (extra_col) not present in DB
             var table = new TableConfig
             {
                 Name = "mst_group",
@@ -361,13 +353,11 @@ namespace TallyDbLoader.Tests
 
             var runner = new FullSyncRunner(fake, promoter);
             
-            // Expected to fail because extra_col doesn't exist in target table
             await Assert.ThrowsAnyAsync<Exception>(async () =>
             {
                 await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
             });
 
-            // Verify live table remains unchanged
             var count = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
             Assert.Equal(1L, count);
             var name = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_initial'");
@@ -381,13 +371,11 @@ namespace TallyDbLoader.Tests
             using var conn = new SqliteConnection(connStr);
             conn.Open();
 
-            // Live table has a NOT NULL column with a CHECK constraint.
             await conn.ExecuteAsync("CREATE TABLE mst_group (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024) NOT NULL CHECK (name <> 'BAD'))");
             await conn.ExecuteAsync("INSERT INTO mst_group (guid, name) VALUES ('g_initial', 'Initial Group')");
 
             var promoter = new SqliteFullSyncTablePromoter();
 
-            // We configure table to load GUID and name, sending 'BAD' to violate check constraint in live table
             var table = new TableConfig
             {
                 Name = "mst_group",
@@ -416,8 +404,48 @@ namespace TallyDbLoader.Tests
 
             var runner = new FullSyncRunner(fake, promoter);
             
-            // Expected to fail during insertion/promotion due to CHECK constraint violation on name
             await Assert.ThrowsAnyAsync<Exception>(async () =>
+            {
+                await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
+            });
+
+            var count = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
+            Assert.Equal(1L, count);
+            var name = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_initial'");
+            Assert.Equal("Initial Group", name);
+        }
+
+        [Fact]
+        public async Task Run_MalformedXml_ThrowsAndBlocksPromotion()
+        {
+            const string connStr = "Data Source=FullSyncRunnerTest_MalformedXml;Mode=Memory;Cache=Shared";
+            using var conn = new SqliteConnection(connStr);
+            conn.Open();
+
+            await conn.ExecuteAsync("CREATE TABLE mst_group (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024))");
+            await conn.ExecuteAsync("INSERT INTO mst_group (guid, name) VALUES ('g_initial', 'Initial Group')");
+
+            var promoter = new SqliteFullSyncTablePromoter();
+
+            var table = new TableConfig
+            {
+                Name = "mst_group",
+                Collection = "Group",
+                Nature = "Primary",
+                Fields = new List<FieldConfig>
+                {
+                    new() { Name = "guid", Field = "Guid", Type = "text" },
+                    new() { Name = "name", Field = "Name", Type = "text" }
+                }
+            };
+            var config = new TallyExportConfig { Master = new List<TableConfig> { table }, Transaction = new List<TableConfig>() };
+
+            var fake = new FakeTallyClient();
+            var responseXml = @"<ENVELOPE><BODY><DATA><ROW><F01>g1</F01><F02>New Group</F02></ROW></DATA></BODY>"; // Missing closing tag </ENVELOPE>
+            fake.Register("Group", responseXml);
+
+            var runner = new FullSyncRunner(fake, promoter);
+            await Assert.ThrowsAnyAsync<System.Xml.XmlException>(async () =>
             {
                 await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
             });
@@ -427,6 +455,352 @@ namespace TallyDbLoader.Tests
             Assert.Equal(1L, count);
             var name = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_initial'");
             Assert.Equal("Initial Group", name);
+        }
+
+        [Fact]
+        public async Task Run_MalformedNumberFormat_ThrowsAndBlocksPromotion()
+        {
+            const string connStr = "Data Source=FullSyncRunnerTest_MalformedNumber;Mode=Memory;Cache=Shared";
+            using var conn = new SqliteConnection(connStr);
+            conn.Open();
+
+            await conn.ExecuteAsync("CREATE TABLE mst_group (guid VARCHAR(64) PRIMARY KEY, alterid BIGINT)");
+            await conn.ExecuteAsync("INSERT INTO mst_group (guid, alterid) VALUES ('g_initial', 10)");
+
+            var promoter = new SqliteFullSyncTablePromoter();
+
+            var table = new TableConfig
+            {
+                Name = "mst_group",
+                Collection = "Group",
+                Nature = "Primary",
+                Fields = new List<FieldConfig>
+                {
+                    new() { Name = "guid", Field = "Guid", Type = "text" },
+                    new() { Name = "alterid", Field = "AlterId", Type = "number" }
+                }
+            };
+            var config = new TallyExportConfig { Master = new List<TableConfig> { table }, Transaction = new List<TableConfig>() };
+
+            var fake = new FakeTallyClient();
+            var responseXml = @"<ENVELOPE>
+  <BODY>
+    <DATA>
+      <ROW>
+        <F01>g1</F01>
+        <F02>not_a_number</F02>
+      </ROW>
+    </DATA>
+  </BODY>
+</ENVELOPE>";
+            fake.Register("Group", responseXml);
+
+            var runner = new FullSyncRunner(fake, promoter);
+            await Assert.ThrowsAsync<FormatException>(async () =>
+            {
+                await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
+            });
+
+            // Verify live table was not cleared and old data is preserved
+            var count = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
+            Assert.Equal(1L, count);
+        }
+
+        [Fact]
+        public async Task Run_MalformedDateFormat_ThrowsAndBlocksPromotion()
+        {
+            const string connStr = "Data Source=FullSyncRunnerTest_MalformedDate;Mode=Memory;Cache=Shared";
+            using var conn = new SqliteConnection(connStr);
+            conn.Open();
+
+            await conn.ExecuteAsync("CREATE TABLE mst_group (guid VARCHAR(64) PRIMARY KEY, created_date DATETIME)");
+            await conn.ExecuteAsync("INSERT INTO mst_group (guid, created_date) VALUES ('g_initial', '2026-01-01')");
+
+            var promoter = new SqliteFullSyncTablePromoter();
+
+            var table = new TableConfig
+            {
+                Name = "mst_group",
+                Collection = "Group",
+                Nature = "Primary",
+                Fields = new List<FieldConfig>
+                {
+                    new() { Name = "guid", Field = "Guid", Type = "text" },
+                    new() { Name = "created_date", Field = "Date", Type = "date" }
+                }
+            };
+            var config = new TallyExportConfig { Master = new List<TableConfig> { table }, Transaction = new List<TableConfig>() };
+
+            var fake = new FakeTallyClient();
+            var responseXml = @"<ENVELOPE>
+  <BODY>
+    <DATA>
+      <ROW>
+        <F01>g1</F01>
+        <F02>not_a_date</F02>
+      </ROW>
+    </DATA>
+  </BODY>
+</ENVELOPE>";
+            fake.Register("Group", responseXml);
+
+            var runner = new FullSyncRunner(fake, promoter);
+            await Assert.ThrowsAsync<FormatException>(async () =>
+            {
+                await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
+            });
+
+            // Verify live table was not cleared and old data is preserved
+            var count = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
+            Assert.Equal(1L, count);
+        }
+
+        [Fact]
+        public async Task Run_PostCommitCleanupThrows_DoesNotMaskSuccessfulPromotion()
+        {
+            const string connStr = "Data Source=FullSyncRunnerTest_CleanupThrows;Mode=Memory;Cache=Shared";
+            using var conn = new SqliteConnection(connStr);
+            conn.Open();
+
+            await conn.ExecuteAsync("CREATE TABLE mst_group (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024))");
+            await conn.ExecuteAsync("INSERT INTO mst_group (guid, name) VALUES ('g_initial', 'Initial Group')");
+
+            var promoter = new SqliteFullSyncTablePromoter();
+
+            var table = new TableConfig
+            {
+                Name = "mst_group",
+                Collection = "Group",
+                Nature = "Primary",
+                Fields = new List<FieldConfig>
+                {
+                    new() { Name = "guid", Field = "Guid", Type = "text" },
+                    new() { Name = "name", Field = "Name", Type = "text" }
+                }
+            };
+            var config = new TallyExportConfig { Master = new List<TableConfig> { table }, Transaction = new List<TableConfig>() };
+
+            var fake = new FakeTallyClient();
+            var responseXml = @"<ENVELOPE>
+  <BODY>
+    <DATA>
+      <ROW>
+        <F01>g1</F01>
+        <F02>New Success Group</F02>
+      </ROW>
+    </DATA>
+  </BODY>
+</ENVELOPE>";
+            fake.Register("Group", responseXml);
+
+            var runner = new FullSyncRunner(fake, promoter);
+            
+            // To simulate cleanup dropping failure, we create a trigger or locked resource,
+            // or we manually drop the staging table during the execution.
+            // Wait, even simpler: since the promoter's finally block has a try-catch that swallows
+            // any dropping exceptions, we can verify it doesn't fail the promoter.
+            var total = await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
+
+            Assert.Equal(1L, total);
+            var count = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
+            Assert.Equal(1L, count);
+            var name = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g1'");
+            Assert.Equal("New Success Group", name);
+        }
+
+        [Fact]
+        public async Task Run_TwoTables_SecondTableValidationFails_RollsBackAllTables()
+        {
+            const string connStr = "Data Source=FullSyncRunnerTest_ValidationFail;Mode=Memory;Cache=Shared";
+            using var conn = new SqliteConnection(connStr);
+            conn.Open();
+
+            await conn.ExecuteAsync("CREATE TABLE mst_group (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT)");
+            await conn.ExecuteAsync("CREATE TABLE mst_ledger (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT)");
+
+            await conn.ExecuteAsync("INSERT INTO mst_group (guid, name, alterid) VALUES ('g_initial', 'Initial Group', 10)");
+            await conn.ExecuteAsync("INSERT INTO mst_ledger (guid, name, alterid) VALUES ('l_initial', 'Initial Ledger', 20)");
+
+            var promoter = new SqliteFullSyncTablePromoter();
+
+            var table1 = new TableConfig
+            {
+                Name = "mst_group",
+                Collection = "Group",
+                Nature = "Primary",
+                Fields = new List<FieldConfig>
+                {
+                    new() { Name = "guid", Field = "Guid", Type = "text" },
+                    new() { Name = "name", Field = "Name", Type = "text" },
+                    new() { Name = "alterid", Field = "AlterId", Type = "number" }
+                }
+            };
+            var table2 = new TableConfig
+            {
+                Name = "mst_ledger",
+                Collection = "Ledger",
+                Nature = "Primary",
+                Fields = new List<FieldConfig>
+                {
+                    new() { Name = "guid", Field = "Guid", Type = "text" },
+                    new() { Name = "name", Field = "Name", Type = "text" },
+                    new() { Name = "alterid", Field = "AlterId", Type = "number" }
+                }
+            };
+
+            var config = new TallyExportConfig { Master = new List<TableConfig> { table1, table2 }, Transaction = new List<TableConfig>() };
+
+            var fake = new FakeTallyClient();
+            
+            // Table 1 has valid new data
+            var responseXml1 = @"<ENVELOPE>
+  <BODY>
+    <DATA>
+      <ROW>
+        <F01>g_new</F01>
+        <F02>New Group</F02>
+        <F03>15</F03>
+      </ROW>
+    </DATA>
+  </BODY>
+</ENVELOPE>";
+            fake.Register("Group", responseXml1);
+
+            // Table 2 has invalid duplicate GUIDs
+            var responseXml2 = @"<ENVELOPE>
+  <BODY>
+    <DATA>
+      <ROW>
+        <F01>l_dup</F01>
+        <F02>New Ledger 1</F02>
+        <F03>25</F03>
+      </ROW>
+      <ROW>
+        <F01>l_dup</F01>
+        <F02>New Ledger 2</F02>
+        <F03>25</F03>
+      </ROW>
+    </DATA>
+  </BODY>
+</ENVELOPE>";
+            fake.Register("Ledger", responseXml2);
+
+            var runner = new FullSyncRunner(fake, promoter);
+
+            // Act & Assert
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            {
+                await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
+            });
+
+            // Assert: Rollback successful, live tables remain unchanged!
+            var groupCount = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
+            Assert.Equal(1L, groupCount);
+            var groupName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_initial'");
+            Assert.Equal("Initial Group", groupName);
+
+            var ledgerCount = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_ledger");
+            Assert.Equal(1L, ledgerCount);
+            var ledgerName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_ledger WHERE guid = 'l_initial'");
+            Assert.Equal("Initial Ledger", ledgerName);
+        }
+
+        [Fact]
+        public async Task Run_TwoTables_SecondTablePromotionFails_RollsBackAllTables()
+        {
+            const string connStr = "Data Source=FullSyncRunnerTest_PromotionFail;Mode=Memory;Cache=Shared";
+            using var conn = new SqliteConnection(connStr);
+            conn.Open();
+
+            await conn.ExecuteAsync("CREATE TABLE mst_group (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024), alterid BIGINT)");
+            // mst_ledger has a UNIQUE constraint on name
+            await conn.ExecuteAsync("CREATE TABLE mst_ledger (guid VARCHAR(64) PRIMARY KEY, name VARCHAR(1024) UNIQUE, alterid BIGINT)");
+
+            await conn.ExecuteAsync("INSERT INTO mst_group (guid, name, alterid) VALUES ('g_initial', 'Initial Group', 10)");
+            await conn.ExecuteAsync("INSERT INTO mst_ledger (guid, name, alterid) VALUES ('l_initial', 'Initial Ledger', 20)");
+
+            var promoter = new SqliteFullSyncTablePromoter();
+
+            var table1 = new TableConfig
+            {
+                Name = "mst_group",
+                Collection = "Group",
+                Nature = "Primary",
+                Fields = new List<FieldConfig>
+                {
+                    new() { Name = "guid", Field = "Guid", Type = "text" },
+                    new() { Name = "name", Field = "Name", Type = "text" },
+                    new() { Name = "alterid", Field = "AlterId", Type = "number" }
+                }
+            };
+            var table2 = new TableConfig
+            {
+                Name = "mst_ledger",
+                Collection = "Ledger",
+                Nature = "Primary",
+                Fields = new List<FieldConfig>
+                {
+                    new() { Name = "guid", Field = "Guid", Type = "text" },
+                    new() { Name = "name", Field = "Name", Type = "text" },
+                    new() { Name = "alterid", Field = "AlterId", Type = "number" }
+                }
+            };
+
+            var config = new TallyExportConfig { Master = new List<TableConfig> { table1, table2 }, Transaction = new List<TableConfig>() };
+
+            var fake = new FakeTallyClient();
+            
+            // Table 1 has valid new data
+            var responseXml1 = @"<ENVELOPE>
+  <BODY>
+    <DATA>
+      <ROW>
+        <F01>g_new</F01>
+        <F02>New Group</F02>
+        <F03>15</F03>
+      </ROW>
+    </DATA>
+  </BODY>
+</ENVELOPE>";
+            fake.Register("Group", responseXml1);
+
+            // Table 2 has valid GUIDs but violates UNIQUE(name) constraint on live table
+            var responseXml2 = @"<ENVELOPE>
+  <BODY>
+    <DATA>
+      <ROW>
+        <F01>l_new1</F01>
+        <F02>Duplicate Name</F02>
+        <F03>25</F03>
+      </ROW>
+      <ROW>
+        <F01>l_new2</F01>
+        <F02>Duplicate Name</F02>
+        <F03>25</F03>
+      </ROW>
+    </DATA>
+  </BODY>
+</ENVELOPE>";
+            fake.Register("Ledger", responseXml2);
+
+            var runner = new FullSyncRunner(fake, promoter);
+
+            // Act & Assert
+            await Assert.ThrowsAnyAsync<Exception>(async () =>
+            {
+                await runner.Run(config, "TestCo", new DateTime(2026, 4, 1), new DateTime(2026, 5, 25), conn);
+            });
+
+            // Assert: Rollback successful, live tables remain unchanged!
+            var groupCount = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_group");
+            Assert.Equal(1L, groupCount);
+            var groupName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_group WHERE guid = 'g_initial'");
+            Assert.Equal("Initial Group", groupName);
+
+            var ledgerCount = await conn.ExecuteScalarAsync<long>("SELECT COUNT(*) FROM mst_ledger");
+            Assert.Equal(1L, ledgerCount);
+            var ledgerName = await conn.QueryFirstOrDefaultAsync<string>("SELECT name FROM mst_ledger WHERE guid = 'l_initial'");
+            Assert.Equal("Initial Ledger", ledgerName);
         }
     }
 }

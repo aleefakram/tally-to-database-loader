@@ -8,11 +8,11 @@ using TallyDbLoader.Core.Tally;
 
 namespace TallyDbLoader.Core.Sync
 {
-    public class SqliteFullSyncTablePromoter : IFullSyncTablePromoter
+    public class MssqlFullSyncTablePromoter : IFullSyncTablePromoter
     {
         private string Quote(string identifier)
         {
-            return $"\"{identifier.Replace("\"", "\"\"")}\"";
+            return $"[{identifier.Replace("]", "]]")}]";
         }
 
         public async Task<StageResult> StageAsync(DataTable data, TableConfig table, DbConnection conn)
@@ -29,13 +29,15 @@ namespace TallyDbLoader.Core.Sync
                 // 1. Create Staging Table by copying live table columns (without constraints)
                 using (var cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = $"DROP TABLE IF EXISTS {Quote(stagingTableName)};";
-                    await cmd.ExecuteNonQueryAsync();
-                }
-
-                using (var cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = $"CREATE TABLE {Quote(stagingTableName)} AS SELECT * FROM {Quote(tableName)} WHERE 1=0;";
+                    cmd.CommandText = $@"
+                        IF OBJECT_ID(@stagingTable, 'U') IS NOT NULL 
+                            DROP TABLE {Quote(stagingTableName)};
+                        SELECT * INTO {Quote(stagingTableName)} FROM {Quote(tableName)} WHERE 1=0;
+                    ";
+                    var param = cmd.CreateParameter();
+                    param.ParameterName = "@stagingTable";
+                    param.Value = stagingTableName;
+                    cmd.Parameters.Add(param);
                     await cmd.ExecuteNonQueryAsync();
                 }
 
@@ -193,7 +195,14 @@ namespace TallyDbLoader.Core.Sync
 
             using (var cmd = conn.CreateCommand())
             {
-                cmd.CommandText = $"DROP TABLE IF EXISTS {Quote(stagingTableName)};";
+                cmd.CommandText = $@"
+                    IF OBJECT_ID(@stagingTable, 'U') IS NOT NULL 
+                        DROP TABLE {Quote(stagingTableName)};
+                ";
+                var param = cmd.CreateParameter();
+                param.ParameterName = "@stagingTable";
+                param.Value = stagingTableName;
+                cmd.Parameters.Add(param);
                 await cmd.ExecuteNonQueryAsync();
             }
         }

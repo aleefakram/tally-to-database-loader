@@ -8,7 +8,7 @@ using TallyDbLoader.Core.Tally;
 
 namespace TallyDbLoader.Core.Sync
 {
-    public class SqliteFullSyncTablePromoter : IFullSyncTablePromoter
+    public class PostgresFullSyncTablePromoter : IFullSyncTablePromoter
     {
         private string Quote(string identifier)
         {

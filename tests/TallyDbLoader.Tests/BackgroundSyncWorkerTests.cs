@@ -25,13 +25,17 @@ namespace TallyDbLoader.Tests
                 var contentStr = "";
                 // Inspect request XML content to decide response
                 var requestContent = request.Content?.ReadAsStringAsync(cancellationToken).Result ?? "";
-                if (requestContent.Contains("TallyDatabaseLoaderReport") || requestContent.Contains("FilterActiveCompany"))
+                if (requestContent.Contains("ASCII (Comma Delimited)") || requestContent.Contains("FilterActiveCompany"))
                 {
                     contentStr = CompanyInfoResponse;
                 }
                 else if (requestContent.Contains("MyReportLedgerTable"))
                 {
                     contentStr = "<ENVELOPE><BODY><DATA><ROW><NAME>TestCompany</NAME><ISGROUP>false</ISGROUP></ROW></DATA></BODY></ENVELOPE>";
+                }
+                else if (requestContent.Contains("AlterId") || requestContent.Contains("AlterID"))
+                {
+                    contentStr = "<ENVELOPE><BODY><DATA><ROW><F01>guid-1</F01><F02>100</F02></ROW></DATA></BODY></ENVELOPE>";
                 }
                 else
                 {
@@ -89,7 +93,8 @@ namespace TallyDbLoader.Tests
                 Collection = "Ledger",
                 Fields = new List<FieldConfig>
                 {
-                    new FieldConfig { Name = "guid", Field = "Guid", Type = "text" }
+                    new FieldConfig { Name = "guid", Field = "Guid", Type = "text" },
+                    new FieldConfig { Name = "name", Field = "Name", Type = "text" }
                 }
             };
             DatabaseWriter.InitializeTargetTableDynamic(profile, "test_catalog", tableConfig);
@@ -319,8 +324,11 @@ transaction: []
 
                 worker.Start();
                 
-                // Wait for first initial sync to run and complete (fires twice: starting and completing)
-                await Task.Delay(1000);
+                // Wait up to 5 seconds for first initial sync to run and complete (fires twice: starting and completing)
+                for (int i = 0; i < 50 && runCount < 2; i++)
+                {
+                    await Task.Delay(100);
+                }
                 if (runCount != 2)
                 {
                     Assert.Fail($"Expected runCount to be 2, but was {runCount}. Logs:\n" + string.Join("\n", logs));
@@ -329,8 +337,11 @@ transaction: []
                 // Trigger manual sync
                 worker.TriggerManualSync();
 
-                // Wait a short delay and check that it ran a second time immediately (fires twice: starting and completing)
-                await Task.Delay(1000);
+                // Wait up to 5 seconds and check that it ran a second time immediately (fires twice: starting and completing)
+                for (int i = 0; i < 50 && runCount < 4; i++)
+                {
+                    await Task.Delay(100);
+                }
                 if (runCount != 4)
                 {
                     Assert.Fail($"Expected runCount to be 4, but was {runCount}. Logs:\n" + string.Join("\n", logs));

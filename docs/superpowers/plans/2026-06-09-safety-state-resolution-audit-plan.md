@@ -558,7 +558,8 @@
 - Modify: `tests/TallyDbLoader.Tests/MainViewModelTests.cs`
 
 - [ ] **Step 1: Implement ViewModel command tests**
-  Add unit tests validating the resolution command flow, dialog cancellation, success routing, and actor fallback.
+  Add `using Dapper;` and `using TallyDbLoader.Core.Models;` to the top import lines of `tests/TallyDbLoader.Tests/MainViewModelTests.cs`.
+  Add unit tests validating the resolution command flow, dialog cancellation, success routing, and actor fallback. Wrap database creation and assertions inside try/finally blocks using unique temp file paths.
 
   Add these test methods to the `MainViewModelTests` class:
 
@@ -566,93 +567,107 @@
           [Fact]
           public void Test_ResolveSafetyBlockCommand_Cancelled()
           {
-              string dbPath = "vm_test_resolve_cancel.db";
-              if (File.Exists(dbPath)) File.Delete(dbPath);
-              DatabaseHelper.InitializeDatabase(dbPath);
-
-              var vm = new MainViewModel(dbPath);
-              vm.DisableDispatcher = true;
-
-              // Seed blocked company
-              var repo = new ConfigRepository(dbPath);
-              var dbProfile = new DatabaseProfile { Name = "TestDb", Technology = "sqlite" };
-              repo.SaveDatabaseProfile(dbProfile);
-              var dbFromDb = repo.GetDatabaseProfileByName("TestDb");
-
-              var company = new CompanyProfile
+              string dbPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"vm_test_resolve_cancel_{Guid.NewGuid()}.db");
+              try
               {
-                  Name = "BlockedCo",
-                  DbProfileId = dbFromDb.Id,
-                  TargetCatalog = "test",
-                  Status = "attention_required"
-              };
-              repo.SaveCompanyProfile(company);
-              vm.LoadConfiguration();
+                  DatabaseHelper.InitializeDatabase(dbPath);
 
-              // Select the company
-              vm.SelectedCompany = vm.Companies.First(c => c.Name == "BlockedCo");
-              Assert.True(vm.CanResolveSelectedCompanySafetyBlock);
+                  var vm = new MainViewModel(dbPath);
+                  vm.DisableDispatcher = true;
 
-              // Cancel dialog callback
-              vm.SafetyResolveReasonPrompter = (name) => null;
+                  // Seed blocked company
+                  var repo = new ConfigRepository(dbPath);
+                  var dbProfile = new DatabaseProfile { Name = "TestDb", Technology = "sqlite" };
+                  repo.SaveDatabaseProfile(dbProfile);
+                  var dbFromDb = repo.GetDatabaseProfileByName("TestDb");
 
-              // Execute
-              vm.ResolveSafetyBlockCommand.Execute(vm.SelectedCompany);
+                  var company = new CompanyProfile
+                  {
+                      Name = "BlockedCo",
+                      DbProfileId = dbFromDb.Id,
+                      TargetCatalog = "test",
+                      Status = "attention_required"
+                  };
+                  repo.SaveCompanyProfile(company);
+                  vm.LoadConfiguration();
 
-              // Assert status remains blocked
-              Assert.Equal("attention_required", vm.SelectedCompany.Status);
+                  // Select the company
+                  vm.SelectedCompany = vm.Companies.First(c => c.Name == "BlockedCo");
+                  Assert.True(vm.CanResolveSelectedCompanySafetyBlock);
 
-              Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-              if (File.Exists(dbPath)) File.Delete(dbPath);
+                  // Cancel dialog callback
+                  vm.SafetyResolveReasonPrompter = (name) => null;
+
+                  // Execute
+                  vm.ResolveSafetyBlockCommand.Execute(vm.SelectedCompany);
+
+                  // Assert status remains blocked
+                  Assert.Equal("attention_required", vm.SelectedCompany.Status);
+              }
+              finally
+              {
+                  Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                  if (File.Exists(dbPath))
+                  {
+                      try { File.Delete(dbPath); } catch { }
+                  }
+              }
           }
 
           [Fact]
           public void Test_ResolveSafetyBlockCommand_Success()
           {
-              string dbPath = "vm_test_resolve_ok.db";
-              if (File.Exists(dbPath)) File.Delete(dbPath);
-              DatabaseHelper.InitializeDatabase(dbPath);
-
-              var vm = new MainViewModel(dbPath);
-              vm.DisableDispatcher = true;
-
-              var repo = new ConfigRepository(dbPath);
-              var dbProfile = new DatabaseProfile { Name = "TestDb", Technology = "sqlite" };
-              repo.SaveDatabaseProfile(dbProfile);
-              var dbFromDb = repo.GetDatabaseProfileByName("TestDb");
-
-              var company = new CompanyProfile
+              string dbPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"vm_test_resolve_ok_{Guid.NewGuid()}.db");
+              try
               {
-                  Name = "BlockedCo",
-                  DbProfileId = dbFromDb.Id,
-                  TargetCatalog = "test",
-                  Status = "unknown"
-              };
-              repo.SaveCompanyProfile(company);
-              vm.LoadConfiguration();
+                  DatabaseHelper.InitializeDatabase(dbPath);
 
-              vm.SelectedCompany = vm.Companies.First(c => c.Name == "BlockedCo");
+                  var vm = new MainViewModel(dbPath);
+                  vm.DisableDispatcher = true;
 
-              // Reason mock
-              vm.SafetyResolveReasonPrompter = (name) => "operator manual override reason";
+                  var repo = new ConfigRepository(dbPath);
+                  var dbProfile = new DatabaseProfile { Name = "TestDb", Technology = "sqlite" };
+                  repo.SaveDatabaseProfile(dbProfile);
+                  var dbFromDb = repo.GetDatabaseProfileByName("TestDb");
 
-              // Execute
-              vm.ResolveSafetyBlockCommand.Execute(vm.SelectedCompany);
+                  var company = new CompanyProfile
+                  {
+                      Name = "BlockedCo",
+                      DbProfileId = dbFromDb.Id,
+                      TargetCatalog = "test",
+                      Status = "unknown"
+                  };
+                  repo.SaveCompanyProfile(company);
+                  vm.LoadConfiguration();
 
-              // Assert status is now idle and command is disabled
-              Assert.Equal("idle", vm.SelectedCompany.Status);
-              Assert.False(vm.CanResolveSelectedCompanySafetyBlock);
+                  vm.SelectedCompany = vm.Companies.First(c => c.Name == "BlockedCo");
 
-              // Verify audit trail exists
-              using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
-              {
-                  conn.Open();
-                  var auditCount = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log");
-                  Assert.Equal(1, auditCount);
+                  // Reason mock
+                  vm.SafetyResolveReasonPrompter = (name) => "operator manual override reason";
+
+                  // Execute
+                  vm.ResolveSafetyBlockCommand.Execute(vm.SelectedCompany);
+
+                  // Assert status is now idle and command is disabled
+                  Assert.Equal("idle", vm.SelectedCompany.Status);
+                  Assert.False(vm.CanResolveSelectedCompanySafetyBlock);
+
+                  // Verify audit trail exists
+                  using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
+                  {
+                      conn.Open();
+                      var auditCount = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log");
+                      Assert.Equal(1, auditCount);
+                  }
               }
-
-              Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-              if (File.Exists(dbPath)) File.Delete(dbPath);
+              finally
+              {
+                  Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                  if (File.Exists(dbPath))
+                  {
+                      try { File.Delete(dbPath); } catch { }
+                  }
+              }
           }
   ```
 

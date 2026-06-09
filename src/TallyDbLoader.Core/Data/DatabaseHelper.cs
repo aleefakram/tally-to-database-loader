@@ -207,6 +207,28 @@ namespace TallyDbLoader.Core.Data
                             conn.Execute("PRAGMA user_version = 3;", null, transaction);
                         }
 
+                        if (version < 4)
+                        {
+                            conn.Execute(@"
+                                CREATE TABLE IF NOT EXISTS config_audit_log (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    created_at TEXT NOT NULL,
+                                    actor TEXT NOT NULL,
+                                    action TEXT NOT NULL,
+                                    entity_type TEXT NOT NULL,
+                                    entity_id INTEGER NOT NULL,
+                                    entity_name TEXT NULL,
+                                    before_json TEXT NOT NULL,
+                                    after_json TEXT NOT NULL,
+                                    reason TEXT NOT NULL
+                                );", null, transaction);
+
+                            conn.Execute("CREATE INDEX IF NOT EXISTS ix_config_audit_log_created_at ON config_audit_log(created_at DESC);", null, transaction);
+                            conn.Execute("CREATE INDEX IF NOT EXISTS ix_config_audit_log_entity ON config_audit_log(entity_type, entity_id, created_at DESC);", null, transaction);
+
+                            conn.Execute("PRAGMA user_version = 4;", null, transaction);
+                        }
+
                         transaction.Commit();
                     }
                     catch (Exception)

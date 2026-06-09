@@ -73,6 +73,10 @@ Reason: `status` and the `last_*`/error fields are runtime lifecycle state. They
 
 Snapshot JSON must use lowercase snake_case property names matching the list above. Do not serialize the full `CompanyProfile` object.
 
+`entity_flags` is serialized as its numeric `int` value. Human-readable flag expansion is out of scope for this slice.
+
+When a flow needs an empty side of the audit snapshot, use the literal string `"{}"`. Do not use `null` or an empty string because `InsertConfigAuditLog` rejects null or whitespace JSON values.
+
 ## Actor and Reason
 
 `SaveCompanyProfile` and `DeleteCompanyProfile` currently have no actor or reason parameters. To avoid public API and WPF changes in this slice, use fixed values:
@@ -95,7 +99,7 @@ When `SaveCompanyProfile` receives `company.Id == 0`:
 3. Insert the company profile row using the existing column set.
 4. Read `SELECT last_insert_rowid()` on the same connection.
 5. Use the generated ID for `entity_id` and for the `id` property in `after_json`.
-6. Use `before_json = "{}"`.
+6. Use the literal `before_json = "{}"`.
 7. Build `after_json` from the inserted configuration values only.
 8. Insert audit row:
    - `action = "create_company_profile"`
@@ -113,12 +117,12 @@ If the audit insert fails, roll back the company row insert.
 When `SaveCompanyProfile` receives `company.Id != 0`:
 
 1. Begin SQLite transaction.
-2. Load the current company profile row by ID using only the snapshot fields.
+2. Load the current company profile row by ID using a hand-rolled projection of only the snapshot fields. Do not call `GetAllCompanyProfiles` and do not select runtime fields.
 3. If no row exists, throw `InvalidOperationException`.
 4. Build `before_json` from the loaded row.
 5. Update the company profile using the existing column set.
 6. Assert exactly one row was updated. If not, throw `InvalidOperationException`.
-7. Build `after_json` from the submitted configuration values only.
+7. Build `after_json` from the submitted `CompanyProfile` object, not by re-reading the database. This avoids an extra round trip and records the intended committed configuration.
 8. Insert audit row:
    - `action = "update_company_profile"`
    - `entity_type = "company_profile"`
@@ -133,12 +137,12 @@ If the audit insert fails, roll back the update.
 When `DeleteCompanyProfile(id)` is called:
 
 1. Begin SQLite transaction.
-2. Load the current company profile row by ID using only the snapshot fields.
+2. Load the current company profile row by ID using a hand-rolled projection of only the snapshot fields. Do not call `GetAllCompanyProfiles` and do not select runtime fields.
 3. If no row exists, throw `InvalidOperationException`.
 4. Build `before_json` from the loaded row.
 5. Delete the company profile row.
 6. Assert exactly one row was deleted. If not, throw `InvalidOperationException`.
-7. Use `after_json = "{}"`.
+7. Use the literal `after_json = "{}"`.
 8. Insert audit row:
    - `action = "delete_company_profile"`
    - `entity_type = "company_profile"`
@@ -149,6 +153,34 @@ When `DeleteCompanyProfile(id)` is called:
 If the audit insert fails, roll back the deletion.
 
 Do not audit cascaded child rows. If SQLite cascade behavior deletes related rows, this slice records only the explicit `company_profiles` deletion.
+
+## Snapshot Projection
+
+Use this column projection when loading an existing company profile for update/delete audit snapshots:
+
+```sql
+SELECT
+    id AS Id,
+    name AS Name,
+    tally_guid AS TallyGuid,
+    consolidated AS Consolidated,
+    books_from AS BooksFrom,
+    books_to AS BooksTo,
+    db_profile_id AS DbProfileId,
+    target_catalog AS TargetCatalog,
+    schema AS Schema,
+    table_prefix AS TablePrefix,
+    mode AS Mode,
+    interval_minutes AS IntervalMinutes,
+    enabled AS Enabled,
+    notify_on_error AS NotifyOnError,
+    pause_on_tally_close AS PauseOnTallyClose,
+    entity_flags AS EntityFlags
+FROM company_profiles
+WHERE id = @Id;
+```
+
+This query intentionally omits `status`, runtime metrics, and the joined `DatabaseProfile`.
 
 ## Error Handling
 
@@ -170,6 +202,7 @@ Required coverage:
 - Creating a company profile writes one `create_company_profile` audit row.
 - Create audit uses the generated company profile ID in both `entity_id` and `after_json.id`.
 - Updating a company profile writes one `update_company_profile` audit row with correct `before_json` and `after_json`.
+- Updating a company profile proves `before_json` reflects the pre-mutation database state, not the submitted object. Use a two-step test: create a known profile, update it with different values, then assert the update audit row's `before_json` contains the original values.
 - Deleting a company profile writes one `delete_company_profile` audit row and removes the row.
 - Delete audit uses `after_json = "{}"`.
 - If `config_audit_log` is missing, create rolls back.

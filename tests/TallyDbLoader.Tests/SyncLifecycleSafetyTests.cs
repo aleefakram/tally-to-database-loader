@@ -1,8 +1,13 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 using Xunit;
 using TallyDbLoader.Core.Data;
 using TallyDbLoader.Core.Models;
+using TallyDbLoader.Core.Tally;
+using TallyDbLoader.Core.Sync;
+using TallyDbLoader.Core.DatabaseLoaders;
 using Microsoft.Data.Sqlite;
 using Dapper;
 
@@ -129,5 +134,168 @@ namespace TallyDbLoader.Tests
                 Assert.Null(endedAt);
             }
         }
+
+        [Fact]
+        public void TryRequestManualSync_Accepts_EligibleJob()
+        {
+            var profile = SeedCompany("idle");
+            using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
+            {
+                worker.Start(startScheduler: false); // Starts in preflight-only mock mode without background thread loop
+                var result = worker.TryRequestManualSync(profile.Id);
+                Assert.True(result.Accepted);
+                Assert.Equal("PendingDispatch", result.ReasonCode);
+            }
+        }
+
+        [Fact]
+        public void TryRequestManualSync_Rejects_DisabledJob()
+        {
+            var profile = SeedCompany("idle", enabled: false);
+            using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
+            {
+                worker.Start(startScheduler: false);
+                var result = worker.TryRequestManualSync(profile.Id);
+                Assert.False(result.Accepted);
+                Assert.Equal("Disabled", result.ReasonCode);
+            }
+        }
+
+        [Fact]
+        public void TryRequestManualSync_Rejects_SafetyBlockedJob()
+        {
+            foreach (var status in new[] { "review_required", "attention_required", "unknown" })
+            {
+                var profile = SeedCompany(status);
+                using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
+                {
+                    worker.Start(startScheduler: false);
+                    var result = worker.TryRequestManualSync(profile.Id);
+                    Assert.False(result.Accepted);
+                    Assert.Equal("SafetyBlocked", result.ReasonCode);
+                }
+            }
+        }
+
+        [Fact]
+        public void TryRequestManualSync_Rejects_AlreadyRunningJob()
+        {
+            using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
+            {
+                worker.Start(startScheduler: false);
+                var profile = SeedCompany("running");
+                var result = worker.TryRequestManualSync(profile.Id);
+                Assert.False(result.Accepted);
+                Assert.Equal("AlreadyRunning", result.ReasonCode);
+            }
+        }
+
+        [Fact]
+        public void TryRequestManualSyncAll_Accepts_EligibleWorker()
+        {
+            using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
+            {
+                worker.Start(startScheduler: false);
+                var result = worker.TryRequestManualSyncAll();
+                Assert.True(result.Accepted);
+                Assert.Equal("PendingDispatch", result.ReasonCode);
+            }
+        }
+
+        [Fact]
+        public void TryRequestManualSyncAll_Rejects_WorkerBusy()
+        {
+            using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
+            {
+                worker.Start(startScheduler: false);
+                var result1 = worker.TryRequestManualSyncAll();
+                Assert.True(result1.Accepted);
+
+                var result2 = worker.TryRequestManualSyncAll();
+                Assert.False(result2.Accepted);
+                Assert.Equal("WorkerBusy", result2.ReasonCode);
+            }
+        }
+
+        [Fact]
+        public async Task IncrementalSync_DoesNotAdvanceWatermark_OnFailure()
+        {
+            // 1. Initialize temporary test database
+            string dbFile = Path.Combine(Path.GetTempPath(), $"tally_watermark_test_{Guid.NewGuid()}.db");
+            var connStr = $"Data Source={dbFile}";
+            
+            using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connStr))
+            {
+                await conn.OpenAsync();
+                
+                // Initialize watermark schema by creating config table directly
+                await conn.ExecuteAsync("CREATE TABLE config (name VARCHAR(64) PRIMARY KEY, value VARCHAR(1024))");
+                
+                var watermarkRepo = new WatermarkRepository(conn);
+                
+                // Seed initial watermarks
+                await watermarkRepo.WriteAsync(100, 200);
+                
+                // 2. Instantiate loader and inject a failing run simulation
+                var client = new SafetyFakeTallyClient();
+                var dbLoader = new FakeFailingDatabaseLoader();
+                var runner = new IncrementalSyncRunner(client, dbLoader);
+
+                // Configure config with some master/txn tables so it does work and triggers the loader
+                var config = new TallyExportConfig
+                {
+                    Master = new List<TableConfig>
+                    {
+                        new TableConfig
+                        {
+                            Name = "mst_group",
+                            Collection = "Group",
+                            Nature = "Primary",
+                            Fields = new List<FieldConfig> { new() { Name = "guid", Field = "Guid", Type = "text" } }
+                        }
+                    },
+                    Transaction = new List<TableConfig>()
+                };
+                
+                await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                {
+                    await runner.RunAsync(config, "TestCompany", DateTime.Today, DateTime.Today, conn, 100, 200);
+                });
+                
+                // 3. Confirm watermarks remain unchanged
+                var (master, txn) = await watermarkRepo.ReadAsync();
+                Assert.Equal(100, master);
+                Assert.Equal(200, txn);
+            }
+            
+            if (File.Exists(dbFile))
+            {
+                try { File.Delete(dbFile); } catch { }
+            }
+        }
+    }
+
+    public class SafetyFakeTallyClient : ITallyClient
+    {
+        public Task<string> PostXMLAsync(string xmlRequest) => Task.FromResult("");
+        public Task<string> FetchLedgersXmlAsync(string companyName) => Task.FromResult("");
+        public Task<List<TallyCompanyInfo>> FetchActiveCompaniesDetailedAsync() => Task.FromResult(new List<TallyCompanyInfo>());
+        public Task<List<string>> FetchActiveCompaniesAsync() => Task.FromResult(new List<string> { "TestCompany" });
+        public Task<TallyCompanyInfo?> FetchCompanyInfoAsync(string companyName) => Task.FromResult<TallyCompanyInfo?>(new TallyCompanyInfo
+        {
+            Name = "TestCompany",
+            Guid = "guid",
+            AltMstId = 999, // New alter ID
+            AltVchId = 999  // New alter ID
+        });
+    }
+
+    public class FakeFailingDatabaseLoader : IDatabaseLoader
+    {
+        public Task LoadBulkDataAsync(System.Data.DataTable data, string tableName) => Task.CompletedTask;
+        public string TruncateSql(string tableName) => throw new InvalidOperationException("Simulated db write failure");
+        public string CascadeUpdateSql(string primaryTable, string childTable, string field) => "";
+        public string VoucherNumberUpdateSql() => "";
+        public string CountAutoNumberVoucherTypesSql() => "";
     }
 }

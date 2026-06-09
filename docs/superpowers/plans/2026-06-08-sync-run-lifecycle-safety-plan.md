@@ -1238,7 +1238,7 @@
 
 - [ ] **Step 4: Run all unit tests**
   Run: `dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj`
-  Expected: All 98 tests pass successfully.
+  Expected: All 105 tests pass successfully.
 
 - [ ] **Step 5: Commit**
   ```bash

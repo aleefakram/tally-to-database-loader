@@ -319,12 +319,25 @@ transaction: []
                 worker.OnSyncCompleted += () => { runCount++; };
 
                 // Verify calling TriggerManualSync on inactive worker does not throw/fails gracefully
-                worker.TriggerManualSync();
+                worker.TryRequestManualSyncAll();
                 Assert.Equal(0, runCount);
 
                 worker.Start();
                 
-                // Wait up to 5 seconds for first initial sync to run and complete (fires twice: starting and completing)
+                // Wait up to 5 seconds for first initial sync to run and complete (fires once on completion)
+                for (int i = 0; i < 50 && runCount < 1; i++)
+                {
+                    await Task.Delay(100);
+                }
+                if (runCount != 1)
+                {
+                    Assert.Fail($"Expected runCount to be 1, but was {runCount}. Logs:\n" + string.Join("\n", logs));
+                }
+
+                // Trigger manual sync
+                worker.TryRequestManualSyncAll();
+
+                // Wait up to 5 seconds and check that it ran a second time immediately (fires once on completion)
                 for (int i = 0; i < 50 && runCount < 2; i++)
                 {
                     await Task.Delay(100);
@@ -332,19 +345,6 @@ transaction: []
                 if (runCount != 2)
                 {
                     Assert.Fail($"Expected runCount to be 2, but was {runCount}. Logs:\n" + string.Join("\n", logs));
-                }
-
-                // Trigger manual sync
-                worker.TriggerManualSync();
-
-                // Wait up to 5 seconds and check that it ran a second time immediately (fires twice: starting and completing)
-                for (int i = 0; i < 50 && runCount < 4; i++)
-                {
-                    await Task.Delay(100);
-                }
-                if (runCount != 4)
-                {
-                    Assert.Fail($"Expected runCount to be 4, but was {runCount}. Logs:\n" + string.Join("\n", logs));
                 }
 
                 worker.Stop();

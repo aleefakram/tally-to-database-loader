@@ -23,7 +23,7 @@ namespace TallyDbLoader.Core.Sync
 
         private readonly object _syncLock = new object();
         private bool _forceSyncOnce = false;
-        private int? _manualSyncCompanyId = null;
+        private int? _manualCompanyProfileId = null;
         private CancellationTokenSource _wakeUpCts = new CancellationTokenSource();
         private bool _disposed = false;
         private bool _isPaused = false;
@@ -58,31 +58,33 @@ namespace TallyDbLoader.Core.Sync
             lock (_syncLock)
             {
                 if (IsRunning) return;
-                _isPaused = !startScheduler;
+                _isPaused = !startScheduler; // Start paused if scheduler is not started
                 IsBlocked = false;
-
+                
+                // Reconcile stale runs before spawning the background worker thread
                 try
                 {
                     _repo.ReconcileStaleRuns(DateTime.Now);
+                    Log("[Engine] Startup reconciliation of stale runs completed.");
                 }
                 catch (Exception ex)
                 {
                     IsBlocked = true;
-                    Log($"[Engine FATAL] Startup reconciliation failed: {ex.Message}. Scheduler will not start.");
-                    return;
-                }
-
-                if (!startScheduler)
-                {
-                    _cts = new CancellationTokenSource();
-                    Log("Background Sync Engine initialized (scheduler bypassed).");
-                    return;
+                    Log($"[Engine ERROR] Startup reconciliation failed: {ex.Message}. Scheduler will not start.");
+                    return; // Fail-closed: do not set _cts, do not spawn task.
                 }
 
                 _cts = new CancellationTokenSource();
-                var token = _cts.Token;
-                _runTask = Task.Run(() => WorkerLoop(token));
-                Log("Background Sync Engine started.");
+                if (startScheduler)
+                {
+                    var token = _cts.Token;
+                    _runTask = Task.Run(() => WorkerLoop(token));
+                    Log("Background Sync Engine started.");
+                }
+                else
+                {
+                    Log("Background Sync Engine initialized in mock preflight-only mode.");
+                }
             }
         }
 
@@ -136,97 +138,174 @@ namespace TallyDbLoader.Core.Sync
             Log("Background Sync Engine stopped.");
         }
 
-        public SyncStartResult ValidateManualStart(int companyId)
-        {
-            var company = _repo.GetAllCompanyProfiles().Find(x => x.Id == companyId);
-            if (company == null)
-            {
-                return new SyncStartResult
-                {
-                    Accepted = false,
-                    ReasonCode = "NOT_FOUND",
-                    Message = $"Company profile with ID {companyId} not found."
-                };
-            }
-
-            if (!company.Enabled)
-            {
-                return new SyncStartResult
-                {
-                    Accepted = false,
-                    ReasonCode = "DISABLED",
-                    Message = $"Company profile '{company.Name}' is disabled."
-                };
-            }
-
-            if (company.Status == "running")
-            {
-                return new SyncStartResult
-                {
-                    Accepted = false,
-                    ReasonCode = "ALREADY_RUNNING",
-                    Message = $"Company profile '{company.Name}' is already running."
-                };
-            }
-
-            var blockedStatuses = new[] { "review_required", "attention_required", "unknown" };
-            if (blockedStatuses.Contains(company.Status?.ToLowerInvariant() ?? ""))
-            {
-                return new SyncStartResult
-                {
-                    Accepted = false,
-                    ReasonCode = "BLOCKED_STATUS",
-                    Message = $"Company profile '{company.Name}' has safety status '{company.Status}' and cannot be run until resolved."
-                };
-            }
-
-            var dbProfile = _repo.GetDatabaseProfileById(company.DbProfileId);
-            if (dbProfile == null)
-            {
-                return new SyncStartResult
-                {
-                    Accepted = false,
-                    ReasonCode = "INVALID_DB_PROFILE",
-                    Message = $"Database profile for company '{company.Name}' not found."
-                };
-            }
-
-            return new SyncStartResult
-            {
-                Accepted = true,
-                ReasonCode = "OK",
-                Message = "Eligibility check passed."
-            };
-        }
-
-        public SyncStartResult TriggerManualSync(int? companyId = null)
+        public SyncStartResult TryRequestManualSync(int companyProfileId)
         {
             lock (_syncLock)
             {
                 if (_disposed)
                 {
-                    return new SyncStartResult { Accepted = false, ReasonCode = "DISPOSED", Message = "Engine is disposed." };
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "Disposed",
+                        Message = "Engine is disposed."
+                    };
                 }
+
                 if (!IsRunning)
                 {
-                    return new SyncStartResult { Accepted = false, ReasonCode = "NOT_RUNNING", Message = "Sync engine is not running." };
-                }
-
-                if (companyId.HasValue)
-                {
-                    var validation = ValidateManualStart(companyId.Value);
-                    if (!validation.Accepted)
+                    return new SyncStartResult
                     {
-                        return validation;
-                    }
+                        Accepted = false,
+                        ReasonCode = "EngineNotRunning",
+                        Message = "Background sync engine is stopped."
+                    };
                 }
 
+                if (IsBlocked)
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "SafetyBlocked",
+                        Message = "Scheduler is currently blocked due to a safety violation or initialization failure."
+                    };
+                }
+
+                if (_forceSyncOnce)
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "WorkerBusy",
+                        Message = "Another manual run is already pending dispatch."
+                    };
+                }
+
+                // Retrieve active profile state directly from DB
+                var profiles = _repo.GetAllCompanyProfiles();
+                var profile = profiles.Find(p => p.Id == companyProfileId);
+
+                if (profile == null)
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "NotFound",
+                        Message = "Company profile not found."
+                    };
+                }
+
+                if (!profile.Enabled)
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "Disabled",
+                        Message = "This sync job is disabled."
+                    };
+                }
+
+                if (profile.Status == "running")
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "AlreadyRunning",
+                        Message = "This sync job is already executing."
+                    };
+                }
+
+                if (profile.Status != "idle" && profile.Status != "completed" && profile.Status != "failed")
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "SafetyBlocked",
+                        Message = $"Sync is blocked because current status is '{profile.Status}'."
+                    };
+                }
+
+                // Set the target request & notify the worker thread loop
+                _manualCompanyProfileId = companyProfileId;
                 _forceSyncOnce = true;
-                _manualSyncCompanyId = companyId;
                 TriggerWakeUp();
 
-                return new SyncStartResult { Accepted = true, ReasonCode = "OK", Message = "Manual sync trigger accepted." };
+                return new SyncStartResult
+                {
+                    Accepted = true,
+                    ReasonCode = "PendingDispatch",
+                    Message = "Manual run request accepted and pending dispatch."
+                };
             }
+        }
+
+        public SyncStartResult TryRequestManualSyncAll()
+        {
+            lock (_syncLock)
+            {
+                if (_disposed)
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "Disposed",
+                        Message = "Engine is disposed."
+                    };
+                }
+
+                if (!IsRunning)
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "EngineNotRunning",
+                        Message = "Background sync engine is stopped."
+                    };
+                }
+
+                if (IsBlocked)
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "SafetyBlocked",
+                        Message = "Scheduler is currently blocked due to a safety violation or initialization failure."
+                    };
+                }
+
+                if (_forceSyncOnce)
+                {
+                    return new SyncStartResult
+                    {
+                        Accepted = false,
+                        ReasonCode = "WorkerBusy",
+                        Message = "Another manual run is already pending dispatch."
+                    };
+                }
+
+                // Accept request for all eligible companies
+                _manualCompanyProfileId = null; // null signifies sync all
+                _forceSyncOnce = true;
+                TriggerWakeUp();
+
+                return new SyncStartResult
+                {
+                    Accepted = true,
+                    ReasonCode = "PendingDispatch",
+                    Message = "Manual run request for all profiles accepted and pending dispatch."
+                };
+            }
+        }
+
+        [Obsolete("Use TryRequestManualSync or TryRequestManualSyncAll instead")]
+        public SyncStartResult TriggerManualSync(int? companyId = null)
+        {
+            if (companyId.HasValue)
+            {
+                return TryRequestManualSync(companyId.Value);
+            }
+            return TryRequestManualSyncAll();
         }
 
         private void TriggerWakeUp()
@@ -332,9 +411,9 @@ namespace TallyDbLoader.Core.Sync
                     lock (_syncLock)
                     {
                         runManualSync = _forceSyncOnce;
-                        manualCompanyId = _manualSyncCompanyId;
+                        manualCompanyId = _manualCompanyProfileId;
                         _forceSyncOnce = false;
-                        _manualSyncCompanyId = null;
+                        _manualCompanyProfileId = null; // Clear request
                     }
 
                     var companies = _repo.GetAllCompanyProfiles();
@@ -344,31 +423,87 @@ namespace TallyDbLoader.Core.Sync
                         if (token.IsCancellationRequested) break;
 
                         bool shouldSync = false;
+                        string skipReason = string.Empty;
+
                         if (runManualSync)
                         {
-                            if (!manualCompanyId.HasValue || manualCompanyId.Value == company.Id)
+                            // Authoritative check on the manual target profile
+                            if (manualCompanyId.HasValue)
                             {
-                                shouldSync = true;
-                                if (manualCompanyId.HasValue && manualCompanyId.Value == company.Id)
+                                if (manualCompanyId.Value == company.Id)
                                 {
                                     manualTargetSeen = true;
+                                    if (!company.Enabled)
+                                    {
+                                        skipReason = "JobDisabled";
+                                    }
+                                    else if (company.Status == "running")
+                                    {
+                                        skipReason = "AlreadyRunning";
+                                    }
+                                    else if (company.Status != "idle" && company.Status != "completed" && company.Status != "failed")
+                                    {
+                                        skipReason = "SafetyBlocked";
+                                    }
+                                    else
+                                    {
+                                        shouldSync = true;
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                // Manual sync all
+                                if (!company.Enabled)
+                                {
+                                    skipReason = "JobDisabled";
+                                }
+                                else if (company.Status == "running")
+                                {
+                                    skipReason = "AlreadyRunning";
+                                }
+                                else if (company.Status != "idle" && company.Status != "completed" && company.Status != "failed")
+                                {
+                                    skipReason = "SafetyBlocked";
+                                }
+                                else
+                                {
+                                    shouldSync = true;
                                 }
                             }
                         }
                         else
                         {
-                            shouldSync = SyncOrchestrator.ShouldRun(company, DateTime.Now);
+                            // Scheduler evaluation rules:
+                            if (!company.Enabled)
+                            {
+                                skipReason = "JobDisabled";
+                            }
+                            else if (company.Status == "running")
+                            {
+                                skipReason = "AlreadyRunning";
+                            }
+                            else if (company.Status != "idle" && company.Status != "completed" && company.Status != "failed")
+                            {
+                                skipReason = "SafetyBlocked";
+                            }
+                            else if (!SyncOrchestrator.ShouldRun(company, DateTime.Now))
+                            {
+                                skipReason = "IntervalNotMet";
+                            }
+                            else
+                            {
+                                shouldSync = true;
+                            }
                         }
 
                         if (shouldSync)
                         {
-                            var blockedStatuses = new[] { "review_required", "attention_required", "unknown" };
-                            if (company.Enabled && 
-                                !blockedStatuses.Contains(company.Status?.ToLowerInvariant() ?? "") && 
-                                company.Status != "running")
-                            {
-                                await SyncCompany(company, client, token);
-                            }
+                            await SyncCompany(company, client, token);
+                        }
+                        else if (!string.IsNullOrEmpty(skipReason) && skipReason != "IntervalNotMet")
+                        {
+                            Log($"[Sync Skipped] Skipping job '{company.Name}' (Reason: {skipReason}, Current Status: {company.Status})");
                         }
                     }
 
@@ -395,51 +530,47 @@ namespace TallyDbLoader.Core.Sync
 
         private async Task SyncCompany(CompanyProfile company, TallyClient client, CancellationToken token)
         {
-            Log($"[Sync] Attempting to start sync for company '{company.Name}' (Target: '{company.TargetCatalog}')...");
+            Log($"[Sync] Initiating sync execution for company '{company.Name}'...");
+            Log($"[Sync] Starting sync for company '{company.Name}' (Target: '{company.TargetCatalog}')...");
 
             if (string.IsNullOrWhiteSpace(company.TargetCatalog))
             {
-                _repo.CompleteCompanyProfileRun(
-                    company.Id,
-                    "failed",
-                    DateTime.Now,
-                    0,
-                    0,
-                    incrementErrorCount: true);
+                _repo.MarkCompanyProfileUnknown(company.Id, "Target catalog empty", DateTime.Now);
                 Log($"[Sync ERROR] Company '{company.Name}' failed: Target database name is empty.");
                 OnSyncCompleted?.Invoke();
                 return;
             }
 
-            bool transitioned = _repo.TryStartCompanyProfile(company.Id);
-            if (!transitioned)
+            // 1. Authoritative check & atomic state transition
+            bool started = _repo.TryStartCompanyProfile(company.Id);
+            if (!started)
             {
-                Log($"[Sync WARNING] Skipped sync for '{company.Name}': Job is already running or status/eligibility check failed.");
-                OnSyncCompleted?.Invoke();
+                Log($"[Sync Skipped] Company '{company.Name}' is currently running or safety blocked.");
                 return;
             }
 
-            Log($"[Sync] Starting sync for company '{company.Name}' (Target: '{company.TargetCatalog}')...");
-
+            // 2. Create and insert SyncRun record
             var run = new SyncRun
             {
                 CompanyId = company.Id,
                 CompanyName = company.Name,
                 StartedAt = DateTime.Now,
                 Mode = company.Mode,
-                Status = "running"
+                Status = "running",
+                ResultSummary = "Sync execution started."
             };
 
             try
             {
-                _repo.AddSyncRun(run);
+                _repo.AddSyncRun(run); // Populates run.Id
             }
             catch (Exception ex)
             {
-                Log($"[Sync FATAL] Failed to create SyncRun record for '{company.Name}'. Reverting company status to unknown. Error: {ex.Message}");
+                // Crucial Safety Gate: Revert company profile to unknown if SyncRun metadata save fails
+                Log($"[Sync ERROR] Metadata write error during run initiation. Failing closed: {ex.Message}");
                 try
                 {
-                    _repo.MarkCompanyProfileUnknown(company.Id, $"SyncRun registration failed: {ex.Message}", DateTime.Now);
+                    _repo.MarkCompanyProfileUnknown(company.Id, "Metadata run registration failed", DateTime.Now);
                 }
                 catch (Exception revertEx)
                 {
@@ -447,29 +578,38 @@ namespace TallyDbLoader.Core.Sync
                     IsBlocked = true;
                 }
                 OnSyncCompleted?.Invoke();
-                throw;
+                return;
             }
 
-            OnSyncCompleted?.Invoke();
-
-            long totalRows = 0;
             string finalStatus = "completed";
-            bool incrementErrorCount = false;
-            string? resultSummary = null;
+            string summary = "Sync completed successfully.";
             string? logExcerpt = null;
+            long totalRows = 0;
+            bool isError = false;
 
             try
             {
                 var dbProfile = company.Db ?? _repo.GetDatabaseProfileById(company.DbProfileId);
                 if (dbProfile == null)
                 {
-                    throw new Exception("Target database profile not found.");
+                    throw new InvalidOperationException("Target database profile not found.");
                 }
 
-                var activeCompanies = await client.FetchActiveCompaniesAsync();
+                // Verify Tally connectivity & open company
+                List<string> activeCompanies;
+                try
+                {
+                    activeCompanies = await client.FetchActiveCompaniesAsync();
+                }
+                catch (Exception ex)
+                {
+                    // Wrap Tally connection issues into a distinct exception type
+                    throw new TimeoutException("Tally Prime server is offline or unreachable.", ex);
+                }
+
                 if (!activeCompanies.Contains(company.Name))
                 {
-                    throw new Exception("Company is not open in Tally Prime.");
+                    throw new InvalidOperationException($"Target company '{company.Name}' is not loaded in Tally Prime.");
                 }
 
                 IDatabaseLoader dbLoader;
@@ -535,7 +675,7 @@ namespace TallyDbLoader.Core.Sync
 
                 if (!System.IO.File.Exists(yamlPath))
                 {
-                    throw new System.IO.FileNotFoundException($"Tally definition file '{yamlPath}' not found.");
+                    throw new FileNotFoundException($"Tally definition file '{yamlPath}' not found.");
                 }
 
                 var yamlContent = System.IO.File.ReadAllText(yamlPath);
@@ -588,85 +728,98 @@ namespace TallyDbLoader.Core.Sync
                     if (company.Mode?.ToLowerInvariant() == "incremental")
                     {
                         var runner = new IncrementalSyncRunner(client, dbLoader);
+                        // IncrementalSyncRunner internally updates the watermark only on success
                         await runner.RunAsync(config, company.Name, fromDate, toDate, targetConn, prevMaster, prevTxn);
                         totalRows = 0;
                     }
                     else
                     {
                         IFullSyncTablePromoter promoter;
-                        if (tech.Contains("sqlite"))
-                        {
-                            promoter = new SqliteFullSyncTablePromoter();
-                        }
-                        else if (tech.Contains("postgres") || tech.Contains("npgsql"))
-                        {
-                            promoter = new PostgresFullSyncTablePromoter();
-                        }
-                        else if (tech.Contains("mssql") || tech.Contains("sqlserver"))
-                        {
-                            promoter = new MssqlFullSyncTablePromoter();
-                        }
-                        else if (tech.Contains("mysql"))
-                        {
-                            promoter = new MysqlFullSyncTablePromoter();
-                        }
-                        else
-                        {
-                            promoter = new UnsupportedFullSyncTablePromoter();
-                        }
+                        if (tech.Contains("sqlite")) promoter = new SqliteFullSyncTablePromoter();
+                        else if (tech.Contains("postgres") || tech.Contains("npgsql")) promoter = new PostgresFullSyncTablePromoter();
+                        else if (tech.Contains("mssql") || tech.Contains("sqlserver")) promoter = new MssqlFullSyncTablePromoter();
+                        else if (tech.Contains("mysql")) promoter = new MysqlFullSyncTablePromoter();
+                        else throw new NotSupportedException($"Technology '{dbProfile.Technology}' not supported.");
+
                         var runner = new FullSyncRunner(client, promoter);
                         totalRows = await runner.Run(config, company.Name, fromDate, toDate, targetConn);
                     }
                 }
 
                 finalStatus = "completed";
-                resultSummary = $"Sync completed successfully. Wrote {totalRows} records.";
-                Log($"[Sync SUCCESS] Company '{company.Name}' sync finished. Wrote {totalRows} rows.");
+                summary = $"Sync completed successfully. Wrote {totalRows} records.";
+            }
+            catch (OperationCanceledException)
+            {
+                finalStatus = "unknown";
+                summary = "Sync operation was cancelled or interrupted.";
+                isError = true;
+            }
+            catch (TimeoutException ex)
+            {
+                // Tally unavailable / offline -> attention_required
+                finalStatus = "attention_required";
+                summary = ex.Message;
+                logExcerpt = ex.StackTrace;
+                isError = true;
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("not loaded in Tally"))
+            {
+                // Company mismatch / not loaded -> attention_required
+                finalStatus = "attention_required";
+                summary = ex.Message;
+                logExcerpt = ex.StackTrace;
+                isError = true;
+            }
+            catch (FileNotFoundException ex)
+            {
+                // Missing config/definition files -> review_required
+                finalStatus = "review_required";
+                summary = ex.Message;
+                logExcerpt = ex.StackTrace;
+                isError = true;
             }
             catch (Exception ex)
             {
+                // Other exceptions, validation errors -> failed
                 finalStatus = "failed";
-                incrementErrorCount = true;
-                resultSummary = ex.Message;
+                summary = ex.Message;
                 logExcerpt = ex.StackTrace;
-                Log($"[Sync ERROR] Sync failed for '{company.Name}': {ex.Message}");
+                isError = true;
             }
             finally
             {
-                try
-                {
-                    run.EndedAt = DateTime.Now;
-                    run.RowsIn = totalRows;
-                    run.RowsWritten = totalRows;
-                    run.Status = finalStatus;
-                    run.ResultSummary = resultSummary;
-                    run.LogExcerpt = logExcerpt;
-                    _repo.UpdateSyncRun(run);
-                }
-                catch (Exception runEx)
-                {
-                    Log($"[Sync FATAL] Failed to update SyncRun record: {runEx.Message}");
-                    finalStatus = "unknown"; // Post-commit metadata failure -> fail-closed to unknown. The SyncRun row may remain 'running' until startup reconciliation recovers it.
-                    incrementErrorCount = true;
-                }
+                // 4. Update the SyncRun execution ledger
+                run.EndedAt = DateTime.Now;
+                run.Status = finalStatus;
+                run.ResultSummary = summary;
+                run.LogExcerpt = logExcerpt;
+                run.RowsIn = totalRows;
+                run.RowsWritten = totalRows;
 
                 try
                 {
-                    int durationMs = (int)(run.EndedAt - run.StartedAt).TotalMilliseconds;
-                    _repo.CompleteCompanyProfileRun(
-                        company.Id,
-                        finalStatus,
-                        run.EndedAt,
-                        durationMs,
-                        totalRows,
-                        incrementErrorCount);
+                    _repo.UpdateSyncRun(run);
                 }
-                catch (Exception profileEx)
+                catch (Exception ex)
                 {
-                    Log($"[Sync ERROR] Failed to save runtime status update for company {company.Id}: {profileEx.Message}");
+                    Log($"[Sync ERROR] Failed to update SyncRun record: {ex.Message}");
+                    finalStatus = "unknown"; // Post-commit metadata failure -> fail-closed to unknown. The SyncRun row may remain 'running' until startup reconciliation recovers it.
+                    isError = true;          // Force isError = true to increment error count
+                }
+
+                // 5. Update Company Profile runtime status safely (Targeted repository method)
+                try
+                {
+                    int durationMs = (int)(run.EndedAt - run.StartedAt).TotalMilliseconds;
+                    _repo.CompleteCompanyProfileRun(company.Id, finalStatus, run.EndedAt, durationMs, totalRows, isError);
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Sync ERROR] Failed to save runtime status update for company {company.Id}: {ex.Message}");
                     try
                     {
-                        _repo.MarkCompanyProfileUnknown(company.Id, $"Runtime status update failed: {profileEx.Message}", DateTime.Now);
+                        _repo.MarkCompanyProfileUnknown(company.Id, $"Runtime status update failed: {ex.Message}", DateTime.Now);
                     }
                     catch (Exception revertEx)
                     {
@@ -675,6 +828,11 @@ namespace TallyDbLoader.Core.Sync
                     }
                 }
 
+                Log($"[Sync Finished] Result: {finalStatus}. Wrote {totalRows} records.");
+                if (finalStatus == "completed")
+                {
+                    Log($"[Sync SUCCESS] Company '{company.Name}' sync finished. Wrote {totalRows} rows.");
+                }
                 OnSyncCompleted?.Invoke();
             }
         }

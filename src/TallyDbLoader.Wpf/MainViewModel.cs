@@ -602,7 +602,7 @@ namespace TallyDbLoader.Wpf
             }
             if (_worker != null)
             {
-                var result = _worker.TriggerManualSync(null);
+                var result = _worker.TryRequestManualSyncAll();
                 if (result.Accepted)
                 {
                     ShowToast("Sync queued", result.Message, "ok");
@@ -632,7 +632,9 @@ namespace TallyDbLoader.Wpf
             if (_worker != null)
             {
                 int? companyId = parameter as int?;
-                var result = _worker.TriggerManualSync(companyId);
+                var result = companyId.HasValue 
+                    ? _worker.TryRequestManualSync(companyId.Value) 
+                    : _worker.TryRequestManualSyncAll();
                 
                 if (result.Accepted)
                 {

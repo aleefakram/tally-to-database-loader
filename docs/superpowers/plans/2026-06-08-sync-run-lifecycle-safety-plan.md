@@ -189,16 +189,12 @@
           {
               try
               {
-
                   conn.Execute(@"
                       UPDATE company_profiles
                       SET status = 'unknown',
                           last_run_at = @Now
                       WHERE id = @Id;", new { Id = id, Now = now.ToString("o") }, transaction);
                   transaction.Commit();
-
-                  // Durable audit logging using existing FileLogger
-                  TallyDbLoader.Core.Logging.FileLogger.LogMessage($"[Safety] Company profile {id} marked unknown. Reason: {reason}");
               }
               catch
               {
@@ -206,6 +202,9 @@
                   throw;
               }
           }
+
+          // Durable audit logging using existing FileLogger
+          TallyDbLoader.Core.Logging.FileLogger.LogMessage($"[Safety] Company profile {id} marked unknown. Reason: {reason}");
       }
   }
 

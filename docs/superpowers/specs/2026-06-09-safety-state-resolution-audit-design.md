@@ -98,7 +98,7 @@ Behavior:
 4. Build a compact `before_json` snapshot containing exactly `id`, `name`, and `status`. Also build a corresponding compact `after_json` snapshot representing the same state but with the `status` set to `"idle"`. Do not include the whole profile object.
 5. Update `company_profiles.status` to `idle`.
 6. Verify exactly one row was updated. If not, throw `InvalidOperationException`.
-7. Insert a `config_audit_log` row with action `resolve_safety_state` and the built snapshots. If the database insertion fails, throw `InvalidOperationException`.
+7. Insert a `config_audit_log` row with action `resolve_safety_state` and the built snapshots. If the database insertion fails, wrap the exception in an `InvalidOperationException` with the original exception set as the `InnerException` and throw.
 8. Commit the transaction and return the generated audit log ID.
 
 If any step fails, roll back the transaction. The previous status must remain unchanged if the audit row is not written. Throw the appropriate standard .NET exception.
@@ -109,10 +109,10 @@ Add a simple selected-job action:
 
 - Enable only when the selected company status is `review_required`, `attention_required`, or `unknown`.
 - Prompt for a required reason.
-- Use an actor string derived from the following hierarchy:
-  1. `System.Security.Principal.WindowsIdentity.GetCurrent()?.Name`
-  2. `Environment.UserName`
-  3. `"unknown-user"`
+- Use an actor string derived by attempting the following hierarchy:
+  1. Retrieve `System.Security.Principal.WindowsIdentity.GetCurrent()?.Name` inside a guarded try-catch block.
+  2. If that call throws or returns empty/whitespace, fall back to `Environment.UserName`.
+  3. If still empty/whitespace, fall back to `"unknown-user"`.
 - Call the Core resolution API.
 - Refresh company profiles after success.
 - Show rejection/error feedback if Core rejects the operation.

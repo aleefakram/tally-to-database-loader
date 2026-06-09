@@ -30,6 +30,7 @@
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="New Company Profile" Command="{Binding StartEditingCompanyCommand}" CommandParameter="0" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
                 <Button Content="Configure Selected" Command="{Binding StartEditingCompanyCommand}" CommandParameter="{Binding SelectedCompany.Id}" IsEnabled="{Binding SelectedCompany, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
+                <Button Content="Resolve Safety Block" Command="{Binding ResolveSafetyBlockCommand}" CommandParameter="{Binding SelectedCompany.Id}" IsEnabled="{Binding SelectedCompany, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0" Background="#10B981" Foreground="White"/>
                 <Button Content="Delete Selected" Command="{Binding DeleteCompanyProfileCommand}" CommandParameter="{Binding SelectedCompany.Id}" IsEnabled="{Binding SelectedCompany, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Foreground="#EF4444"/>
             </StackPanel>
         </Border>
@@ -58,12 +59,28 @@
                 <DataGridTextColumn Header="Sync Mode" Binding="{Binding Mode}" Width="0.7*"/>
                 <DataGridTextColumn Header="Interval" Binding="{Binding IntervalMinutes, StringFormat='{}{0} min'}" Width="0.7*"/>
                 
-                <DataGridTemplateColumn Header="Status" Width="0.9*">
+                <DataGridTemplateColumn Header="Status" Width="1.4*">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <Border Background="{Binding Status, Converter={StaticResource StatusToToneConverter}}" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
-                                <TextBlock Text="{Binding Status, Converter={StaticResource UppercaseConverter}}" Foreground="White" FontSize="10" FontWeight="SemiBold"/>
-                            </Border>
+                            <StackPanel Orientation="Horizontal">
+                                <Border x:Name="SafetyBadge" Background="#EF4444" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left" Margin="0,0,6,0" Visibility="Collapsed">
+                                    <TextBlock Text="⚠️ SAFETY BLOCK" Foreground="White" FontSize="10" FontWeight="Bold"/>
+                                </Border>
+                                <Border Background="{Binding Status, Converter={StaticResource StatusToToneConverter}}" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
+                                    <TextBlock Text="{Binding Status, Converter={StaticResource UppercaseConverter}}" Foreground="White" FontSize="10" FontWeight="SemiBold"/>
+                                </Border>
+                            </StackPanel>
+                            <DataTemplate.Triggers>
+                                <DataTrigger Binding="{Binding Status}" Value="review_required">
+                                    <Setter TargetName="SafetyBadge" Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="attention_required">
+                                    <Setter TargetName="SafetyBadge" Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Status}" Value="unknown">
+                                    <Setter TargetName="SafetyBadge" Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

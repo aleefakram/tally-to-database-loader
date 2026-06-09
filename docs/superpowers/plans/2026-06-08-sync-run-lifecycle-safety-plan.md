@@ -1242,6 +1242,6 @@
 
 - [ ] **Step 5: Commit**
   ```bash
-  git add src/TallyDbLoader.Core/Sync/BackgroundSyncWorker.cs tests/TallyDbLoader.Tests/SyncLifecycleSafetyTests.cs
+  git add src/TallyDbLoader.Core/Sync/BackgroundSyncWorker.cs src/TallyDbLoader.Core/Data/ConfigRepository.cs tests/TallyDbLoader.Tests/SyncLifecycleSafetyTests.cs tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs
   git commit -m "feat(sync): implement manual trigger preflight checks and safety tests"
   ```

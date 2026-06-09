@@ -762,5 +762,57 @@ namespace TallyDbLoader.Core.Data
                 }
             }
         }
+
+        private static long InsertConfigAuditLog(
+            SqliteConnection conn,
+            SqliteTransaction transaction,
+            DateTime createdAt,
+            string actor,
+            string action,
+            string entityType,
+            int entityId,
+            string? entityName,
+            string beforeJson,
+            string afterJson,
+            string reason)
+        {
+            if (string.IsNullOrWhiteSpace(actor))
+                throw new ArgumentException("Actor cannot be null or empty.", nameof(actor));
+            if (string.IsNullOrWhiteSpace(action))
+                throw new ArgumentException("Action cannot be null or empty.", nameof(action));
+            if (string.IsNullOrWhiteSpace(entityType))
+                throw new ArgumentException("EntityType cannot be null or empty.", nameof(entityType));
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new ArgumentException("Reason cannot be null or empty.", nameof(reason));
+            if (string.IsNullOrWhiteSpace(beforeJson))
+                throw new ArgumentException("BeforeJson cannot be null or empty.", nameof(beforeJson));
+            if (string.IsNullOrWhiteSpace(afterJson))
+                throw new ArgumentException("AfterJson cannot be null or empty.", nameof(afterJson));
+
+            try
+            {
+                conn.Execute(@"
+                    INSERT INTO config_audit_log (created_at, actor, action, entity_type, entity_id, entity_name, before_json, after_json, reason)
+                    VALUES (@CreatedAt, @Actor, @Action, @EntityType, @EntityId, @EntityName, @BeforeJson, @AfterJson, @Reason);",
+                    new
+                    {
+                        CreatedAt = createdAt.ToString("o"),
+                        Actor = actor.Trim(),
+                        Action = action.Trim(),
+                        EntityType = entityType.Trim(),
+                        EntityId = entityId,
+                        EntityName = entityName,
+                        BeforeJson = beforeJson,
+                        AfterJson = afterJson,
+                        Reason = reason.Trim()
+                    }, transaction);
+
+                return conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Failed to write to the config audit log table.", ex);
+            }
+        }
     }
 }

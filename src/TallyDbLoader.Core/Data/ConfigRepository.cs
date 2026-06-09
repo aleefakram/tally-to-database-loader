@@ -344,9 +344,60 @@ namespace TallyDbLoader.Core.Data
                 {
                     try
                     {
+                        // Step 1: Load current singleton row for before_json
+                        var current = conn.QueryFirstOrDefault<TallySettings>(@"
+                            SELECT id AS Id,
+                                   server AS Server,
+                                   port AS Port,
+                                   auto_start_tally AS AutoStartTally
+                            FROM tally_settings
+                            WHERE id = 1", transaction: transaction);
+
+                        // Step 2: Guard — singleton row must exist
+                        if (current == null)
+                            throw new InvalidOperationException(
+                                "tally_settings singleton row (id=1) is missing. Database may be corrupt.");
+
+                        // Step 3: Build before_json (compact — server, port, auto_start_tally only)
+                        string beforeJson = JsonSerializer.Serialize(new
+                        {
+                            server = current.Server,
+                            port = current.Port,
+                            auto_start_tally = current.AutoStartTally
+                        });
+
+                        // Step 4: Upsert new settings
                         conn.Execute(@"
                             INSERT OR REPLACE INTO tally_settings (id, server, port, tally_exe_path, tally_ini_path, auto_start_tally)
-                            VALUES (1, @Server, @Port, @TallyExePath, @TallyIniPath, @AutoStartTally)", settings, transaction);
+                            VALUES (1, @Server, @Port, @TallyExePath, @TallyIniPath, @AutoStartTally)",
+                            settings, transaction);
+
+                        // Step 5: Build after_json from submitted values (no re-read)
+                        string afterJson = JsonSerializer.Serialize(new
+                        {
+                            server = settings.Server,
+                            port = settings.Port,
+                            auto_start_tally = settings.AutoStartTally
+                        });
+
+                        // Step 6: Write audit row — fail-closed (rollback if this fails)
+                        // DEBT: actor is hardcoded to "system" because SaveTallySettings has no actor
+                        // context parameter. Operator attribution requires a future signature change
+                        // that passes actor from the UI caller into Core.
+                        InsertConfigAuditLog(
+                            conn,
+                            transaction,
+                            DateTime.UtcNow,
+                            "system",
+                            "update_tally_settings",
+                            "tally_settings",
+                            1,
+                            null,
+                            beforeJson,
+                            afterJson,
+                            "Tally settings updated");
+
+                        // Step 7: Commit
                         transaction.Commit();
                     }
                     catch

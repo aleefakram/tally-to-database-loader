@@ -71,6 +71,8 @@ Callers are responsible for serializing compact snapshots before calling the hel
 
 Snapshot serialization in this slice must use anonymous objects with lowercase property names. Do not pass named model objects to `JsonSerializer.Serialize` for audit snapshots in this slice.
 
+`entityId` is `int` to match the current local configuration entity ID types. If audited entity IDs ever exceed `int.MaxValue`, this helper and the repository call sites must be widened to `long`.
+
 ## Safety State Resolution Refactor
 
 `ResolveCompanyProfileSafetyState` will keep its public signature and behavior:

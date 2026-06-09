@@ -53,7 +53,7 @@ Invalid resolution attempts must fail closed:
 
 ## SQLite Schema
 
-Add a migration that creates `config_audit_log`:
+Add a migration (bumping `PRAGMA user_version = 4;`) that creates `config_audit_log`:
 
 ```sql
 CREATE TABLE IF NOT EXISTS config_audit_log (
@@ -83,7 +83,7 @@ The table is append-only by application contract. Core must not expose update or
 Add repository support for one transactional operation:
 
 ```csharp
-void ResolveCompanyProfileSafetyState(
+long ResolveCompanyProfileSafetyState(
     int companyProfileId,
     string actor,
     string reason,
@@ -92,16 +92,16 @@ void ResolveCompanyProfileSafetyState(
 
 Behavior:
 
-1. Validate `actor` and `reason` are non-empty after trimming.
-2. Load the company profile inside the SQLite transaction.
-3. Verify current status is one of `review_required`, `attention_required`, or `unknown`.
-4. Build a compact `before_json` snapshot containing at least `id`, `name`, and `status`.
+1. Validate `actor` and `reason` are non-empty after trimming. If either is empty or whitespace, throw `ArgumentException`.
+2. Load the company profile inside the SQLite transaction. If it is missing, throw `KeyNotFoundException`.
+3. Verify current status is one of `review_required`, `attention_required`, or `unknown`. If not, throw `InvalidOperationException`.
+4. Build a compact `before_json` snapshot containing exactly `id`, `name`, and `status`. Also build a corresponding compact `after_json` snapshot representing the same state but with the `status` set to `"idle"`. Do not include the whole profile object.
 5. Update `company_profiles.status` to `idle`.
-6. Verify exactly one row was updated.
-7. Insert a `config_audit_log` row with action `resolve_safety_state`.
-8. Commit the transaction.
+6. Verify exactly one row was updated. If not, throw `InvalidOperationException`.
+7. Insert a `config_audit_log` row with action `resolve_safety_state` and the built snapshots. If the database insertion fails, throw `InvalidOperationException`.
+8. Commit the transaction and return the generated audit log ID.
 
-If any step fails, roll back the transaction. The previous status must remain unchanged if the audit row is not written.
+If any step fails, roll back the transaction. The previous status must remain unchanged if the audit row is not written. Throw the appropriate standard .NET exception.
 
 ## WPF Flow
 
@@ -109,7 +109,10 @@ Add a simple selected-job action:
 
 - Enable only when the selected company status is `review_required`, `attention_required`, or `unknown`.
 - Prompt for a required reason.
-- Use an actor string derived from the current Windows identity where available.
+- Use an actor string derived from the following hierarchy:
+  1. `System.Security.Principal.WindowsIdentity.GetCurrent()?.Name`
+  2. `Environment.UserName`
+  3. `"unknown-user"`
 - Call the Core resolution API.
 - Refresh company profiles after success.
 - Show rejection/error feedback if Core rejects the operation.

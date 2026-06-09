@@ -724,31 +724,19 @@ namespace TallyDbLoader.Core.Data
                         if (affected != 1)
                             throw new InvalidOperationException($"Expected exactly 1 row to be updated, but affected {affected} rows.");
 
-                        // 7. Insert audit log row
-                        long auditId;
-                        try
-                        {
-                            conn.Execute(@"
-                                INSERT INTO config_audit_log (created_at, actor, action, entity_type, entity_id, entity_name, before_json, after_json, reason)
-                                VALUES (@CreatedAt, @Actor, @Action, @EntityType, @EntityId, @EntityName, @BeforeJson, @AfterJson, @Reason);",
-                                new
-                                {
-                                    CreatedAt = resolvedAt.ToString("o"),
-                                    Actor = actor.Trim(),
-                                    Action = "resolve_safety_state",
-                                    EntityType = "company_profile",
-                                    EntityId = companyProfileId,
-                                    EntityName = profile.Name,
-                                    BeforeJson = beforeJson,
-                                    AfterJson = afterJson,
-                                    Reason = reason.Trim()
-                                }, transaction);
-                            auditId = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
-                        }
-                        catch (Exception ex)
-                        {
-                            throw new InvalidOperationException("Failed to write to the config audit log table.", ex);
-                        }
+                        // 7. Insert audit log row via shared helper
+                        long auditId = InsertConfigAuditLog(
+                            conn,
+                            transaction,
+                            resolvedAt,
+                            actor,
+                            "resolve_safety_state",
+                            "company_profile",
+                            companyProfileId,
+                            profile.Name,
+                            beforeJson,
+                            afterJson,
+                            reason);
 
                         // 8. Commit and return ID
                         transaction.Commit();

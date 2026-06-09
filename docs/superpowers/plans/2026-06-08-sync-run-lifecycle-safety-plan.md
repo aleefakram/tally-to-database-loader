@@ -1132,10 +1132,10 @@
   [Fact]
   public void TryRequestManualSync_Rejects_AlreadyRunningJob()
   {
-      var profile = SeedCompany("running");
       using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
       {
           worker.Start(startScheduler: false);
+          var profile = SeedCompany("running");
           var result = worker.TryRequestManualSync(profile.Id);
           Assert.False(result.Accepted);
           Assert.Equal("AlreadyRunning", result.ReasonCode);

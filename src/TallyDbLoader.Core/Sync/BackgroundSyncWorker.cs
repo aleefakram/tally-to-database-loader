@@ -295,6 +295,17 @@ namespace TallyDbLoader.Core.Sync
                     }
                 }
 
+                if (IsBlocked)
+                {
+                    Log("[Engine] Scheduler is blocked due to a fatal metadata or reconciliation error. Skipping cycle.");
+                    try
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(60), _wakeUpCts.Token);
+                    }
+                    catch (TaskCanceledException) { }
+                    continue;
+                }
+
                 try
                 {
                     var settings = _repo.GetTallySettings();
@@ -327,6 +338,7 @@ namespace TallyDbLoader.Core.Sync
                     }
 
                     var companies = _repo.GetAllCompanyProfiles();
+                    bool manualTargetSeen = false;
                     foreach (var company in companies)
                     {
                         if (token.IsCancellationRequested) break;
@@ -334,7 +346,14 @@ namespace TallyDbLoader.Core.Sync
                         bool shouldSync = false;
                         if (runManualSync)
                         {
-                            shouldSync = !manualCompanyId.HasValue || manualCompanyId.Value == company.Id;
+                            if (!manualCompanyId.HasValue || manualCompanyId.Value == company.Id)
+                            {
+                                shouldSync = true;
+                                if (manualCompanyId.HasValue && manualCompanyId.Value == company.Id)
+                                {
+                                    manualTargetSeen = true;
+                                }
+                            }
                         }
                         else
                         {
@@ -351,6 +370,11 @@ namespace TallyDbLoader.Core.Sync
                                 await SyncCompany(company, client, token);
                             }
                         }
+                    }
+
+                    if (runManualSync && manualCompanyId.HasValue && !manualTargetSeen)
+                    {
+                        Log($"[Engine WARNING] Manual trigger targets company ID {manualCompanyId.Value}, but it was not found in active profiles (ManualTriggerDropped/NotFound).");
                     }
                 }
                 catch (Exception ex)
@@ -636,7 +660,16 @@ namespace TallyDbLoader.Core.Sync
                 }
                 catch (Exception profileEx)
                 {
-                    Log($"[Sync FATAL] Failed to update CompanyProfile: {profileEx.Message}");
+                    Log($"[Sync ERROR] Failed to save runtime status update for company {company.Id}: {profileEx.Message}");
+                    try
+                    {
+                        _repo.MarkCompanyProfileUnknown(company.Id, $"Runtime status update failed: {profileEx.Message}", DateTime.Now);
+                    }
+                    catch (Exception revertEx)
+                    {
+                        Log($"[Sync FATAL] Failed to revert company status to unknown: {revertEx.Message}. PERSISTED SAFETY STATE IS COMPROMISED. Blocking scheduler.");
+                        IsBlocked = true;
+                    }
                 }
 
                 OnSyncCompleted?.Invoke();

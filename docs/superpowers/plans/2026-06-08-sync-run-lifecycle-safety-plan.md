@@ -814,7 +814,7 @@
       {
           // 4. Update the SyncRun execution ledger
           run.EndedAt = DateTime.Now;
-          run.Status = (finalStatus == "completed") ? "completed" : ((finalStatus == "unknown") ? "unknown" : "failed");
+          run.Status = finalStatus;
           run.ResultSummary = summary;
           run.LogExcerpt = logExcerpt;
           run.RowsIn = totalRows;
@@ -840,6 +840,15 @@
           catch (Exception ex)
           {
               Log($"[Sync ERROR] Failed to save runtime status update for company {company.Id}: {ex.Message}");
+              try
+              {
+                  _repo.MarkCompanyProfileUnknown(company.Id, $"Runtime status update failed: {ex.Message}", DateTime.Now);
+              }
+              catch (Exception revertEx)
+              {
+                  Log($"[Sync FATAL] Failed to revert company status to unknown: {revertEx.Message}. PERSISTED SAFETY STATE IS COMPROMISED. Blocking scheduler.");
+                  IsBlocked = true;
+              }
           }
 
           Log($"[Sync Finished] Result: {finalStatus}. Wrote {totalRows} records.");
@@ -991,6 +1000,7 @@
   }
 
   var companies = _repo.GetAllCompanyProfiles();
+  bool manualTargetSeen = false;
   foreach (var company in companies)
   {
       if (token.IsCancellationRequested) break;
@@ -1003,6 +1013,7 @@
           // Authoritative check on the manual target profile
           if (manualCompanyId.HasValue && manualCompanyId.Value == company.Id)
           {
+              manualTargetSeen = true;
               if (!company.Enabled)
               {
                   skipReason = "JobDisabled";
@@ -1054,6 +1065,11 @@
       {
           Log($"[Sync Skipped] Skipping job '{company.Name}' (Reason: {skipReason}, Current Status: {company.Status})");
       }
+  }
+
+  if (runManualSync && manualCompanyId.HasValue && !manualTargetSeen)
+  {
+      Log($"[Engine WARNING] Manual trigger targets company ID {manualCompanyId.Value}, but it was not found in active profiles (ManualTriggerDropped/NotFound).");
   }
   ```
 

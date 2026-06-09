@@ -23,12 +23,12 @@ namespace TallyDbLoader.Wpf.Converters
         public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
             string status = (value?.ToString() ?? "idle").ToLower();
-            if (status == "ok" || status == "success" || status == "healthy" || status == "running")
-                return GetFrozenBrush("#16a34a"); // status-ok/running: green
-            if (status == "warn" || status == "warning" || status == "paused" || status == "stale")
-                return GetFrozenBrush("#d97706"); // status-warn/paused: amber
-            if (status == "err" || status == "error" || status == "failed")
-                return GetFrozenBrush("#dc2626"); // status-err: red
+            if (status == "ok" || status == "success" || status == "healthy" || status == "running" || status == "completed")
+                return GetFrozenBrush("#16a34a"); // status-ok/running/completed: green
+            if (status == "warn" || status == "warning" || status == "paused" || status == "stale" || status == "attention_required" || status == "review_required")
+                return GetFrozenBrush("#d97706"); // status-warn/paused/attention/review: amber
+            if (status == "err" || status == "error" || status == "failed" || status == "unknown")
+                return GetFrozenBrush("#dc2626"); // status-err/failed/unknown: red
             return GetFrozenBrush("#888888"); // status-idle: gray
         }
 

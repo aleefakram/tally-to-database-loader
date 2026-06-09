@@ -518,6 +518,7 @@
       {
           if (IsRunning) return;
           _isPaused = !startScheduler; // Start paused if scheduler is not started
+          IsBlocked = false;
           
           // Reconcile stale runs before spawning the background worker thread
           try
@@ -527,6 +528,7 @@
           }
           catch (Exception ex)
           {
+              IsBlocked = true;
               Log($"[Engine ERROR] Startup reconciliation failed: {ex.Message}. Scheduler will not start.");
               return; // Fail-closed: do not set _cts, do not spawn task.
           }
@@ -599,7 +601,11 @@
           {
               _repo.MarkCompanyProfileUnknown(company.Id, "Metadata run registration failed", DateTime.Now);
           }
-          catch { }
+          catch (Exception revertEx)
+          {
+              Log($"[Sync FATAL] Failed to revert company status to unknown after run registration failure: {revertEx.Message}. PERSISTED SAFETY STATE IS COMPROMISED. Blocking scheduler.");
+              IsBlocked = true;
+          }
           OnSyncCompleted?.Invoke();
           return;
       }

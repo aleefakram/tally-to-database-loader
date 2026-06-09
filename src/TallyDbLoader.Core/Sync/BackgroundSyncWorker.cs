@@ -58,7 +58,7 @@ namespace TallyDbLoader.Core.Sync
             lock (_syncLock)
             {
                 if (IsRunning) return;
-                _isPaused = false;
+                _isPaused = !startScheduler;
                 IsBlocked = false;
 
                 try
@@ -443,7 +443,8 @@ namespace TallyDbLoader.Core.Sync
                 }
                 catch (Exception revertEx)
                 {
-                    Log($"[Sync FATAL] Failed to revert company status to unknown: {revertEx.Message}");
+                    Log($"[Sync FATAL] Failed to revert company status to unknown after run registration failure: {revertEx.Message}. PERSISTED SAFETY STATE IS COMPROMISED. Blocking scheduler.");
+                    IsBlocked = true;
                 }
                 OnSyncCompleted?.Invoke();
                 throw;

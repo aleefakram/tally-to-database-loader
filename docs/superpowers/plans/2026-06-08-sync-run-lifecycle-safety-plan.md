@@ -1233,6 +1233,9 @@
   }
   ```
 
+- [ ] **Step 3.5: Add unit tests verifying database row update assertions in ConfigRepository**
+  Add `Test_FailClosed_Metadata_Updates_Row_Assertion` to `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs` to verify that `MarkCompanyProfileUnknown`, `CompleteCompanyProfileRun`, and `UpdateSyncRun` throw `InvalidOperationException` if no rows are affected (e.g. when called with a non-existent ID).
+
 - [ ] **Step 4: Run all unit tests**
   Run: `dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj`
   Expected: All 98 tests pass successfully.

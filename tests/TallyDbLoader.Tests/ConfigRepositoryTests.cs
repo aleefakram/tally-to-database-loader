@@ -225,5 +225,41 @@ namespace TallyDbLoader.Tests
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (File.Exists(testDbPath)) File.Delete(testDbPath);
         }
+
+        [Fact]
+        public void Test_FailClosed_Metadata_Updates_Row_Assertion()
+        {
+            string testDbPath = "test_failclosed.db";
+            if (File.Exists(testDbPath)) File.Delete(testDbPath);
+
+            DatabaseHelper.InitializeDatabase(testDbPath);
+            var repo = new ConfigRepository(testDbPath);
+
+            // 1. MarkCompanyProfileUnknown with missing ID should throw InvalidOperationException
+            Assert.Throws<System.InvalidOperationException>(() =>
+                repo.MarkCompanyProfileUnknown(9999, "Testing missing ID", System.DateTime.Now)
+            );
+
+            // 2. CompleteCompanyProfileRun with missing ID should throw InvalidOperationException
+            Assert.Throws<System.InvalidOperationException>(() =>
+                repo.CompleteCompanyProfileRun(9999, "completed", System.DateTime.Now, 100, 0, false)
+            );
+
+            // 3. UpdateSyncRun with missing/invalid run ID should throw InvalidOperationException
+            var nonExistentRun = new SyncRun
+            {
+                Id = 9999,
+                CompanyId = 1,
+                CompanyName = "Test Company",
+                StartedAt = System.DateTime.Now,
+                Status = "completed"
+            };
+            Assert.Throws<System.InvalidOperationException>(() =>
+                repo.UpdateSyncRun(nonExistentRun)
+            );
+
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (File.Exists(testDbPath)) File.Delete(testDbPath);
+        }
     }
 }

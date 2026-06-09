@@ -133,10 +133,9 @@
                           long auditId;
                           try
                           {
-                              auditId = conn.QuerySingle<long>(@"
+                              conn.Execute(@"
                                   INSERT INTO config_audit_log (created_at, actor, action, entity_type, entity_id, entity_name, before_json, after_json, reason)
-                                  VALUES (@CreatedAt, @Actor, @Action, @EntityType, @EntityId, @EntityName, @BeforeJson, @AfterJson, @Reason);
-                                  SELECT last_insert_rowid();",
+                                  VALUES (@CreatedAt, @Actor, @Action, @EntityType, @EntityId, @EntityName, @BeforeJson, @AfterJson, @Reason);",
                                   new
                                   {
                                       CreatedAt = resolvedAt.ToString("o"),
@@ -149,6 +148,7 @@
                                       AfterJson = afterJson,
                                       Reason = reason.Trim()
                                   }, transaction);
+                              auditId = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
                           }
                           catch (Exception ex)
                           {
@@ -171,7 +171,7 @@
 
 - [ ] **Step 3: Compile the project**
   Run: `dotnet build src/TallyDbLoader.sln`
-  Expected: Build succeeds without warnings or compilation errors.
+  Expected: Build succeeds with no new warnings or compilation errors introduced by this slice.
 
 - [ ] **Step 4: Commit changes**
   ```bash
@@ -535,7 +535,7 @@
               <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                   <Button Content="New Company Profile" Command="{Binding StartEditingCompanyCommand}" CommandParameter="0" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
                   <Button Content="Configure Selected" Command="{Binding StartEditingCompanyCommand}" CommandParameter="{Binding SelectedCompany.Id}" IsEnabled="{Binding SelectedCompany, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                  <Button Content="Resolve Safety Block" Command="{Binding ResolveSafetyBlockCommand}" CommandParameter="{Binding SelectedCompany}" IsEnabled="{Binding CanResolveSelectedCompanySafetyBlock}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0}" Background="#B45309" Foreground="White"/>
+                  <Button Content="Resolve Safety Block" Command="{Binding ResolveSafetyBlockCommand}" CommandParameter="{Binding SelectedCompany}" IsEnabled="{Binding CanResolveSelectedCompanySafetyBlock}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0" Background="#B45309" Foreground="White"/>
                   <Button Content="Delete Selected" Command="{Binding DeleteCompanyProfileCommand}" CommandParameter="{Binding SelectedCompany.Id}" IsEnabled="{Binding SelectedCompany, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Foreground="#EF4444"/>
               </StackPanel>
   ```

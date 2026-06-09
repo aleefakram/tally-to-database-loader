@@ -267,5 +267,259 @@ namespace TallyDbLoader.Tests
                 }
             }
         }
+
+        [Fact]
+        public void SaveTallySettings_WritesAuditRow()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_tally_audit_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                repo.SaveTallySettings(new TallySettings
+                {
+                    Server = "tallyhost",
+                    Port = 9001,
+                    AutoStartTally = true,
+                    TallyExePath = @"C:\Tally\tally.exe",
+                    TallyIniPath = @"C:\Tally\tally.ini"
+                });
+
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    int count = conn.ExecuteScalar<int>(
+                        "SELECT COUNT(*) FROM config_audit_log WHERE action = 'update_tally_settings'");
+                    Assert.Equal(1, count);
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveTallySettings_AuditRow_ContainsOnlyAllowedFields()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_tally_fields_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                repo.SaveTallySettings(new TallySettings
+                {
+                    Server = "myserver",
+                    Port = 9999,
+                    AutoStartTally = false,
+                    TallyExePath = @"C:\Tally\tally.exe",
+                    TallyIniPath = @"C:\Tally\tally.ini"
+                });
+
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    string beforeJson = conn.ExecuteScalar<string>(
+                        "SELECT before_json FROM config_audit_log WHERE action = 'update_tally_settings'");
+                    string afterJson = conn.ExecuteScalar<string>(
+                        "SELECT after_json FROM config_audit_log WHERE action = 'update_tally_settings'");
+
+                    // Assert exact property set and count for both snapshots.
+                    // JsonDocument catches extra fields regardless of casing
+                    // (e.g. an accidental whole-object serialization would emit TallyExePath, not tally_exe_path).
+                    var allowedProperties = new System.Collections.Generic.HashSet<string>
+                    {
+                        "server", "port", "auto_start_tally"
+                    };
+
+                    using (var beforeDoc = System.Text.Json.JsonDocument.Parse(beforeJson))
+                    {
+                        var beforeProps = beforeDoc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+                        Assert.Equal(3, beforeProps.Count);
+                        // SetEquals directly expresses set membership — order of enumeration is irrelevant.
+                        Assert.True(allowedProperties.SetEquals(beforeProps));
+                    }
+
+                    using (var afterDoc = System.Text.Json.JsonDocument.Parse(afterJson))
+                    {
+                        var afterProps = afterDoc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+                        Assert.Equal(3, afterProps.Count);
+                        Assert.True(allowedProperties.SetEquals(afterProps));
+                    }
+
+                    // after_json reflects submitted values
+                    Assert.Contains("\"myserver\"", afterJson);
+                    Assert.Contains("9999", afterJson);
+
+                    // Excluded field names — both snake_case and PascalCase variants — must not appear.
+                    // Also check path values, which are distinctive enough to catch value leaks.
+                    foreach (var json in new[] { beforeJson, afterJson })
+                    {
+                        Assert.DoesNotContain("tally_exe_path", json);
+                        Assert.DoesNotContain("tally_ini_path", json);
+                        Assert.DoesNotContain("TallyExePath", json);
+                        Assert.DoesNotContain("TallyIniPath", json);
+                        Assert.DoesNotContain("tally.exe", json);
+                        Assert.DoesNotContain("tally.ini", json);
+                    }
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveTallySettings_AuditRow_BeforeJsonReflectsLoadedRow()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_tally_before_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                // First save: establish known prior state
+                repo.SaveTallySettings(new TallySettings { Server = "original", Port = 9000, AutoStartTally = false });
+
+                // Second save: before_json must reflect the first save's values ("original"/9000/false)
+                repo.SaveTallySettings(new TallySettings { Server = "updated", Port = 9001, AutoStartTally = true });
+
+                // Query the second audit row (the most recent one) without deleting anything.
+                // The audit log is append-only; deleting rows from it in tests sets a bad example.
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    string beforeJson = conn.ExecuteScalar<string>(
+                        "SELECT before_json FROM config_audit_log WHERE action = 'update_tally_settings' ORDER BY id DESC LIMIT 1");
+
+                    Assert.Contains("\"original\"", beforeJson);
+                    Assert.Contains("9000", beforeJson);
+                    Assert.Contains("false", beforeJson);
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveTallySettings_RollsBack_WhenAuditTableMissing()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_tally_rollback_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                // Record original settings before the test
+                var original = repo.GetTallySettings();
+
+                // Drop audit table to force rollback
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    conn.Execute("DROP TABLE config_audit_log;");
+                }
+
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    repo.SaveTallySettings(new TallySettings
+                    {
+                        Server = "should-not-persist",
+                        Port = 1234,
+                        AutoStartTally = true
+                    }));
+
+                Assert.NotNull(ex.InnerException);
+
+                // Settings must be unchanged because the entire transaction rolled back
+                var after = repo.GetTallySettings();
+                Assert.Equal(original.Server, after.Server);
+                Assert.Equal(original.Port, after.Port);
+                Assert.Equal(original.AutoStartTally, after.AutoStartTally);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveTallySettings_ThrowsInvalidOperationException_WhenSingletonRowMissing()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_tally_nosingle_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                // Remove the singleton row to simulate corrupt database
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    conn.Execute("DELETE FROM tally_settings WHERE id = 1;");
+                }
+
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    repo.SaveTallySettings(new TallySettings { Server = "x", Port = 9000, AutoStartTally = false }));
+
+                Assert.Contains("tally_settings singleton row (id=1) is missing", ex.Message);
+
+                // Confirm no audit row was written
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    int count = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log");
+                    Assert.Equal(0, count);
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveTallySettings_AuditRow_HasExpectedMetadata()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_tally_meta_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                repo.SaveTallySettings(new TallySettings { Server = "localhost", Port = 9000, AutoStartTally = false });
+
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    string actor = conn.ExecuteScalar<string>(
+                        "SELECT actor FROM config_audit_log WHERE action = 'update_tally_settings'");
+                    string action = conn.ExecuteScalar<string>(
+                        "SELECT action FROM config_audit_log WHERE action = 'update_tally_settings'");
+                    string entityType = conn.ExecuteScalar<string>(
+                        "SELECT entity_type FROM config_audit_log WHERE action = 'update_tally_settings'");
+                    long entityId = conn.ExecuteScalar<long>(
+                        "SELECT entity_id FROM config_audit_log WHERE action = 'update_tally_settings'");
+                    string? entityName = conn.ExecuteScalar<string?>(
+                        "SELECT entity_name FROM config_audit_log WHERE action = 'update_tally_settings'");
+                    string reason = conn.ExecuteScalar<string>(
+                        "SELECT reason FROM config_audit_log WHERE action = 'update_tally_settings'");
+
+                    Assert.Equal("system", actor);
+                    Assert.Equal("update_tally_settings", action);
+                    Assert.Equal("tally_settings", entityType);
+                    Assert.Equal(1L, entityId);
+                    Assert.Null(entityName);
+                    Assert.Equal("Tally settings updated", reason);
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
+            }
+        }
     }
 }

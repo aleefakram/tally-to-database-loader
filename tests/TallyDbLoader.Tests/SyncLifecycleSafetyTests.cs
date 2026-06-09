@@ -273,6 +273,81 @@ namespace TallyDbLoader.Tests
                 try { File.Delete(dbFile); } catch { }
             }
         }
+
+        [Fact]
+        public void ResolveCompanyProfileSafetyState_Success_UpdatesStatusAndLogsAudit()
+        {
+            var profile = SeedCompany("attention_required");
+            DateTime resolvedAt = DateTime.Now;
+
+            long auditId = _repo.ResolveCompanyProfileSafetyState(profile.Id, "OperatorName", "Resolved network issue", resolvedAt);
+            Assert.True(auditId > 0);
+
+            // Assert status was updated to idle
+            var updated = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.Equal("idle", updated.Status);
+
+            // Assert audit log entry exists and contains correct information
+            using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
+            {
+                var row = conn.QuerySingle<dynamic>(
+                    "SELECT * FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+
+                Assert.Equal("OperatorName", row.actor);
+                Assert.Equal("resolve_safety_state", row.action);
+                Assert.Equal("company_profile", row.entity_type);
+                Assert.Equal((long)profile.Id, row.entity_id);
+                Assert.Equal(profile.Name, row.entity_name);
+                Assert.Equal("Resolved network issue", row.reason);
+                Assert.Equal(resolvedAt.ToString("o"), row.created_at);
+                Assert.Contains("\"status\":\"attention_required\"", (string)row.before_json);
+                Assert.Contains("\"status\":\"idle\"", (string)row.after_json);
+            }
+        }
+
+        [Fact]
+        public void ResolveCompanyProfileSafetyState_EmptyInputs_ThrowsArgumentException()
+        {
+            var profile = SeedCompany("attention_required");
+
+            Assert.Throws<ArgumentException>(() => 
+                _repo.ResolveCompanyProfileSafetyState(profile.Id, "   ", "Reason", DateTime.Now));
+
+            Assert.Throws<ArgumentException>(() => 
+                _repo.ResolveCompanyProfileSafetyState(profile.Id, "Operator", "", DateTime.Now));
+        }
+
+        [Fact]
+        public void ResolveCompanyProfileSafetyState_InvalidStatus_ThrowsInvalidOperationException()
+        {
+            var profile = SeedCompany("idle");
+
+            Assert.Throws<InvalidOperationException>(() => 
+                _repo.ResolveCompanyProfileSafetyState(profile.Id, "Operator", "Reason", DateTime.Now));
+        }
+
+        [Fact]
+        public void ResolveCompanyProfileSafetyState_AuditInsertFailure_RollsBackTransaction()
+        {
+            var profile = SeedCompany("review_required");
+
+            using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
+            {
+                conn.Open();
+                // Drop config_audit_log table temporarily inside the DB connection
+                conn.Execute("DROP TABLE config_audit_log;");
+            }
+
+            // The insert will fail because table is dropped, throwing InvalidOperationException
+            var ex = Assert.Throws<InvalidOperationException>(() => 
+                _repo.ResolveCompanyProfileSafetyState(profile.Id, "Operator", "Reason", DateTime.Now));
+            
+            Assert.NotNull(ex.InnerException);
+
+            // Assert company profile status remains review_required (rolled back)
+            var updated = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.Equal("review_required", updated.Status);
+        }
     }
 
     public class SafetyFakeTallyClient : ITallyClient

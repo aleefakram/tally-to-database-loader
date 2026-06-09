@@ -189,11 +189,15 @@
           {
               try
               {
-                  conn.Execute(@"
+                  var affected = conn.Execute(@"
                       UPDATE company_profiles
                       SET status = 'unknown',
                           last_run_at = @Now
                       WHERE id = @Id;", new { Id = id, Now = now.ToString("o") }, transaction);
+                  if (affected != 1)
+                  {
+                      throw new InvalidOperationException($"Expected to update exactly 1 company profile (ID: {id}), but updated {affected}.");
+                  }
                   transaction.Commit();
               }
               catch
@@ -224,7 +228,7 @@
           {
               try
               {
-                  conn.Execute(@"
+                  var affected = conn.Execute(@"
                       UPDATE company_profiles
                       SET status = @FinalStatus,
                           last_run_at = @EndedAt,
@@ -241,6 +245,10 @@
                           RowsWritten = rowsWritten,
                           IncrementErrorCount = incrementErrorCount ? 1 : 0
                       }, transaction);
+                  if (affected != 1)
+                  {
+                      throw new InvalidOperationException($"Expected to update exactly 1 company profile (ID: {id}), but updated {affected}.");
+                  }
                   transaction.Commit();
               }
               catch
@@ -264,7 +272,7 @@
               {
                   string? endedAtStr = (run.EndedAt == default(DateTime)) ? null : run.EndedAt.ToString("o");
 
-                  conn.Execute(@"
+                  var affected = conn.Execute(@"
                       UPDATE sync_runs
                       SET ended_at = @EndedAt,
                           status = @Status,
@@ -287,6 +295,10 @@
                           run.ResultSummary,
                           run.LogExcerpt
                       }, transaction);
+                  if (affected != 1)
+                  {
+                      throw new InvalidOperationException($"Expected to update exactly 1 sync run (ID: {run.Id}), but updated {affected}.");
+                  }
                   transaction.Commit();
               }
               catch
@@ -833,7 +845,7 @@
           catch (Exception ex)
           {
               Log($"[Sync ERROR] Failed to update SyncRun record: {ex.Message}");
-              finalStatus = "unknown"; // Post-commit metadata failure -> fail-closed to unknown
+              finalStatus = "unknown"; // Post-commit metadata failure -> fail-closed to unknown. The SyncRun row may remain 'running' until startup reconciliation recovers it.
               isError = true;          // Force isError = true to increment error count
           }
 

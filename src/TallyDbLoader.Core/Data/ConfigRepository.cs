@@ -463,11 +463,15 @@ namespace TallyDbLoader.Core.Data
                 {
                     try
                     {
-                        conn.Execute(@"
+                        var affected = conn.Execute(@"
                             UPDATE company_profiles
                             SET status = 'unknown',
                                 last_run_at = @Now
                             WHERE id = @Id;", new { Id = id, Now = now.ToString("o") }, transaction);
+                        if (affected != 1)
+                        {
+                            throw new InvalidOperationException($"Expected to update exactly 1 company profile (ID: {id}), but updated {affected}.");
+                        }
                         transaction.Commit();
                     }
                     catch
@@ -497,7 +501,7 @@ namespace TallyDbLoader.Core.Data
                 {
                     try
                     {
-                        conn.Execute(@"
+                        var affected = conn.Execute(@"
                             UPDATE company_profiles
                             SET status = @FinalStatus,
                                 last_run_at = @EndedAt,
@@ -514,6 +518,10 @@ namespace TallyDbLoader.Core.Data
                                 RowsWritten = rowsWritten,
                                 IncrementErrorCount = incrementErrorCount ? 1 : 0
                             }, transaction);
+                        if (affected != 1)
+                        {
+                            throw new InvalidOperationException($"Expected to update exactly 1 company profile (ID: {id}), but updated {affected}.");
+                        }
                         transaction.Commit();
                     }
                     catch
@@ -537,7 +545,7 @@ namespace TallyDbLoader.Core.Data
                     {
                         string? endedAtStr = (run.EndedAt == default(System.DateTime)) ? null : run.EndedAt.ToString("o");
 
-                        conn.Execute(@"
+                        var affected = conn.Execute(@"
                             UPDATE sync_runs
                             SET ended_at = @EndedAt,
                                 status = @Status,
@@ -560,6 +568,10 @@ namespace TallyDbLoader.Core.Data
                                 run.ResultSummary,
                                 run.LogExcerpt
                             }, transaction);
+                        if (affected != 1)
+                        {
+                            throw new InvalidOperationException($"Expected to update exactly 1 sync run (ID: {run.Id}), but updated {affected}.");
+                        }
                         transaction.Commit();
                     }
                     catch

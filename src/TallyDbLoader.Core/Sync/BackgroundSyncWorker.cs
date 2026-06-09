@@ -646,6 +646,8 @@ namespace TallyDbLoader.Core.Sync
                 catch (Exception runEx)
                 {
                     Log($"[Sync FATAL] Failed to update SyncRun record: {runEx.Message}");
+                    finalStatus = "unknown"; // Post-commit metadata failure -> fail-closed to unknown. The SyncRun row may remain 'running' until startup reconciliation recovers it.
+                    incrementErrorCount = true;
                 }
 
                 try

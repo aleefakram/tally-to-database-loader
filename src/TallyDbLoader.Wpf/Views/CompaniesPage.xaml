@@ -30,7 +30,7 @@
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Content="New Company Profile" Command="{Binding StartEditingCompanyCommand}" CommandParameter="0" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,8,0"/>
                 <Button Content="Configure Selected" Command="{Binding StartEditingCompanyCommand}" CommandParameter="{Binding SelectedCompany.Id}" IsEnabled="{Binding SelectedCompany, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0"/>
-                <Button Content="Resolve Safety Block" Command="{Binding ResolveSafetyBlockCommand}" CommandParameter="{Binding SelectedCompany.Id}" IsEnabled="{Binding SelectedCompany, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0" Background="#10B981" Foreground="White"/>
+                <Button Content="Resolve Safety Block" Command="{Binding ResolveSafetyBlockCommand}" CommandParameter="{Binding SelectedCompany}" IsEnabled="{Binding CanResolveSelectedCompanySafetyBlock}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,8,0" Background="#B45309" Foreground="White"/>
                 <Button Content="Delete Selected" Command="{Binding DeleteCompanyProfileCommand}" CommandParameter="{Binding SelectedCompany.Id}" IsEnabled="{Binding SelectedCompany, Converter={StaticResource NullToBoolConverter}}" Style="{StaticResource StandardButtonStyle}" Foreground="#EF4444"/>
             </StackPanel>
         </Border>

@@ -76,7 +76,7 @@ namespace TallyDbLoader.Wpf
 
         // Navigation callback for opening Dialog from View Model
         public Func<List<TallyCompanyInfo>, TallyCompanyInfo?>? CompanySelector { get; set; }
-        public Func<CompanyProfile, string?>? RequestResolveSafetyBlockHandler { get; set; }
+        public Func<string, string?>? SafetyResolveReasonPrompter { get; set; }
 
         public Func<string, int, TallyClient>? TallyClientFactory { get; set; }
         public Action<string, string, System.Windows.MessageBoxButton, System.Windows.MessageBoxImage>? MessageBoxShowHandler { get; set; }
@@ -111,6 +111,7 @@ namespace TallyDbLoader.Wpf
                 if (_selectedCompany == value) return;
                 _selectedCompany = value;
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(CanResolveSelectedCompanySafetyBlock));
             }
         }
 
@@ -428,6 +429,12 @@ namespace TallyDbLoader.Wpf
         public bool IsSyncNotRunning => !IsSyncRunning;
         public string StateText => State.ToString();
 
+        public bool CanResolveSelectedCompanySafetyBlock =>
+            SelectedCompany != null &&
+            (SelectedCompany.Status == "review_required" ||
+             SelectedCompany.Status == "attention_required" ||
+             SelectedCompany.Status == "unknown");
+
         private string _logOutput = string.Empty;
         public string LogOutput
         {
@@ -658,40 +665,55 @@ namespace TallyDbLoader.Wpf
 
         private void ResolveSafetyBlock(object? parameter)
         {
-            int? companyId = parameter as int?;
-            if (!companyId.HasValue) return;
-
-            var profile = Companies.FirstOrDefault(c => c.Id == companyId.Value);
-            if (profile == null) return;
+            var company = parameter as CompanyProfile;
+            if (company == null) return;
 
             string? reason = null;
-            string actor = "Operator";
-
-            if (RequestResolveSafetyBlockHandler != null)
+            if (SafetyResolveReasonPrompter != null)
             {
-                reason = RequestResolveSafetyBlockHandler(profile);
-                if (string.IsNullOrWhiteSpace(reason))
-                {
-                    // User cancelled or gave empty reason
-                    return;
-                }
+                reason = SafetyResolveReasonPrompter(company.Name);
+                if (string.IsNullOrWhiteSpace(reason)) return; // Cancelled or empty
             }
             else
             {
                 // In non-interactive contexts (e.g. tests)
                 reason = "Resolved via automation script.";
-                actor = "System";
+            }
+
+            // Resolve actor via hierarchy inside a guarded try-catch block
+            string actor = "unknown-user";
+            try
+            {
+                string? winIdentity = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name;
+                if (!string.IsNullOrWhiteSpace(winIdentity))
+                {
+                    actor = winIdentity;
+                }
+                else
+                {
+                    string? envUser = Environment.UserName;
+                    if (!string.IsNullOrWhiteSpace(envUser)) actor = envUser;
+                }
+            }
+            catch
+            {
+                try
+                {
+                    string? envUser = Environment.UserName;
+                    if (!string.IsNullOrWhiteSpace(envUser)) actor = envUser;
+                }
+                catch { }
             }
 
             try
             {
-                _repo.ResolveCompanyProfileSafetyState(profile.Id, actor, reason, DateTime.Now);
+                _repo.ResolveCompanyProfileSafetyState(company.Id, actor, reason, DateTime.Now);
                 LoadConfiguration();
-                ShowToast("Safety block resolved", $"Company '{profile.Name}' safety block has been resolved.", "ok");
+                ShowToast("Block Resolved", $"Safety block on '{company.Name}' successfully resolved.", "ok");
             }
             catch (Exception ex)
             {
-                ShowToast("Resolution failed", ex.Message, "err");
+                ShowToast("Resolution Failed", ex.Message, "err");
                 _logQueue.Enqueue($"{DateTime.Now:HH:mm:ss} [error] Failed to resolve safety block: {ex.Message}{Environment.NewLine}");
             }
         }
@@ -901,6 +923,7 @@ namespace TallyDbLoader.Wpf
             if (prevJobProfileId.HasValue)
                 _jobSelectedProfile = DatabaseProfiles.FirstOrDefault(d => d.Id == prevJobProfileId.Value);
             OnPropertyChanged(nameof(SelectedCompany));
+            OnPropertyChanged(nameof(CanResolveSelectedCompanySafetyBlock));
             OnPropertyChanged(nameof(SelectedDatabaseProfile));
             OnPropertyChanged(nameof(JobSelectedProfile));
         }

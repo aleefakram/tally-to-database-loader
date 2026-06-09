@@ -39,6 +39,7 @@ namespace TallyDbLoader.Tests
             var dbProfile = new DatabaseProfile { Name = uniqueDbName, Technology = "sqlite" };
             _repo.SaveDatabaseProfile(dbProfile);
             var dbFromDb = _repo.GetDatabaseProfileByName(uniqueDbName);
+            Assert.NotNull(dbFromDb);
 
             var profile = new CompanyProfile
             {
@@ -52,7 +53,9 @@ namespace TallyDbLoader.Tests
             
             // Load back to get auto-generated ID
             var all = _repo.GetAllCompanyProfiles();
-            return all.Find(x => x.Name == profile.Name);
+            var found = all.Find(x => x.Name == profile.Name);
+            Assert.NotNull(found);
+            return found;
         }
 
         [Fact]
@@ -63,6 +66,7 @@ namespace TallyDbLoader.Tests
             Assert.True(started);
 
             var updated = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.NotNull(updated);
             Assert.Equal("running", updated.Status);
         }
 
@@ -84,6 +88,7 @@ namespace TallyDbLoader.Tests
             _repo.MarkCompanyProfileUnknown(profile.Id, "Metadata failed", DateTime.Now);
 
             var updated = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.NotNull(updated);
             Assert.Equal("unknown", updated.Status);
         }
 
@@ -105,6 +110,7 @@ namespace TallyDbLoader.Tests
             _repo.ReconcileStaleRuns(DateTime.Now);
 
             var updatedProfile = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.NotNull(updatedProfile);
             Assert.Equal("unknown", updatedProfile.Status);
 
             var runs = _repo.GetSyncRunsForCompany(profile.Id);
@@ -285,23 +291,34 @@ namespace TallyDbLoader.Tests
 
             // Assert status was updated to idle
             var updated = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.NotNull(updated);
             Assert.Equal("idle", updated.Status);
 
             // Assert audit log entry exists and contains correct information
             using (var conn = new SqliteConnection($"Data Source={_dbPath}"))
             {
-                var row = conn.QuerySingle<dynamic>(
-                    "SELECT * FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                conn.Open();
+                var actor = conn.ExecuteScalar<string>("SELECT actor FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                var action = conn.ExecuteScalar<string>("SELECT action FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                var entityType = conn.ExecuteScalar<string>("SELECT entity_type FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                var entityId = conn.ExecuteScalar<long>("SELECT entity_id FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                var entityName = conn.ExecuteScalar<string>("SELECT entity_name FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                var reason = conn.ExecuteScalar<string>("SELECT reason FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                var createdAt = conn.ExecuteScalar<string>("SELECT created_at FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                var beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+                var afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE id = @Id", new { Id = auditId });
 
-                Assert.Equal("OperatorName", row.actor);
-                Assert.Equal("resolve_safety_state", row.action);
-                Assert.Equal("company_profile", row.entity_type);
-                Assert.Equal((long)profile.Id, row.entity_id);
-                Assert.Equal(profile.Name, row.entity_name);
-                Assert.Equal("Resolved network issue", row.reason);
-                Assert.Equal(resolvedAt.ToString("o"), row.created_at);
-                Assert.Contains("\"status\":\"attention_required\"", (string)row.before_json);
-                Assert.Contains("\"status\":\"idle\"", (string)row.after_json);
+                Assert.Equal("OperatorName", actor);
+                Assert.Equal("resolve_safety_state", action);
+                Assert.Equal("company_profile", entityType);
+                Assert.Equal((long)profile.Id, entityId);
+                Assert.Equal(profile.Name, entityName);
+                Assert.Equal("Resolved network issue", reason);
+                Assert.Equal(resolvedAt.ToString("o"), createdAt);
+                Assert.NotNull(beforeJson);
+                Assert.Contains("\"status\":\"attention_required\"", beforeJson);
+                Assert.NotNull(afterJson);
+                Assert.Contains("\"status\":\"idle\"", afterJson);
             }
         }
 
@@ -318,12 +335,50 @@ namespace TallyDbLoader.Tests
         }
 
         [Fact]
-        public void ResolveCompanyProfileSafetyState_InvalidStatus_ThrowsInvalidOperationException()
+        public void ResolveCompanyProfileSafetyState_Success_ReviewRequired_UpdatesStatusAndLogsAudit()
         {
-            var profile = SeedCompany("idle");
+            var profile = SeedCompany("review_required");
+            DateTime resolvedAt = DateTime.Now;
 
-            Assert.Throws<InvalidOperationException>(() => 
-                _repo.ResolveCompanyProfileSafetyState(profile.Id, "Operator", "Reason", DateTime.Now));
+            long auditId = _repo.ResolveCompanyProfileSafetyState(profile.Id, "OperatorName", "Resolved schema issue", resolvedAt);
+            Assert.True(auditId > 0);
+
+            var updated = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.NotNull(updated);
+            Assert.Equal("idle", updated.Status);
+        }
+
+        [Fact]
+        public void ResolveCompanyProfileSafetyState_Success_Unknown_UpdatesStatusAndLogsAudit()
+        {
+            var profile = SeedCompany("unknown");
+            DateTime resolvedAt = DateTime.Now;
+
+            long auditId = _repo.ResolveCompanyProfileSafetyState(profile.Id, "OperatorName", "Resolved unknown issue", resolvedAt);
+            Assert.True(auditId > 0);
+
+            var updated = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.NotNull(updated);
+            Assert.Equal("idle", updated.Status);
+        }
+
+        [Fact]
+        public void ResolveCompanyProfileSafetyState_InvalidStatus_RejectsCompletedFailedRunning()
+        {
+            foreach (var status in new[] { "idle", "completed", "failed", "running" })
+            {
+                var profile = SeedCompany(status);
+
+                Assert.Throws<InvalidOperationException>(() => 
+                    _repo.ResolveCompanyProfileSafetyState(profile.Id, "Operator", "Reason", DateTime.Now));
+            }
+        }
+
+        [Fact]
+        public void ResolveCompanyProfileSafetyState_MissingProfile_ThrowsKeyNotFoundException()
+        {
+            Assert.Throws<KeyNotFoundException>(() => 
+                _repo.ResolveCompanyProfileSafetyState(999999, "Operator", "Reason", DateTime.Now));
         }
 
         [Fact]
@@ -346,6 +401,7 @@ namespace TallyDbLoader.Tests
 
             // Assert company profile status remains review_required (rolled back)
             var updated = _repo.GetAllCompanyProfiles().Find(x => x.Id == profile.Id);
+            Assert.NotNull(updated);
             Assert.Equal("review_required", updated.Status);
         }
     }

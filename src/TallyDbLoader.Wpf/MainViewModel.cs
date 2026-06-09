@@ -76,6 +76,7 @@ namespace TallyDbLoader.Wpf
 
         // Navigation callback for opening Dialog from View Model
         public Func<List<TallyCompanyInfo>, TallyCompanyInfo?>? CompanySelector { get; set; }
+        public Func<CompanyProfile, string?>? RequestResolveSafetyBlockHandler { get; set; }
 
         public Func<string, int, TallyClient>? TallyClientFactory { get; set; }
         public Action<string, string, System.Windows.MessageBoxButton, System.Windows.MessageBoxImage>? MessageBoxShowHandler { get; set; }
@@ -458,6 +459,7 @@ namespace TallyDbLoader.Wpf
         public ICommand ClearLogCommand { get; }
         public ICommand CancelDbEditCommand { get; }
         public ICommand CancelJobEditCommand { get; }
+        public ICommand ResolveSafetyBlockCommand { get; }
 
         public MainViewModel(string dbPath)
         {
@@ -492,6 +494,7 @@ namespace TallyDbLoader.Wpf
             ClearLogCommand = new RelayCommand(ClearLog);
             CancelDbEditCommand = new RelayCommand(() => StartEditingDbProfile(null));
             CancelJobEditCommand = new RelayCommand(() => GoBack());
+            ResolveSafetyBlockCommand = new RelayCommand<object?>(ResolveSafetyBlock);
 
             LoadConfiguration();
 
@@ -650,6 +653,46 @@ namespace TallyDbLoader.Wpf
                 {
                     ShowToast("Sync rejected", $"{result.Message} ({result.ReasonCode})", "err");
                 }
+            }
+        }
+
+        private void ResolveSafetyBlock(object? parameter)
+        {
+            int? companyId = parameter as int?;
+            if (!companyId.HasValue) return;
+
+            var profile = Companies.FirstOrDefault(c => c.Id == companyId.Value);
+            if (profile == null) return;
+
+            string? reason = null;
+            string actor = "Operator";
+
+            if (RequestResolveSafetyBlockHandler != null)
+            {
+                reason = RequestResolveSafetyBlockHandler(profile);
+                if (string.IsNullOrWhiteSpace(reason))
+                {
+                    // User cancelled or gave empty reason
+                    return;
+                }
+            }
+            else
+            {
+                // In non-interactive contexts (e.g. tests)
+                reason = "Resolved via automation script.";
+                actor = "System";
+            }
+
+            try
+            {
+                _repo.ResolveCompanyProfileSafetyState(profile.Id, actor, reason, DateTime.Now);
+                LoadConfiguration();
+                ShowToast("Safety block resolved", $"Company '{profile.Name}' safety block has been resolved.", "ok");
+            }
+            catch (Exception ex)
+            {
+                ShowToast("Resolution failed", ex.Message, "err");
+                _logQueue.Enqueue($"{DateTime.Now:HH:mm:ss} [error] Failed to resolve safety block: {ex.Message}{Environment.NewLine}");
             }
         }
 

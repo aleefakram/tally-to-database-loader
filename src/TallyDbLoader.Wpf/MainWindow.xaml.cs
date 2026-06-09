@@ -35,6 +35,17 @@ namespace TallyDbLoader.Wpf
                 return null;
             };
 
+            _vm.RequestResolveSafetyBlockHandler = (company) =>
+            {
+                var dialog = new ResolveSafetyBlockWindow(company.Name);
+                dialog.Owner = this;
+                if (dialog.ShowDialog() == true)
+                {
+                    return dialog.Reason;
+                }
+                return null;
+            };
+
             // Session ending handler
             if (System.Windows.Application.Current != null)
             {

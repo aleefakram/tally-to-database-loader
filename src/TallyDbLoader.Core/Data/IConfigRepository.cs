@@ -30,5 +30,10 @@ namespace TallyDbLoader.Core.Data
             bool incrementErrorCount);
         void UpdateSyncRun(SyncRun run);
         void ReconcileStaleRuns(System.DateTime now);
+        long ResolveCompanyProfileSafetyState(
+            int companyProfileId,
+            string actor,
+            string reason,
+            System.DateTime resolvedAt);
     }
 }

@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Collections.Generic;
 using Microsoft.Data.Sqlite;
 using Dapper;
+using System.Text.Json;
 using TallyDbLoader.Core.Models;
 
 namespace TallyDbLoader.Core.Data
@@ -669,6 +670,96 @@ namespace TallyDbLoader.Core.Data
                     WHERE r.company_id = @CompanyId
                     ORDER BY r.started_at DESC
                     LIMIT @Limit", new { CompanyId = companyId, Limit = limit }).AsList();
+            }
+        }
+
+        public long ResolveCompanyProfileSafetyState(
+            int companyProfileId,
+            string actor,
+            string reason,
+            System.DateTime resolvedAt)
+        {
+            if (string.IsNullOrWhiteSpace(actor))
+                throw new ArgumentException("Actor cannot be null or empty.", nameof(actor));
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new ArgumentException("Reason cannot be null or empty.", nameof(reason));
+
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        // 2. Load the company profile
+                        var profile = conn.QuerySingleOrDefault<CompanyProfile>(
+                            "SELECT id, name, status FROM company_profiles WHERE id = @Id", 
+                            new { Id = companyProfileId }, transaction);
+
+                        if (profile == null)
+                            throw new KeyNotFoundException($"Company profile with ID {companyProfileId} was not found.");
+
+                        // 3. Verify status eligibility
+                        if (profile.Status != "review_required" && 
+                            profile.Status != "attention_required" && 
+                            profile.Status != "unknown")
+                        {
+                            throw new InvalidOperationException($"Cannot resolve safety state. Company profile status is '{profile.Status}', which is not a safety-blocked state.");
+                        }
+
+                        // 4. Build compact snapshots
+                        var beforeSnapshot = new { id = profile.Id, name = profile.Name, status = profile.Status };
+                        var afterSnapshot = new { id = profile.Id, name = profile.Name, status = "idle" };
+
+                        string beforeJson = JsonSerializer.Serialize(beforeSnapshot);
+                        string afterJson = JsonSerializer.Serialize(afterSnapshot);
+
+                        // 5. Update company status to idle
+                        int affected = conn.Execute(@"
+                            UPDATE company_profiles
+                            SET status = 'idle'
+                            WHERE id = @Id;", new { Id = companyProfileId }, transaction);
+
+                        if (affected != 1)
+                            throw new InvalidOperationException($"Expected exactly 1 row to be updated, but affected {affected} rows.");
+
+                        // 7. Insert audit log row
+                        long auditId;
+                        try
+                        {
+                            conn.Execute(@"
+                                INSERT INTO config_audit_log (created_at, actor, action, entity_type, entity_id, entity_name, before_json, after_json, reason)
+                                VALUES (@CreatedAt, @Actor, @Action, @EntityType, @EntityId, @EntityName, @BeforeJson, @AfterJson, @Reason);",
+                                new
+                                {
+                                    CreatedAt = resolvedAt.ToString("o"),
+                                    Actor = actor.Trim(),
+                                    Action = "resolve_safety_state",
+                                    EntityType = "company_profile",
+                                    EntityId = companyProfileId,
+                                    EntityName = profile.Name,
+                                    BeforeJson = beforeJson,
+                                    AfterJson = afterJson,
+                                    Reason = reason.Trim()
+                                }, transaction);
+                            auditId = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new InvalidOperationException("Failed to write to the config audit log table.", ex);
+                        }
+
+                        // 8. Commit and return ID
+                        transaction.Commit();
+                        return auditId;
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
             }
         }
     }

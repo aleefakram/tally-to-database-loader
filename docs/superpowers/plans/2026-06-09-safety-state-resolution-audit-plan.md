@@ -559,7 +559,7 @@
 
 - [ ] **Step 1: Implement ViewModel command tests**
   Add `using Dapper;` and `using TallyDbLoader.Core.Models;` to the top import lines of `tests/TallyDbLoader.Tests/MainViewModelTests.cs`.
-  Add unit tests validating the resolution command flow, dialog cancellation, success routing, and actor fallback. Wrap database creation and assertions inside try/finally blocks using unique temp file paths.
+  Add unit tests validating the resolution command flow, dialog cancellation, and success routing. Wrap database creation and assertions inside try/finally blocks using unique temp file paths.
 
   Add these test methods to the `MainViewModelTests` class:
 

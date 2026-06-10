@@ -809,5 +809,96 @@ namespace TallyDbLoader.Tests
                 if (File.Exists(path)) try { File.Delete(path); } catch { }
             }
         }
+
+        [Fact]
+        public void CompanyProfileAudit_SnapshotContainsExactlyAllowedFields()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_snap_fields_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                var cp = new CompanyProfile
+                {
+                    Name = "Iota", DbProfileId = dbId, TargetCatalog = "iota_db",
+                    TallyGuid = "G1", Consolidated = false, Mode = "full",
+                    IntervalMinutes = 15, Schema = "public", TablePrefix = "tally_",
+                    Enabled = true, NotifyOnError = true, PauseOnTallyClose = false, EntityFlags = 15
+                };
+                repo.SaveCompanyProfile(cp);
+
+                int cpId;
+                using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Iota'");
+
+                cp.Id = cpId;
+                cp.Name = "Iota Updated";
+                repo.SaveCompanyProfile(cp);
+
+                repo.DeleteCompanyProfile(cpId);
+
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+
+                string createAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                string updateBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                string updateAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                string deleteBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+
+                var allowed = new System.Collections.Generic.HashSet<string>
+                {
+                    "id", "name", "tally_guid", "consolidated", "books_from", "books_to",
+                    "db_profile_id", "target_catalog", "schema", "table_prefix", "mode",
+                    "interval_minutes", "enabled", "notify_on_error", "pause_on_tally_close", "entity_flags"
+                };
+
+                foreach (var json in new[] { createAfter, updateBefore, updateAfter, deleteBefore })
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(json);
+                    var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+                    Assert.Equal(16, props.Count);
+                    Assert.True(allowed.SetEquals(props), $"JSON properties mismatch: {json}");
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void CompanyProfileAudit_SnapshotExcludesRuntimeFields()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_snap_excl_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                repo.SaveCompanyProfile(new CompanyProfile
+                {
+                    Name = "Kappa", DbProfileId = dbId, TargetCatalog = "kappa_db",
+                    Status = "running", LastRunAt = System.DateTime.UtcNow,
+                    LastDurationMs = 1234, LastRowsWritten = 99, ErrorCount24h = 3
+                });
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                
+                using var doc = System.Text.Json.JsonDocument.Parse(afterJson);
+                var properties = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+
+                var excludedProperties = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+                {
+                    "status", "last_run_at", "last_duration_ms", "last_rows_written", "error_count_24h", "db"
+                };
+
+                foreach (var prop in properties)
+                {
+                    Assert.False(excludedProperties.Contains(prop), $"Snapshot should not contain property: '{prop}'");
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
     }
 }

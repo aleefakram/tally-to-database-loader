@@ -604,7 +604,36 @@ namespace TallyDbLoader.Core.Data
                 {
                     try
                     {
-                        conn.Execute("DELETE FROM database_profiles WHERE id = @Id", new { Id = id }, transaction);
+                        var loaded = conn.QueryFirstOrDefault<DatabaseProfile>(@"
+                            SELECT id AS Id, name AS Name, technology AS Technology, server AS Server, port AS Port, username AS Username, password AS Password
+                            FROM database_profiles WHERE id = @Id", new { Id = id }, transaction);
+
+                        if (loaded == null)
+                            throw new InvalidOperationException(
+                                $"Cannot delete database profile: no row found with ID {id}.");
+
+                        string beforeJson = JsonSerializer.Serialize(new
+                        {
+                            id = loaded.Id,
+                            name = loaded.Name,
+                            technology = loaded.Technology,
+                            server = loaded.Server,
+                            port = loaded.Port,
+                            username = loaded.Username,
+                            has_password = !string.IsNullOrWhiteSpace(loaded.Password)
+                        });
+
+                        int affected = conn.Execute(
+                            "DELETE FROM database_profiles WHERE id = @Id", new { Id = id }, transaction);
+
+                        if (affected != 1)
+                            throw new InvalidOperationException(
+                                $"Expected to delete exactly 1 database profile (ID: {id}), but deleted {affected}.");
+
+                        InsertConfigAuditLog(conn, transaction, DateTime.UtcNow, "system",
+                            "delete_database_profile", "database_profile", id,
+                            loaded.Name, beforeJson, "{}", "Database profile deleted");
+
                         transaction.Commit();
                     }
                     catch

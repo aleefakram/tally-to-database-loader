@@ -16,7 +16,7 @@
   - Replace `SaveDatabaseProfile` body — add transaction logic, snapshot SELECT, custom serialisation, and `InsertConfigAuditLog` calls.
   - Replace `DeleteDatabaseProfile` body — add transaction logic, snapshot SELECT, custom serialisation, delete statement execution, and `InsertConfigAuditLog` call.
 - **Modify:** `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs`
-  - Add 15 new `[Fact]` tests.
+  - Add 16 new `[Fact]` tests.
 
 No other files are touched.
 
@@ -560,7 +560,7 @@ Add tests verifying database profile create and update audit logging, metadata c
   ```powershell
   dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "FullyQualifiedName~SaveDatabaseProfile"
   ```
-  Expected: All 8 tests pass.
+  Expected: All 9 tests pass.
 
 - [ ] **Step 3: Commit**
 
@@ -778,11 +778,16 @@ Add remaining tests validating profile deletions, missing deletions, exact field
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
           string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_database_profile'");
           
-          foreach (var excluded in new[] {
-              "password", "last_test_result", "last_tested_at", "used_by_count", "Password", "LastTestResult", "LastTestedAt", "UsedByCount" })
+          using var doc = System.Text.Json.JsonDocument.Parse(afterJson);
+          var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+          foreach (var excluded in new[] { "password", "last_test_result", "last_tested_at", "used_by_count" })
           {
-              Assert.DoesNotContain(excluded, afterJson);
+              Assert.DoesNotContain(props, p => p.Equals(excluded, StringComparison.OrdinalIgnoreCase));
           }
+
+          // Verify that password contents are completely absent
+          Assert.DoesNotContain("super_secret_password", afterJson);
+          Assert.DoesNotContain("dpapi:", afterJson);
       }
       finally
       {
@@ -842,7 +847,11 @@ Add remaining tests validating profile deletions, missing deletions, exact field
           {
               Assert.DoesNotContain("my_original_password", json);
               Assert.DoesNotContain("dpapi:", json);
-              Assert.DoesNotContain("password", json); // key itself must be excluded
+              
+              // Verify "password" property itself is excluded, but "has_password" is fine
+              using var doc = System.Text.Json.JsonDocument.Parse(json);
+              var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+              Assert.DoesNotContain(props, p => p.Equals("password", StringComparison.OrdinalIgnoreCase));
           }
       }
       finally
@@ -859,7 +868,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
   ```powershell
   dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "FullyQualifiedName~SaveDatabaseProfile|FullyQualifiedName~DeleteDatabaseProfile|FullyQualifiedName~DatabaseProfileAudit"
   ```
-  Expected: All 15 tests pass.
+  Expected: All 16 tests pass.
 
 - [ ] **Step 3: Run the full test suite**
 
@@ -869,7 +878,17 @@ Add remaining tests validating profile deletions, missing deletions, exact field
   ```
   Expected: All test suites in the repository pass.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 4: Perform surgical-scope check**
+
+  Run:
+  ```powershell
+  git diff --name-only $base..HEAD
+  ```
+  Expected changed files should be only:
+  - `src/TallyDbLoader.Core/Data/ConfigRepository.cs`
+  - `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs`
+
+- [ ] **Step 5: Commit**
 
   Run:
   ```powershell

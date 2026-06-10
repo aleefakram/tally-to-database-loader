@@ -86,16 +86,17 @@ Known debt: operator attribution for database profile changes requires a future 
 When `SaveDatabaseProfile` receives `profile.Id == 0`:
 
 1. Begin SQLite transaction.
-2. Encrypt/normalize password first via `EncryptPassword`. Let's store this in `encryptedPassword`.
+2. Encrypt/normalize password first via `EncryptPassword`. Store this in `encryptedPassword`.
 3. Insert the database profile row using the existing column set.
 4. Read `SELECT last_insert_rowid()` on the same connection.
 5. Use the generated ID for `entity_id` and for the `id` property in `after_json`.
+   - *Note on entity_id width:* The generated row ID is a 64-bit integer, but `DatabaseProfile.Id` and the `entity_id` parameter of the audit helper are 32-bit `int` types. The ID is narrowed to `int` to match the model identity types. Widen the model and helper if IDs can exceed `int.MaxValue`.
 6. Use the literal `before_json = "{}"`.
 7. Build `after_json` from the submitted non-secret fields, setting `has_password = !string.IsNullOrWhiteSpace(encryptedPassword)`.
 8. Insert audit row:
    - `action = "create_database_profile"`
    - `entity_type = "database_profile"`
-   - `entity_id = generated id`
+   - `entity_id = (int)generated id`
    - `entity_name = profile.Name`
 9. Commit.
 
@@ -109,7 +110,7 @@ When `SaveDatabaseProfile` receives `profile.Id != 0`:
 2. Load the current database profile row by ID using a hand-rolled projection of only the snapshot fields and the password column.
 3. If no row exists, throw `InvalidOperationException`.
 4. Build `before_json` from the loaded row, setting `has_password = !string.IsNullOrWhiteSpace(loaded.Password)`.
-5. Encrypt/normalize password first via `EncryptPassword`. Let's store this in `encryptedPassword`.
+5. Encrypt/normalize password first via `EncryptPassword`. Store this in `encryptedPassword`.
 6. Update the database profile row using the existing column set.
 7. Assert exactly one row was updated. If not, throw `InvalidOperationException`.
 8. Build `after_json` from the submitted `DatabaseProfile` object (without querying database again), setting `has_password = !string.IsNullOrWhiteSpace(encryptedPassword)`.
@@ -118,6 +119,7 @@ When `SaveDatabaseProfile` receives `profile.Id != 0`:
    - `entity_type = "database_profile"`
    - `entity_id = profile.Id`
    - `entity_name = profile.Name`
+     - *Note on entity_name:* Storing the submitted name (`profile.Name`) ensures that if a database profile is renamed, the outer audit row links to the new identifier, while `before_json` captures the previous configuration name. This is consistent with `CompanyProfile` auditing. Do not change this to use `loaded.Name`.
 10. Commit.
 
 If the audit insert fails, roll back the update.
@@ -193,7 +195,8 @@ Required coverage:
 - Deleting a missing database profile throws `InvalidOperationException`.
 - Snapshot JSON contains exactly the allowed fields.
 - Snapshot JSON excludes: `password`, `last_test_result`, `last_tested_at`, and `used_by_count`.
-- Confirming `has_password` is correctly recorded based on whether a password was configured or removed, without logging any plaintext or encrypted password strings.
+- Asserting the `has_password` transition from true to false: Create a database profile with a password, then update that same profile with an empty password. Assert that `create.after_json.has_password == true`, `update.before_json.has_password == true`, and `update.after_json.has_password == false`. Also assert that neither the plaintext password nor any `dpapi:` encrypted string appears in the JSON payloads.
+- Asserting all required audit row metadata fields for create, update, and delete actions: Verify that `actor`, `action`, `entity_type`, `entity_id`, `entity_name`, and `reason` match the specified designs exactly.
 
 ## Success Criteria
 

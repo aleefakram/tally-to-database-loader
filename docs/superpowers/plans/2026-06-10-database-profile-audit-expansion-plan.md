@@ -878,7 +878,15 @@ Add remaining tests validating profile deletions, missing deletions, exact field
   ```
   Expected: All test suites in the repository pass.
 
-- [ ] **Step 4: Perform surgical-scope check**
+- [ ] **Step 4: Commit**
+
+  Run:
+  ```powershell
+  git add tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs
+  git commit -m "test(audit): add DeleteDatabaseProfile, snapshot, and has_password transition tests"
+  ```
+
+- [ ] **Step 5: Perform surgical-scope check**
 
   Run:
   ```powershell
@@ -887,11 +895,3 @@ Add remaining tests validating profile deletions, missing deletions, exact field
   Expected changed files should be only:
   - `src/TallyDbLoader.Core/Data/ConfigRepository.cs`
   - `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs`
-
-- [ ] **Step 5: Commit**
-
-  Run:
-  ```powershell
-  git add tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs
-  git commit -m "test(audit): add DeleteDatabaseProfile, snapshot, and has_password transition tests"
-  ```

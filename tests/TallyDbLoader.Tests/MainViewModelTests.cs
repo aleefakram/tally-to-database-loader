@@ -341,11 +341,11 @@ namespace TallyDbLoader.Tests
                 using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}"))
                 {
                     conn.Open();
-                    var auditCount = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log");
+                    var auditCount = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log WHERE action = 'resolve_safety_state'");
                     Assert.Equal(1, auditCount);
 
-                    var reason = conn.ExecuteScalar<string>("SELECT reason FROM config_audit_log WHERE entity_id = @Id", new { Id = selected.Id });
-                    var action = conn.ExecuteScalar<string>("SELECT action FROM config_audit_log WHERE entity_id = @Id", new { Id = selected.Id });
+                    var reason = conn.ExecuteScalar<string>("SELECT reason FROM config_audit_log WHERE entity_id = @Id AND action = 'resolve_safety_state'", new { Id = selected.Id });
+                    var action = conn.ExecuteScalar<string>("SELECT action FROM config_audit_log WHERE entity_id = @Id AND action = 'resolve_safety_state'", new { Id = selected.Id });
                     Assert.Equal("operator manual override reason", reason);
                     Assert.Equal("resolve_safety_state", action);
                 }

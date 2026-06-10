@@ -1,4 +1,4 @@
-﻿# CompanyProfile Audit Expansion Implementation Plan
+# CompanyProfile Audit Expansion Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -6,7 +6,7 @@
 
 **Architecture:** All changes are inside `ConfigRepository.cs`. Each of the three mutation methods gains a hand-rolled snapshot SELECT, snapshot serialisation to an explicit anonymous object with snake_case keys, and a call to `InsertConfigAuditLog` before `transaction.Commit()`. If the audit insert fails, the outer `catch` rolls back the mutation. Public interface `IConfigRepository` is unchanged. No WPF files are touched.
 
-**Tech Stack:** C# Â· .NET 8 Â· Microsoft.Data.Sqlite Â· Dapper Â· System.Text.Json Â· xUnit
+**Tech Stack:** C# · .NET 8 · Microsoft.Data.Sqlite · Dapper · System.Text.Json · xUnit
 
 **Spec:** `docs/superpowers/specs/2026-06-09-company-profile-audit-expansion-design.md`
 
@@ -15,10 +15,10 @@
 ## File Structure
 
 - **Modify:** `src/TallyDbLoader.Core/Data/ConfigRepository.cs`
-  - Replace `SaveCompanyProfile` body â€” add `last_insert_rowid()` read on create path, snapshot SELECT + `InsertConfigAuditLog` call on both paths.
-  - Replace `DeleteCompanyProfile` body â€” add snapshot SELECT + `InsertConfigAuditLog` call before delete commit.
+  - Replace `SaveCompanyProfile` body — add `last_insert_rowid()` read on create path, snapshot SELECT + `InsertConfigAuditLog` call on both paths.
+  - Replace `DeleteCompanyProfile` body — add snapshot SELECT + `InsertConfigAuditLog` call before delete commit.
 - **Modify:** `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs`
-  - Add 13 new `[Fact]` tests after the existing `SaveTallySettings_*` block.
+  - Add 14 new `[Fact]` tests after the existing `SaveTallySettings_*` block.
 
 No other files are touched.
 
@@ -27,9 +27,9 @@ No other files are touched.
 ### Task 1: Replace `SaveCompanyProfile` with audited create + update
 
 **Files:**
-- Modify: `src/TallyDbLoader.Core/Data/ConfigRepository.cs` (current lines 159â€“236)
+- Modify: `src/TallyDbLoader.Core/Data/ConfigRepository.cs` (current lines 159-236)
 
-The existing method has two branches (`Id == 0` â†’ INSERT, `Id != 0` â†’ UPDATE). Replace the entire method body. Key changes:
+The existing method has two branches (`Id == 0` -> INSERT, `Id != 0` -> UPDATE). Replace the entire method body. Key changes:
 - Create path: after INSERT, read `last_insert_rowid()` into `long generatedId`, build `before_json = "{}"` and `after_json` from the submitted object (using `generatedId` for the `id` field), then call `InsertConfigAuditLog`.
 - Update path: before UPDATE, load the row using the 16-column snapshot projection from the spec; throw `InvalidOperationException` if missing; build `before_json` from the loaded row; after UPDATE assert `affected == 1`; build `after_json` from the submitted object (not a re-read); call `InsertConfigAuditLog`.
 
@@ -328,15 +328,16 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
   Inside the `ConfigRepositoryTests` class, after `SaveTallySettings_AuditRow_HasExpectedMetadata`, append:
 
   ```csharp
-  // â”€â”€ CompanyProfile audit â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // -- CompanyProfile audit -----------------------------------------------
 
   private static (ConfigRepository repo, int dbProfileId) SetupCompanyProfileDb(string testDbPath)
   {
       DatabaseHelper.InitializeDatabase(testDbPath);
       var repo = new ConfigRepository(testDbPath);
       repo.SaveDatabaseProfile(new DatabaseProfile { Name = "TestDb", Technology = "postgres", Server = "localhost" });
-      int dbId = (int)new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}")
-          .ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'TestDb'");
+      int dbId;
+      using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+          dbId = (int)conn.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'TestDb'");
       return (repo, dbId);
   }
 
@@ -411,8 +412,8 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
           var (repo, dbId) = SetupCompanyProfileDb(path);
           var cp = new CompanyProfile { Name = "Delta", DbProfileId = dbId, TargetCatalog = "delta_db" };
           repo.SaveCompanyProfile(cp);
-          using var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Delta'");
+          using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+              cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Delta'");
           cp.Name = "Delta Updated";
           repo.SaveCompanyProfile(cp);
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
@@ -436,8 +437,8 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
           // Step 1: create a known profile
           var cp = new CompanyProfile { Name = "Epsilon", DbProfileId = dbId, TargetCatalog = "eps_db", Mode = "full", IntervalMinutes = 30 };
           repo.SaveCompanyProfile(cp);
-          using var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Epsilon'");
+          using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+              cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Epsilon'");
           // Step 2: update it with different values
           cp.Name = "Epsilon V2";
           cp.Mode = "incremental";
@@ -449,6 +450,11 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
           Assert.Contains("\"Epsilon\"", beforeJson);
           Assert.Contains("\"full\"", beforeJson);
           Assert.Contains("30", beforeJson);
+          // Step 4: after_json must contain the submitted updated values, not the original ones
+          string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_company_profile'");
+          Assert.Contains("\"Epsilon V2\"", afterJson);
+          Assert.Contains("\"incremental\"", afterJson);
+          Assert.Contains("60", afterJson);
       }
       finally
       {
@@ -501,12 +507,18 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
       {
           var (repo, dbId) = SetupCompanyProfileDb(path);
           repo.SaveCompanyProfile(new CompanyProfile { Name = "Zeta", DbProfileId = dbId, TargetCatalog = "zeta_db" });
-          using var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          int cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Zeta'");
+          int cpId;
+          using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+              cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Zeta'");
           repo.DeleteCompanyProfile(cpId);
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
           Assert.Equal(1, conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log WHERE action = 'delete_company_profile'"));
           Assert.Equal(0, conn.ExecuteScalar<int>("SELECT COUNT(*) FROM company_profiles WHERE id = @Id", new { Id = cpId }));
+          // before_json must capture the deleted profile's configuration
+          string beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+          Assert.Contains($"{cpId}", beforeJson);
+          Assert.Contains("\"Zeta\"", beforeJson);
+          Assert.Contains("\"zeta_db\"", beforeJson);
       }
       finally
       {
@@ -523,8 +535,9 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
       {
           var (repo, dbId) = SetupCompanyProfileDb(path);
           repo.SaveCompanyProfile(new CompanyProfile { Name = "Eta", DbProfileId = dbId, TargetCatalog = "eta_db" });
-          using var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          int cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Eta'");
+          int cpId;
+          using (var cId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+              cpId = (int)cId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Eta'");
           repo.DeleteCompanyProfile(cpId);
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
           string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'delete_company_profile'");
@@ -567,8 +580,8 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
           var (repo, dbId) = SetupCompanyProfileDb(path);
           var cp = new CompanyProfile { Name = "OriginalName", DbProfileId = dbId, TargetCatalog = "orig_db" };
           repo.SaveCompanyProfile(cp);
-          using var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'OriginalName'");
+          using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+              cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'OriginalName'");
           using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
               conn.Execute("DROP TABLE config_audit_log;");
           cp.Name = "ShouldNotUpdate";
@@ -591,8 +604,9 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
       {
           var (repo, dbId) = SetupCompanyProfileDb(path);
           repo.SaveCompanyProfile(new CompanyProfile { Name = "Theta", DbProfileId = dbId, TargetCatalog = "theta_db" });
-          using var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          int cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Theta'");
+          int cpId;
+          using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+              cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Theta'");
           using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
               conn.Execute("DROP TABLE config_audit_log;");
           Assert.Throws<InvalidOperationException>(() => repo.DeleteCompanyProfile(cpId));
@@ -770,7 +784,7 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
 
 ### Task 6: Full suite verification
 
-**Files:** none â€” verification only.
+**Files:** none — verification only.
 
 - [ ] **Step 1: Run the full test suite**
 
@@ -780,18 +794,26 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
 
   Expected: All tests pass, zero failures. Pre-existing tests in `SyncLifecycleSafetyTests.cs`, `BackgroundSyncWorkerTests.cs`, and the original `ConfigRepositoryTests` block must all still pass.
 
-- [ ] **Step 2: Verify no WPF files changed**
+- [ ] **Step 2: Capture base SHA before starting implementation**
+
+  Run this once at the very start of implementation (before Task 1), save the output:
 
   ```
-  git diff HEAD~6 --name-only | Select-String "Wpf"
+  $base = git rev-parse HEAD
+  ```
+
+- [ ] **Step 3: Verify no WPF files changed**
+
+  ```
+  git diff $base --name-only | Select-String "Wpf"
   ```
 
   Expected: no output.
 
-- [ ] **Step 3: Verify interface is unchanged**
+- [ ] **Step 4: Verify interface is unchanged**
 
   ```
-  git diff HEAD~6 -- src/TallyDbLoader.Core/Data/IConfigRepository.cs
+  git diff $base -- src/TallyDbLoader.Core/Data/IConfigRepository.cs
   ```
 
   Expected: empty diff.

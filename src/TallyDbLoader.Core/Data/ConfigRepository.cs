@@ -74,10 +74,47 @@ namespace TallyDbLoader.Core.Data
                             conn.Execute(@"
                                 INSERT INTO database_profiles (name, technology, server, port, username, password, last_test_result, last_tested_at)
                                 VALUES (@Name, @Technology, @Server, @Port, @Username, @Password, @LastTestResult, @LastTestedAt)", parameters, transaction);
+
+                            long generatedId = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
+                            int entityId = (int)generatedId;
+
+                            string afterJson = JsonSerializer.Serialize(new
+                            {
+                                id = entityId,
+                                name = profile.Name,
+                                technology = profile.Technology,
+                                server = profile.Server,
+                                port = profile.Port,
+                                username = profile.Username,
+                                has_password = !string.IsNullOrWhiteSpace(encryptedPassword)
+                            });
+
+                            InsertConfigAuditLog(conn, transaction, DateTime.UtcNow, "system",
+                                "create_database_profile", "database_profile", entityId,
+                                profile.Name, "{}", afterJson, "Database profile created");
                         }
                         else
                         {
-                            conn.Execute(@"
+                            var loaded = conn.QueryFirstOrDefault<DatabaseProfile>(@"
+                                SELECT id AS Id, name AS Name, technology AS Technology, server AS Server, port AS Port, username AS Username, password AS Password
+                                FROM database_profiles WHERE id = @Id", new { profile.Id }, transaction);
+
+                            if (loaded == null)
+                                throw new InvalidOperationException(
+                                    $"Cannot update database profile: no row found with ID {profile.Id}.");
+
+                            string beforeJson = JsonSerializer.Serialize(new
+                            {
+                                id = loaded.Id,
+                                name = loaded.Name,
+                                technology = loaded.Technology,
+                                server = loaded.Server,
+                                port = loaded.Port,
+                                username = loaded.Username,
+                                has_password = !string.IsNullOrWhiteSpace(loaded.Password)
+                            });
+
+                            int affected = conn.Execute(@"
                                 UPDATE database_profiles 
                                 SET name = @Name, 
                                     technology = @Technology, 
@@ -88,7 +125,27 @@ namespace TallyDbLoader.Core.Data
                                     last_test_result = @LastTestResult,
                                     last_tested_at = @LastTestedAt
                                 WHERE id = @Id", parameters, transaction);
+
+                            if (affected != 1)
+                                throw new InvalidOperationException(
+                                    $"Expected to update exactly 1 database profile (ID: {profile.Id}), but updated {affected}.");
+
+                            string afterJson = JsonSerializer.Serialize(new
+                            {
+                                id = profile.Id,
+                                name = profile.Name,
+                                technology = profile.Technology,
+                                server = profile.Server,
+                                port = profile.Port,
+                                username = profile.Username,
+                                has_password = !string.IsNullOrWhiteSpace(encryptedPassword)
+                            });
+
+                            InsertConfigAuditLog(conn, transaction, DateTime.UtcNow, "system",
+                                "update_database_profile", "database_profile", profile.Id,
+                                profile.Name, beforeJson, afterJson, "Database profile updated");
                         }
+
                         transaction.Commit();
                     }
                     catch

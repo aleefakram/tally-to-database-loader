@@ -60,6 +60,7 @@ namespace TallyDbLoader.Tests
             };
             repo.SaveDatabaseProfile(profile);
             var savedProfile = repo.GetDatabaseProfileByName("TargetPostgres");
+            Assert.NotNull(savedProfile);
 
             var company = new CompanyProfile
             {
@@ -320,10 +321,13 @@ namespace TallyDbLoader.Tests
 
                 using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
                 {
-                    string beforeJson = conn.ExecuteScalar<string>(
+                    string? beforeJson = conn.ExecuteScalar<string>(
                         "SELECT before_json FROM config_audit_log WHERE action = 'update_tally_settings'");
-                    string afterJson = conn.ExecuteScalar<string>(
+                    string? afterJson = conn.ExecuteScalar<string>(
                         "SELECT after_json FROM config_audit_log WHERE action = 'update_tally_settings'");
+
+                    Assert.NotNull(beforeJson);
+                    Assert.NotNull(afterJson);
 
                     // Assert exact property set and count for both snapshots.
                     // JsonDocument catches extra fields regardless of casing
@@ -391,9 +395,10 @@ namespace TallyDbLoader.Tests
                 // The audit log is append-only; deleting rows from it in tests sets a bad example.
                 using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
                 {
-                    string beforeJson = conn.ExecuteScalar<string>(
+                    string? beforeJson = conn.ExecuteScalar<string>(
                         "SELECT before_json FROM config_audit_log WHERE action = 'update_tally_settings' ORDER BY id DESC LIMIT 1");
 
+                    Assert.NotNull(beforeJson);
                     Assert.Contains("\"original\"", beforeJson);
                     Assert.Contains("9000", beforeJson);
                     Assert.Contains("false", beforeJson);
@@ -494,18 +499,23 @@ namespace TallyDbLoader.Tests
 
                 using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
                 {
-                    string actor = conn.ExecuteScalar<string>(
+                    string? actor = conn.ExecuteScalar<string?>(
                         "SELECT actor FROM config_audit_log WHERE action = 'update_tally_settings'");
-                    string action = conn.ExecuteScalar<string>(
+                    string? action = conn.ExecuteScalar<string?>(
                         "SELECT action FROM config_audit_log WHERE action = 'update_tally_settings'");
-                    string entityType = conn.ExecuteScalar<string>(
+                    string? entityType = conn.ExecuteScalar<string?>(
                         "SELECT entity_type FROM config_audit_log WHERE action = 'update_tally_settings'");
                     long entityId = conn.ExecuteScalar<long>(
                         "SELECT entity_id FROM config_audit_log WHERE action = 'update_tally_settings'");
                     string? entityName = conn.ExecuteScalar<string?>(
                         "SELECT entity_name FROM config_audit_log WHERE action = 'update_tally_settings'");
-                    string reason = conn.ExecuteScalar<string>(
+                    string? reason = conn.ExecuteScalar<string?>(
                         "SELECT reason FROM config_audit_log WHERE action = 'update_tally_settings'");
+
+                    Assert.NotNull(actor);
+                    Assert.NotNull(action);
+                    Assert.NotNull(entityType);
+                    Assert.NotNull(reason);
 
                     Assert.Equal("system", actor);
                     Assert.Equal("update_tally_settings", action);
@@ -564,9 +574,10 @@ namespace TallyDbLoader.Tests
                 repo.SaveCompanyProfile(new CompanyProfile { Name = "Beta", DbProfileId = dbId, TargetCatalog = "beta_db" });
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
                 long entityId = conn.ExecuteScalar<long>("SELECT entity_id FROM config_audit_log WHERE action = 'create_company_profile'");
-                string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                string? afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
                 long rowId = conn.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Beta'");
                 Assert.Equal(rowId, entityId);
+                Assert.NotNull(afterJson);
                 using var doc = System.Text.Json.JsonDocument.Parse(afterJson);
                 long idInJson = doc.RootElement.GetProperty("id").GetInt64();
                 Assert.Equal(rowId, idInJson);
@@ -587,7 +598,8 @@ namespace TallyDbLoader.Tests
                 var (repo, dbId) = SetupCompanyProfileDb(path);
                 repo.SaveCompanyProfile(new CompanyProfile { Name = "Gamma", DbProfileId = dbId, TargetCatalog = "gamma_db" });
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-                string beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                string? beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                Assert.NotNull(beforeJson);
                 Assert.Equal("{}", beforeJson);
             }
             finally
@@ -637,11 +649,13 @@ namespace TallyDbLoader.Tests
                 cp.IntervalMinutes = 60;
                 repo.SaveCompanyProfile(cp);
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-                string beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                string? beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                Assert.NotNull(beforeJson);
                 Assert.Contains("\"Epsilon\"", beforeJson);
                 Assert.Contains("\"full\"", beforeJson);
                 Assert.Contains("30", beforeJson);
-                string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                string? afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                Assert.NotNull(afterJson);
                 Assert.Contains("\"Epsilon V2\"", afterJson);
                 Assert.Contains("\"incremental\"", afterJson);
                 Assert.Contains("60", afterJson);
@@ -668,7 +682,8 @@ namespace TallyDbLoader.Tests
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
                 Assert.Equal(1, conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log WHERE action = 'delete_company_profile'"));
                 Assert.Equal(0, conn.ExecuteScalar<int>("SELECT COUNT(*) FROM company_profiles WHERE id = @Id", new { Id = cpId }));
-                string beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+                string? beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+                Assert.NotNull(beforeJson);
                 Assert.Contains($"{cpId}", beforeJson);
                 Assert.Contains("\"Zeta\"", beforeJson);
                 Assert.Contains("\"zeta_db\"", beforeJson);
@@ -693,7 +708,8 @@ namespace TallyDbLoader.Tests
                     cpId = (int)cId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Eta'");
                 repo.DeleteCompanyProfile(cpId);
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-                string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+                string? afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+                Assert.NotNull(afterJson);
                 Assert.Equal("{}", afterJson);
             }
             finally
@@ -838,10 +854,15 @@ namespace TallyDbLoader.Tests
 
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
 
-                string createAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
-                string updateBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_company_profile'");
-                string updateAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_company_profile'");
-                string deleteBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+                string? createAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                string? updateBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                string? updateAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                string? deleteBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+
+                Assert.NotNull(createAfter);
+                Assert.NotNull(updateBefore);
+                Assert.NotNull(updateAfter);
+                Assert.NotNull(deleteBefore);
 
                 var allowed = new System.Collections.Generic.HashSet<string>
                 {
@@ -879,8 +900,9 @@ namespace TallyDbLoader.Tests
                     LastDurationMs = 1234, LastRowsWritten = 99, ErrorCount24h = 3
                 });
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-                string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
-                
+                string? afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                Assert.NotNull(afterJson);
+
                 using var doc = System.Text.Json.JsonDocument.Parse(afterJson);
                 var properties = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
 
@@ -892,6 +914,79 @@ namespace TallyDbLoader.Tests
                 foreach (var prop in properties)
                 {
                     Assert.False(excludedProperties.Contains(prop), $"Snapshot should not contain property: '{prop}'");
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void CompanyProfileAudit_AuditRows_HaveExpectedMetadata()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_meta_expect_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+
+                // 1. Create
+                var cp = new CompanyProfile { Name = "Mu", DbProfileId = dbId, TargetCatalog = "mu_db" };
+                repo.SaveCompanyProfile(cp);
+
+                int cpId;
+                using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Mu'");
+
+                // 2. Update
+                cp.Id = cpId;
+                cp.Name = "Mu Updated";
+                repo.SaveCompanyProfile(cp);
+
+                // 3. Delete
+                repo.DeleteCompanyProfile(cpId);
+
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                {
+                    // Assert Create Metadata
+                    string? cActor = conn.ExecuteScalar<string?>("SELECT actor FROM config_audit_log WHERE action = 'create_company_profile'");
+                    string? cType = conn.ExecuteScalar<string?>("SELECT entity_type FROM config_audit_log WHERE action = 'create_company_profile'");
+                    long cEntityId = conn.ExecuteScalar<long>("SELECT entity_id FROM config_audit_log WHERE action = 'create_company_profile'");
+                    string? cEntityName = conn.ExecuteScalar<string?>("SELECT entity_name FROM config_audit_log WHERE action = 'create_company_profile'");
+                    string? cReason = conn.ExecuteScalar<string?>("SELECT reason FROM config_audit_log WHERE action = 'create_company_profile'");
+
+                    Assert.Equal("system", cActor);
+                    Assert.Equal("company_profile", cType);
+                    Assert.Equal((long)cpId, cEntityId);
+                    Assert.Equal("Mu", cEntityName);
+                    Assert.Equal("Company profile created", cReason);
+
+                    // Assert Update Metadata
+                    string? uActor = conn.ExecuteScalar<string?>("SELECT actor FROM config_audit_log WHERE action = 'update_company_profile'");
+                    string? uType = conn.ExecuteScalar<string?>("SELECT entity_type FROM config_audit_log WHERE action = 'update_company_profile'");
+                    long uEntityId = conn.ExecuteScalar<long>("SELECT entity_id FROM config_audit_log WHERE action = 'update_company_profile'");
+                    string? uEntityName = conn.ExecuteScalar<string?>("SELECT entity_name FROM config_audit_log WHERE action = 'update_company_profile'");
+                    string? uReason = conn.ExecuteScalar<string?>("SELECT reason FROM config_audit_log WHERE action = 'update_company_profile'");
+
+                    Assert.Equal("system", uActor);
+                    Assert.Equal("company_profile", uType);
+                    Assert.Equal((long)cpId, uEntityId);
+                    Assert.Equal("Mu Updated", uEntityName);
+                    Assert.Equal("Company profile updated", uReason);
+
+                    // Assert Delete Metadata
+                    string? dActor = conn.ExecuteScalar<string?>("SELECT actor FROM config_audit_log WHERE action = 'delete_company_profile'");
+                    string? dType = conn.ExecuteScalar<string?>("SELECT entity_type FROM config_audit_log WHERE action = 'delete_company_profile'");
+                    long dEntityId = conn.ExecuteScalar<long>("SELECT entity_id FROM config_audit_log WHERE action = 'delete_company_profile'");
+                    string? dEntityName = conn.ExecuteScalar<string?>("SELECT entity_name FROM config_audit_log WHERE action = 'delete_company_profile'");
+                    string? dReason = conn.ExecuteScalar<string?>("SELECT reason FROM config_audit_log WHERE action = 'delete_company_profile'");
+
+                    Assert.Equal("system", dActor);
+                    Assert.Equal("company_profile", dType);
+                    Assert.Equal((long)cpId, dEntityId);
+                    Assert.Equal("Mu Updated", dEntityName);
+                    Assert.Equal("Company profile deleted", dReason);
                 }
             }
             finally

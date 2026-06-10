@@ -652,5 +652,162 @@ namespace TallyDbLoader.Tests
                 if (File.Exists(path)) try { File.Delete(path); } catch { }
             }
         }
+
+        [Fact]
+        public void DeleteCompanyProfile_WritesAuditRow_AndRemovesRow()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_delete_audit_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                repo.SaveCompanyProfile(new CompanyProfile { Name = "Zeta", DbProfileId = dbId, TargetCatalog = "zeta_db" });
+                int cpId;
+                using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Zeta'");
+                repo.DeleteCompanyProfile(cpId);
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                Assert.Equal(1, conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log WHERE action = 'delete_company_profile'"));
+                Assert.Equal(0, conn.ExecuteScalar<int>("SELECT COUNT(*) FROM company_profiles WHERE id = @Id", new { Id = cpId }));
+                string beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+                Assert.Contains($"{cpId}", beforeJson);
+                Assert.Contains("\"Zeta\"", beforeJson);
+                Assert.Contains("\"zeta_db\"", beforeJson);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void DeleteCompanyProfile_AfterJsonIsEmptyObject()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_delete_after_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                repo.SaveCompanyProfile(new CompanyProfile { Name = "Eta", DbProfileId = dbId, TargetCatalog = "eta_db" });
+                int cpId;
+                using (var cId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    cpId = (int)cId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Eta'");
+                repo.DeleteCompanyProfile(cpId);
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+                Assert.Equal("{}", afterJson);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveCompanyProfile_Create_RollsBack_WhenAuditTableMissing()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_rb_create_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    conn.Execute("DROP TABLE config_audit_log;");
+                Assert.Throws<InvalidOperationException>(() =>
+                    repo.SaveCompanyProfile(new CompanyProfile { Name = "ShouldNotExist", DbProfileId = dbId, TargetCatalog = "x" }));
+                using var verify = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                Assert.Equal(0, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM company_profiles WHERE name = 'ShouldNotExist'"));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveCompanyProfile_Update_RollsBack_WhenAuditTableMissing()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_rb_update_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                var cp = new CompanyProfile { Name = "OriginalName", DbProfileId = dbId, TargetCatalog = "orig_db" };
+                repo.SaveCompanyProfile(cp);
+                using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'OriginalName'");
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    conn.Execute("DROP TABLE config_audit_log;");
+                cp.Name = "ShouldNotUpdate";
+                Assert.Throws<InvalidOperationException>(() => repo.SaveCompanyProfile(cp));
+                using var verify = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                Assert.Equal(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM company_profiles WHERE name = 'OriginalName'"));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void DeleteCompanyProfile_RollsBack_WhenAuditTableMissing()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_rb_delete_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                repo.SaveCompanyProfile(new CompanyProfile { Name = "Theta", DbProfileId = dbId, TargetCatalog = "theta_db" });
+                int cpId;
+                using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Theta'");
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    conn.Execute("DROP TABLE config_audit_log;");
+                Assert.Throws<InvalidOperationException>(() => repo.DeleteCompanyProfile(cpId));
+                using var verify = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                Assert.Equal(1, verify.ExecuteScalar<int>("SELECT COUNT(*) FROM company_profiles WHERE id = @Id", new { Id = cpId }));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveCompanyProfile_Update_ThrowsInvalidOperationException_WhenProfileMissing()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_miss_upd_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(path);
+                var repo = new ConfigRepository(path);
+                var ex = Assert.Throws<InvalidOperationException>(() =>
+                    repo.SaveCompanyProfile(new CompanyProfile { Id = 9999, Name = "Ghost", DbProfileId = 1, TargetCatalog = "x" }));
+                Assert.Contains("9999", ex.Message);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void DeleteCompanyProfile_ThrowsInvalidOperationException_WhenProfileMissing()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_miss_del_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(path);
+                var repo = new ConfigRepository(path);
+                var ex = Assert.Throws<InvalidOperationException>(() => repo.DeleteCompanyProfile(9999));
+                Assert.Contains("9999", ex.Message);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
     }
 }

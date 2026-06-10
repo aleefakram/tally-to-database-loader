@@ -521,5 +521,136 @@ namespace TallyDbLoader.Tests
                 if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
             }
         }
+
+        // -- CompanyProfile audit -----------------------------------------------
+
+        private static (ConfigRepository repo, int dbProfileId) SetupCompanyProfileDb(string testDbPath)
+        {
+            DatabaseHelper.InitializeDatabase(testDbPath);
+            var repo = new ConfigRepository(testDbPath);
+            repo.SaveDatabaseProfile(new DatabaseProfile { Name = "TestDb", Technology = "postgres", Server = "localhost" });
+            int dbId;
+            using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                dbId = (int)conn.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'TestDb'");
+            return (repo, dbId);
+        }
+
+        [Fact]
+        public void SaveCompanyProfile_Create_WritesOneAuditRow()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_create_audit_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                repo.SaveCompanyProfile(new CompanyProfile { Name = "Alpha", DbProfileId = dbId, TargetCatalog = "alpha_db" });
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                int count = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log WHERE action = 'create_company_profile'");
+                Assert.Equal(1, count);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveCompanyProfile_Create_AuditUsesGeneratedIdInEntityIdAndAfterJson()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_create_id_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                repo.SaveCompanyProfile(new CompanyProfile { Name = "Beta", DbProfileId = dbId, TargetCatalog = "beta_db" });
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                long entityId = conn.ExecuteScalar<long>("SELECT entity_id FROM config_audit_log WHERE action = 'create_company_profile'");
+                string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                long rowId = conn.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Beta'");
+                Assert.Equal(rowId, entityId);
+                using var doc = System.Text.Json.JsonDocument.Parse(afterJson);
+                long idInJson = doc.RootElement.GetProperty("id").GetInt64();
+                Assert.Equal(rowId, idInJson);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveCompanyProfile_Create_BeforeJsonIsEmptyObject()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_create_before_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                repo.SaveCompanyProfile(new CompanyProfile { Name = "Gamma", DbProfileId = dbId, TargetCatalog = "gamma_db" });
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                string beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'create_company_profile'");
+                Assert.Equal("{}", beforeJson);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveCompanyProfile_Update_WritesOneAuditRow()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_update_audit_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                var cp = new CompanyProfile { Name = "Delta", DbProfileId = dbId, TargetCatalog = "delta_db" };
+                repo.SaveCompanyProfile(cp);
+                using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Delta'");
+                cp.Name = "Delta Updated";
+                repo.SaveCompanyProfile(cp);
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                int count = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log WHERE action = 'update_company_profile'");
+                Assert.Equal(1, count);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
+
+        [Fact]
+        public void SaveCompanyProfile_Update_BeforeJsonReflectsPreMutationState()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"cp_update_before_{System.Guid.NewGuid()}.db");
+            try
+            {
+                var (repo, dbId) = SetupCompanyProfileDb(path);
+                var cp = new CompanyProfile { Name = "Epsilon", DbProfileId = dbId, TargetCatalog = "eps_db", Mode = "full", IntervalMinutes = 30 };
+                repo.SaveCompanyProfile(cp);
+                using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+                    cp.Id = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Epsilon'");
+                cp.Name = "Epsilon V2";
+                cp.Mode = "incremental";
+                cp.IntervalMinutes = 60;
+                repo.SaveCompanyProfile(cp);
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                string beforeJson = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                Assert.Contains("\"Epsilon\"", beforeJson);
+                Assert.Contains("\"full\"", beforeJson);
+                Assert.Contains("30", beforeJson);
+                string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_company_profile'");
+                Assert.Contains("\"Epsilon V2\"", afterJson);
+                Assert.Contains("\"incremental\"", afterJson);
+                Assert.Contains("60", afterJson);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
     }
 }

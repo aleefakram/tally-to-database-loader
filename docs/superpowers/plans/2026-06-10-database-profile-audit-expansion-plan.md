@@ -24,7 +24,7 @@ No other files are touched.
 
 ## Preflight
 
-- [ ] **Step 1: Capture base SHA**
+- [x] **Step 1: Capture base SHA**
 
   Run this command to capture the baseline commit SHA before starting implementation:
 
@@ -44,7 +44,7 @@ The existing method has two branches (`profile.Id == 0` -> INSERT, `profile.Id !
 - Update path: load the existing row using a hand-rolled projection of only snapshot fields and the password column; throw `InvalidOperationException` if missing; build `before_json` setting `has_password = !string.IsNullOrWhiteSpace(loaded.Password)`; encrypt the submitted password; perform UPDATE; assert `affected == 1`; build `after_json` from submitted object (setting `has_password = !string.IsNullOrWhiteSpace(encryptedPassword)`); call `InsertConfigAuditLog`.
 - Use a single transaction for the mutations and the audit log inserts, rolling back on any exceptions.
 
-- [ ] **Step 1: Replace `SaveDatabaseProfile`**
+- [x] **Step 1: Replace `SaveDatabaseProfile`**
 
   Replace the `SaveDatabaseProfile` method entirely with:
 
@@ -162,7 +162,7 @@ The existing method has two branches (`profile.Id == 0` -> INSERT, `profile.Id !
   }
   ```
 
-- [ ] **Step 2: Build to verify it compiles**
+- [x] **Step 2: Build to verify it compiles**
 
   Run:
   ```powershell
@@ -170,7 +170,7 @@ The existing method has two branches (`profile.Id == 0` -> INSERT, `profile.Id !
   ```
   Expected: `Build succeeded. 0 Error(s).`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
   Run:
   ```powershell
@@ -187,7 +187,7 @@ The existing method has two branches (`profile.Id == 0` -> INSERT, `profile.Id !
 
 Replace the body of `DeleteDatabaseProfile` to load the database profile inside a transaction, build `before_json` (including `has_password`), execute the deletion, assert exactly one row was deleted, and insert the audit row.
 
-- [ ] **Step 1: Replace `DeleteDatabaseProfile`**
+- [x] **Step 1: Replace `DeleteDatabaseProfile`**
 
   Replace the `DeleteDatabaseProfile` method entirely with:
 
@@ -244,7 +244,7 @@ Replace the body of `DeleteDatabaseProfile` to load the database profile inside 
   }
   ```
 
-- [ ] **Step 2: Build to verify it compiles**
+- [x] **Step 2: Build to verify it compiles**
 
   Run:
   ```powershell
@@ -252,7 +252,7 @@ Replace the body of `DeleteDatabaseProfile` to load the database profile inside 
   ```
   Expected: `Build succeeded. 0 Error(s).`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
   Run:
   ```powershell
@@ -269,7 +269,7 @@ Replace the body of `DeleteDatabaseProfile` to load the database profile inside 
 
 Add tests verifying database profile create and update audit logging, metadata contents, exceptions on missing profiles, and rollback behavior.
 
-- [ ] **Step 1: Add create/update tests and metadata assertions**
+- [x] **Step 1: Add create/update tests and metadata assertions**
 
   Open `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs`, locate the end of the `CompanyProfile` audit tests block (around line 791), and append the following:
 
@@ -554,7 +554,7 @@ Add tests verifying database profile create and update audit logging, metadata c
   }
   ```
 
-- [ ] **Step 2: Run create/update tests**
+- [x] **Step 2: Run create/update tests**
 
   Run:
   ```powershell
@@ -562,7 +562,7 @@ Add tests verifying database profile create and update audit logging, metadata c
   ```
   Expected: All 9 tests pass.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
   Run:
   ```powershell
@@ -579,7 +579,7 @@ Add tests verifying database profile create and update audit logging, metadata c
 
 Add remaining tests validating profile deletions, missing deletions, exact fields, and password transition/exclusion assertions.
 
-- [ ] **Step 1: Append delete, snapshot, and has_password tests**
+- [x] **Step 1: Append delete, snapshot, and has_password tests**
 
   Open `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs` and append:
 
@@ -862,7 +862,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
   }
   ```
 
-- [ ] **Step 2: Run all DatabaseProfile tests**
+- [x] **Step 2: Run all DatabaseProfile tests**
 
   Run:
   ```powershell
@@ -870,7 +870,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
   ```
   Expected: All 16 tests pass.
 
-- [ ] **Step 3: Run the full test suite**
+- [x] **Step 3: Run the full test suite**
 
   Run:
   ```powershell
@@ -878,7 +878,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
   ```
   Expected: All test suites in the repository pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
   Run:
   ```powershell
@@ -886,7 +886,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
   git commit -m "test(audit): add DeleteDatabaseProfile, snapshot, and has_password transition tests"
   ```
 
-- [ ] **Step 5: Perform surgical-scope check**
+- [x] **Step 5: Perform surgical-scope check**
 
   Run:
   ```powershell

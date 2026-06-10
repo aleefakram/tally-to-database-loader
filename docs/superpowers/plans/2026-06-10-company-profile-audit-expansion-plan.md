@@ -24,6 +24,18 @@ No other files are touched.
 
 ---
 
+## Preflight
+
+- [ ] **Step 1: Capture base SHA**
+
+  Run this command to capture the baseline commit SHA before starting implementation:
+
+  ```powershell
+  $base = git rev-parse HEAD
+  ```
+
+---
+
 ### Task 1: Replace `SaveCompanyProfile` with audited create + update
 
 **Files:**
@@ -102,7 +114,7 @@ The existing method has two branches (`Id == 0` -> INSERT, `Id != 0` -> UPDATE).
                           entity_flags = company.EntityFlags
                       });
 
-                      // DEBT: actor hardcoded â€” no actor context flows from WPF caller yet.
+                      // DEBT: actor hardcoded - no actor context flows from WPF caller yet.
                       InsertConfigAuditLog(conn, transaction, DateTime.UtcNow, "system",
                           "create_company_profile", "company_profile", (int)generatedId,
                           company.Name, "{}", afterJson, "Company profile created");
@@ -219,9 +231,9 @@ The existing method has two branches (`Id == 0` -> INSERT, `Id != 0` -> UPDATE).
 ### Task 2: Replace `DeleteCompanyProfile` with audited delete
 
 **Files:**
-- Modify: `src/TallyDbLoader.Core/Data/ConfigRepository.cs` (current lines 296â€“316)
+- Modify: `src/TallyDbLoader.Core/Data/ConfigRepository.cs` (current lines 296-316)
 
-Replace the single-line DELETE with: snapshot SELECT â†’ throw if missing â†’ DELETE â†’ assert affected == 1 â†’ `InsertConfigAuditLog` with `after_json = "{}"` â†’ commit.
+Replace the single-line DELETE with: snapshot SELECT -> throw if missing -> DELETE -> assert affected == 1 -> `InsertConfigAuditLog` with `after_json = "{}"` -> commit.
 
 - [ ] **Step 1: Replace `DeleteCompanyProfile`**
 
@@ -669,10 +681,10 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
 - [ ] **Step 3: Run new tests**
 
   ```
-  dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "FullyQualifiedName~DeleteCompanyProfile|FullyQualifiedName~RollsBack_When|FullyQualifiedName~ThrowsInvalidOperationException_When"
+  dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "FullyQualifiedName~DeleteCompanyProfile|FullyQualifiedName~SaveCompanyProfile_Create_RollsBack|FullyQualifiedName~SaveCompanyProfile_Update_RollsBack|FullyQualifiedName~SaveCompanyProfile_Update_Throws"
   ```
 
-  Expected: `7 passed, 0 failed`.
+  Expected: All matched tests pass.
 
 - [ ] **Step 4: Commit**
 
@@ -700,25 +712,46 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
       try
       {
           var (repo, dbId) = SetupCompanyProfileDb(path);
-          repo.SaveCompanyProfile(new CompanyProfile
+          var cp = new CompanyProfile
           {
               Name = "Iota", DbProfileId = dbId, TargetCatalog = "iota_db",
               TallyGuid = "G1", Consolidated = false, Mode = "full",
               IntervalMinutes = 15, Schema = "public", TablePrefix = "tally_",
               Enabled = true, NotifyOnError = true, PauseOnTallyClose = false, EntityFlags = 15
-          });
+          };
+          repo.SaveCompanyProfile(cp);
+          
+          int cpId;
+          using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
+              cpId = (int)connId.ExecuteScalar<long>("SELECT id FROM company_profiles WHERE name = 'Iota'");
+          
+          cp.Id = cpId;
+          cp.Name = "Iota Updated";
+          repo.SaveCompanyProfile(cp);
+          
+          repo.DeleteCompanyProfile(cpId);
+
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
+          
+          string createAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_company_profile'");
+          string updateBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_company_profile'");
+          string updateAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_company_profile'");
+          string deleteBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'delete_company_profile'");
+
           var allowed = new System.Collections.Generic.HashSet<string>
           {
               "id", "name", "tally_guid", "consolidated", "books_from", "books_to",
               "db_profile_id", "target_catalog", "schema", "table_prefix", "mode",
               "interval_minutes", "enabled", "notify_on_error", "pause_on_tally_close", "entity_flags"
           };
-          using var doc = System.Text.Json.JsonDocument.Parse(afterJson);
-          var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
-          Assert.Equal(16, props.Count);
-          Assert.True(allowed.SetEquals(props));
+
+          foreach (var json in new[] { createAfter, updateBefore, updateAfter, deleteBefore })
+          {
+              using var doc = System.Text.Json.JsonDocument.Parse(json);
+              var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
+              Assert.Equal(16, props.Count);
+              Assert.True(allowed.SetEquals(props), $"JSON properties mismatch: {json}");
+          }
       }
       finally
       {
@@ -794,13 +827,9 @@ The private `SetupCompanyProfileDb` helper creates a fresh test database, initia
 
   Expected: All tests pass, zero failures. Pre-existing tests in `SyncLifecycleSafetyTests.cs`, `BackgroundSyncWorkerTests.cs`, and the original `ConfigRepositoryTests` block must all still pass.
 
-- [ ] **Step 2: Capture base SHA before starting implementation**
+- [ ] **Step 2: Recall baseline SHA**
 
-  Run this once at the very start of implementation (before Task 1), save the output:
-
-  ```
-  $base = git rev-parse HEAD
-  ```
+  Ensure `$base` holds the baseline commit SHA captured in the Preflight section.
 
 - [ ] **Step 3: Verify no WPF files changed**
 

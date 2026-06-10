@@ -182,6 +182,8 @@ WHERE id = @Id;
 
 This query intentionally omits `status`, runtime metrics, and the joined `DatabaseProfile`.
 
+The `AS PascalCase` aliases are for Dapper to populate `CompanyProfile` properties. JSON serialization must then use explicit anonymous objects with snake_case keys. Do not pass the Dapper-mapped `CompanyProfile` object directly to `JsonSerializer.Serialize`.
+
 ## Error Handling
 
 Use `InvalidOperationException` for:

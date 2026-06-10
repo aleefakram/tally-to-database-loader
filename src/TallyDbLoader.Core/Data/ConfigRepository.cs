@@ -197,33 +197,114 @@ namespace TallyDbLoader.Core.Data
                             conn.Execute(@"
                                 INSERT INTO company_profiles (name, tally_guid, consolidated, books_from, books_to, db_profile_id, target_catalog, schema, table_prefix, mode, interval_minutes, enabled, notify_on_error, pause_on_tally_close, entity_flags, status, last_run_at, last_duration_ms, last_rows_written, error_count_24h)
                                 VALUES (@Name, @TallyGuid, @Consolidated, @BooksFrom, @BooksTo, @DbProfileId, @TargetCatalog, @Schema, @TablePrefix, @Mode, @IntervalMinutes, @Enabled, @NotifyOnError, @PauseOnTallyClose, @EntityFlags, @Status, @LastRunAt, @LastDurationMs, @LastRowsWritten, @ErrorCount24h)", parameters, transaction);
+
+                            long generatedId = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
+
+                            string afterJson = JsonSerializer.Serialize(new
+                            {
+                                id = generatedId,
+                                name = company.Name,
+                                tally_guid = company.TallyGuid,
+                                consolidated = company.Consolidated,
+                                books_from = company.BooksFrom?.ToString("o"),
+                                books_to = company.BooksTo?.ToString("o"),
+                                db_profile_id = company.DbProfileId,
+                                target_catalog = company.TargetCatalog,
+                                schema = company.Schema,
+                                table_prefix = company.TablePrefix,
+                                mode = company.Mode,
+                                interval_minutes = company.IntervalMinutes,
+                                enabled = company.Enabled,
+                                notify_on_error = company.NotifyOnError,
+                                pause_on_tally_close = company.PauseOnTallyClose,
+                                entity_flags = company.EntityFlags
+                            });
+
+                            // DEBT: actor hardcoded - no actor context flows from WPF caller yet.
+                            InsertConfigAuditLog(conn, transaction, DateTime.UtcNow, "system",
+                                "create_company_profile", "company_profile", (int)generatedId,
+                                company.Name, "{}", afterJson, "Company profile created");
                         }
                         else
                         {
-                            conn.Execute(@"
-                                UPDATE company_profiles 
-                                SET name = @Name,
-                                    tally_guid = @TallyGuid,
-                                    consolidated = @Consolidated,
-                                    books_from = @BooksFrom,
-                                    books_to = @BooksTo,
-                                    db_profile_id = @DbProfileId,
-                                    target_catalog = @TargetCatalog,
-                                    schema = @Schema,
-                                    table_prefix = @TablePrefix,
-                                    mode = @Mode,
-                                    interval_minutes = @IntervalMinutes,
-                                    enabled = @Enabled,
-                                    notify_on_error = @NotifyOnError,
-                                    pause_on_tally_close = @PauseOnTallyClose,
-                                    entity_flags = @EntityFlags,
-                                    status = @Status,
-                                    last_run_at = @LastRunAt,
-                                    last_duration_ms = @LastDurationMs,
-                                    last_rows_written = @LastRowsWritten,
+                            var loaded = conn.QueryFirstOrDefault<CompanyProfile>(@"
+                                SELECT
+                                    id AS Id, name AS Name, tally_guid AS TallyGuid,
+                                    consolidated AS Consolidated, books_from AS BooksFrom,
+                                    books_to AS BooksTo, db_profile_id AS DbProfileId,
+                                    target_catalog AS TargetCatalog, schema AS Schema,
+                                    table_prefix AS TablePrefix, mode AS Mode,
+                                    interval_minutes AS IntervalMinutes, enabled AS Enabled,
+                                    notify_on_error AS NotifyOnError, pause_on_tally_close AS PauseOnTallyClose,
+                                    entity_flags AS EntityFlags
+                                FROM company_profiles WHERE id = @Id;",
+                                new { company.Id }, transaction);
+
+                            if (loaded == null)
+                                throw new InvalidOperationException(
+                                    $"Cannot update company profile: no row found with ID {company.Id}.");
+
+                            string beforeJson = JsonSerializer.Serialize(new
+                            {
+                                id = loaded.Id,
+                                name = loaded.Name,
+                                tally_guid = loaded.TallyGuid,
+                                consolidated = loaded.Consolidated,
+                                books_from = loaded.BooksFrom?.ToString("o"),
+                                books_to = loaded.BooksTo?.ToString("o"),
+                                db_profile_id = loaded.DbProfileId,
+                                target_catalog = loaded.TargetCatalog,
+                                schema = loaded.Schema,
+                                table_prefix = loaded.TablePrefix,
+                                mode = loaded.Mode,
+                                interval_minutes = loaded.IntervalMinutes,
+                                enabled = loaded.Enabled,
+                                notify_on_error = loaded.NotifyOnError,
+                                pause_on_tally_close = loaded.PauseOnTallyClose,
+                                entity_flags = loaded.EntityFlags
+                            });
+
+                            int affected = conn.Execute(@"
+                                UPDATE company_profiles
+                                SET name = @Name, tally_guid = @TallyGuid, consolidated = @Consolidated,
+                                    books_from = @BooksFrom, books_to = @BooksTo, db_profile_id = @DbProfileId,
+                                    target_catalog = @TargetCatalog, schema = @Schema, table_prefix = @TablePrefix,
+                                    mode = @Mode, interval_minutes = @IntervalMinutes, enabled = @Enabled,
+                                    notify_on_error = @NotifyOnError, pause_on_tally_close = @PauseOnTallyClose,
+                                    entity_flags = @EntityFlags, status = @Status, last_run_at = @LastRunAt,
+                                    last_duration_ms = @LastDurationMs, last_rows_written = @LastRowsWritten,
                                     error_count_24h = @ErrorCount24h
                                 WHERE id = @Id", parameters, transaction);
+
+                            if (affected != 1)
+                                throw new InvalidOperationException(
+                                    $"Expected to update exactly 1 company profile (ID: {company.Id}), but updated {affected}.");
+
+                            string afterJson = JsonSerializer.Serialize(new
+                            {
+                                id = company.Id,
+                                name = company.Name,
+                                tally_guid = company.TallyGuid,
+                                consolidated = company.Consolidated,
+                                books_from = company.BooksFrom?.ToString("o"),
+                                books_to = company.BooksTo?.ToString("o"),
+                                db_profile_id = company.DbProfileId,
+                                target_catalog = company.TargetCatalog,
+                                schema = company.Schema,
+                                table_prefix = company.TablePrefix,
+                                mode = company.Mode,
+                                interval_minutes = company.IntervalMinutes,
+                                enabled = company.Enabled,
+                                notify_on_error = company.NotifyOnError,
+                                pause_on_tally_close = company.PauseOnTallyClose,
+                                entity_flags = company.EntityFlags
+                            });
+
+                            InsertConfigAuditLog(conn, transaction, DateTime.UtcNow, "system",
+                                "update_company_profile", "company_profile", company.Id,
+                                company.Name, beforeJson, afterJson, "Company profile updated");
                         }
+
                         transaction.Commit();
                     }
                     catch

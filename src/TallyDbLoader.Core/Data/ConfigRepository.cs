@@ -384,7 +384,54 @@ namespace TallyDbLoader.Core.Data
                 {
                     try
                     {
-                        conn.Execute("DELETE FROM company_profiles WHERE id = @Id", new { Id = id }, transaction);
+                        var loaded = conn.QueryFirstOrDefault<CompanyProfile>(@"
+                            SELECT
+                                id AS Id, name AS Name, tally_guid AS TallyGuid,
+                                consolidated AS Consolidated, books_from AS BooksFrom,
+                                books_to AS BooksTo, db_profile_id AS DbProfileId,
+                                target_catalog AS TargetCatalog, schema AS Schema,
+                                table_prefix AS TablePrefix, mode AS Mode,
+                                interval_minutes AS IntervalMinutes, enabled AS Enabled,
+                                notify_on_error AS NotifyOnError, pause_on_tally_close AS PauseOnTallyClose,
+                                entity_flags AS EntityFlags
+                            FROM company_profiles WHERE id = @Id;",
+                            new { Id = id }, transaction);
+
+                        if (loaded == null)
+                            throw new InvalidOperationException(
+                                $"Cannot delete company profile: no row found with ID {id}.");
+
+                        string beforeJson = JsonSerializer.Serialize(new
+                        {
+                            id = loaded.Id,
+                            name = loaded.Name,
+                            tally_guid = loaded.TallyGuid,
+                            consolidated = loaded.Consolidated,
+                            books_from = loaded.BooksFrom?.ToString("o"),
+                            books_to = loaded.BooksTo?.ToString("o"),
+                            db_profile_id = loaded.DbProfileId,
+                            target_catalog = loaded.TargetCatalog,
+                            schema = loaded.Schema,
+                            table_prefix = loaded.TablePrefix,
+                            mode = loaded.Mode,
+                            interval_minutes = loaded.IntervalMinutes,
+                            enabled = loaded.Enabled,
+                            notify_on_error = loaded.NotifyOnError,
+                            pause_on_tally_close = loaded.PauseOnTallyClose,
+                            entity_flags = loaded.EntityFlags
+                        });
+
+                        int affected = conn.Execute(
+                            "DELETE FROM company_profiles WHERE id = @Id", new { Id = id }, transaction);
+
+                        if (affected != 1)
+                            throw new InvalidOperationException(
+                                $"Expected to delete exactly 1 company profile (ID: {id}), but deleted {affected}.");
+
+                        InsertConfigAuditLog(conn, transaction, DateTime.UtcNow, "system",
+                            "delete_company_profile", "company_profile", id,
+                            loaded.Name, beforeJson, "{}", "Company profile deleted");
+
                         transaction.Commit();
                     }
                     catch

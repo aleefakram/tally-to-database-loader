@@ -15,10 +15,10 @@ namespace TallyDbLoader.Tests
         public void Test_Database_Initialization_And_CRUD()
         {
             if (File.Exists(_testDbPath)) File.Delete(_testDbPath);
-            
+
             DatabaseHelper.InitializeDatabase(_testDbPath);
             var repo = new ConfigRepository(_testDbPath);
-            
+
             var profile = new DatabaseProfile
             {
                 Name = "LocalSQL",
@@ -28,14 +28,14 @@ namespace TallyDbLoader.Tests
                 Username = "sa",
                 Password = "encryptedpwd"
             };
-            
+
             repo.SaveDatabaseProfile(profile);
             var saved = repo.GetDatabaseProfileByName("LocalSQL");
-            
+
             Assert.NotNull(saved);
             Assert.Equal("mssql", saved.Technology);
             Assert.Equal("localhost", saved.Server);
-            
+
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (File.Exists(_testDbPath)) File.Delete(_testDbPath);
         }
@@ -1162,10 +1162,10 @@ namespace TallyDbLoader.Tests
                 DatabaseHelper.InitializeDatabase(path);
                 var repo = new ConfigRepository(path);
                 var dp = new DatabaseProfile { Name = "MetaDb", Technology = "postgres", Server = "localhost", Port = 5432, Username = "dev" };
-                
+
                 // Create path
                 repo.SaveDatabaseProfile(dp);
-                
+
                 int dpId;
                 using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
                     dpId = (int)connId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'MetaDb'");
@@ -1176,7 +1176,7 @@ namespace TallyDbLoader.Tests
                 repo.SaveDatabaseProfile(dp);
 
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-                
+
                 // Verify Create Row
                 var createRow = conn.QuerySingle("SELECT actor, action, entity_type, entity_id, entity_name, reason FROM config_audit_log WHERE action = 'create_database_profile'");
                 Assert.Equal("system", createRow.actor);
@@ -1284,7 +1284,7 @@ namespace TallyDbLoader.Tests
                 DatabaseHelper.InitializeDatabase(path);
                 var repo = new ConfigRepository(path);
                 repo.SaveDatabaseProfile(new DatabaseProfile { Name = "ZetaDb", Server = "localhost" });
-                
+
                 int dpId;
                 using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
                     dpId = (int)connId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'ZetaDb'");
@@ -1292,7 +1292,7 @@ namespace TallyDbLoader.Tests
                 repo.DeleteDatabaseProfile(dpId);
 
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-                
+
                 // Verify audit log
                 var deleteRow = conn.QuerySingle("SELECT actor, action, entity_type, entity_id, entity_name, reason, before_json, after_json FROM config_audit_log WHERE action = 'delete_database_profile'");
                 Assert.Equal("system", deleteRow.actor);
@@ -1323,7 +1323,7 @@ namespace TallyDbLoader.Tests
                 DatabaseHelper.InitializeDatabase(path);
                 var repo = new ConfigRepository(path);
                 repo.SaveDatabaseProfile(new DatabaseProfile { Name = "EtaDb", Server = "localhost" });
-                
+
                 int dpId;
                 using (var cId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
                     dpId = (int)cId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'EtaDb'");
@@ -1350,7 +1350,7 @@ namespace TallyDbLoader.Tests
                 DatabaseHelper.InitializeDatabase(path);
                 var repo = new ConfigRepository(path);
                 repo.SaveDatabaseProfile(new DatabaseProfile { Name = "ThetaDb", Server = "localhost" });
-                
+
                 int dpId;
                 using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
                     dpId = (int)connId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'ThetaDb'");
@@ -1406,19 +1406,19 @@ namespace TallyDbLoader.Tests
                     Password = "iota_password"
                 };
                 repo.SaveDatabaseProfile(dp);
-                
+
                 int dpId;
                 using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
                     dpId = (int)connId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'IotaDb'");
-                
+
                 dp.Id = dpId;
                 dp.Name = "IotaDb Updated";
                 repo.SaveDatabaseProfile(dp);
-                
+
                 repo.DeleteDatabaseProfile(dpId);
 
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-                
+
                 string createAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_database_profile'");
                 string updateBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_database_profile'");
                 string updateAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_database_profile'");
@@ -1468,7 +1468,7 @@ namespace TallyDbLoader.Tests
 
                 using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
                 string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_database_profile'");
-                
+
                 using var doc = System.Text.Json.JsonDocument.Parse(afterJson);
                 var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
                 foreach (var excluded in new[] { "password", "last_test_result", "last_tested_at", "used_by_count" })
@@ -1495,7 +1495,7 @@ namespace TallyDbLoader.Tests
             {
                 DatabaseHelper.InitializeDatabase(path);
                 var repo = new ConfigRepository(path);
-                
+
                 // 1. Create with password
                 var dp = new DatabaseProfile
                 {
@@ -1538,7 +1538,7 @@ namespace TallyDbLoader.Tests
                 {
                     Assert.DoesNotContain("my_original_password", json);
                     Assert.DoesNotContain("dpapi:", json);
-                    
+
                     // Verify "password" property itself is excluded, but "has_password" is fine
                     using var doc = System.Text.Json.JsonDocument.Parse(json);
                     var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();

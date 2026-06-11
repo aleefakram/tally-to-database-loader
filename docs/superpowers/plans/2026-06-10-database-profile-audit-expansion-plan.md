@@ -119,12 +119,12 @@ The existing method has two branches (`profile.Id == 0` -> INSERT, `profile.Id !
                       });
 
                       int affected = conn.Execute(@"
-                          UPDATE database_profiles 
-                          SET name = @Name, 
-                              technology = @Technology, 
-                              server = @Server, 
-                              port = @Port, 
-                              username = @Username, 
+                          UPDATE database_profiles
+                          SET name = @Name,
+                              technology = @Technology,
+                              server = @Server,
+                              port = @Port,
+                              username = @Username,
                               password = @Password,
                               last_test_result = @LastTestResult,
                               last_tested_at = @LastTestedAt
@@ -440,10 +440,10 @@ Add tests verifying database profile create and update audit logging, metadata c
           DatabaseHelper.InitializeDatabase(path);
           var repo = new ConfigRepository(path);
           var dp = new DatabaseProfile { Name = "MetaDb", Technology = "postgres", Server = "localhost", Port = 5432, Username = "dev" };
-          
+
           // Create path
           repo.SaveDatabaseProfile(dp);
-          
+
           int dpId;
           using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
               dpId = (int)connId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'MetaDb'");
@@ -454,7 +454,7 @@ Add tests verifying database profile create and update audit logging, metadata c
           repo.SaveDatabaseProfile(dp);
 
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          
+
           // Verify Create Row
           var createRow = conn.QuerySingle("SELECT actor, action, entity_type, entity_id, entity_name, reason FROM config_audit_log WHERE action = 'create_database_profile'");
           Assert.Equal("system", createRow.actor);
@@ -593,7 +593,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
           DatabaseHelper.InitializeDatabase(path);
           var repo = new ConfigRepository(path);
           repo.SaveDatabaseProfile(new DatabaseProfile { Name = "ZetaDb", Server = "localhost" });
-          
+
           int dpId;
           using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
               dpId = (int)connId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'ZetaDb'");
@@ -601,7 +601,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
           repo.DeleteDatabaseProfile(dpId);
 
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          
+
           // Verify audit log
           var deleteRow = conn.QuerySingle("SELECT actor, action, entity_type, entity_id, entity_name, reason, before_json, after_json FROM config_audit_log WHERE action = 'delete_database_profile'");
           Assert.Equal("system", deleteRow.actor);
@@ -632,7 +632,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
           DatabaseHelper.InitializeDatabase(path);
           var repo = new ConfigRepository(path);
           repo.SaveDatabaseProfile(new DatabaseProfile { Name = "EtaDb", Server = "localhost" });
-          
+
           int dpId;
           using (var cId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
               dpId = (int)cId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'EtaDb'");
@@ -659,7 +659,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
           DatabaseHelper.InitializeDatabase(path);
           var repo = new ConfigRepository(path);
           repo.SaveDatabaseProfile(new DatabaseProfile { Name = "ThetaDb", Server = "localhost" });
-          
+
           int dpId;
           using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
               dpId = (int)connId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'ThetaDb'");
@@ -715,19 +715,19 @@ Add remaining tests validating profile deletions, missing deletions, exact field
               Password = "iota_password"
           };
           repo.SaveDatabaseProfile(dp);
-          
+
           int dpId;
           using (var connId = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}"))
               dpId = (int)connId.ExecuteScalar<long>("SELECT id FROM database_profiles WHERE name = 'IotaDb'");
-          
+
           dp.Id = dpId;
           dp.Name = "IotaDb Updated";
           repo.SaveDatabaseProfile(dp);
-          
+
           repo.DeleteDatabaseProfile(dpId);
 
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
-          
+
           string createAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_database_profile'");
           string updateBefore = conn.ExecuteScalar<string>("SELECT before_json FROM config_audit_log WHERE action = 'update_database_profile'");
           string updateAfter = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'update_database_profile'");
@@ -777,7 +777,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
 
           using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
           string afterJson = conn.ExecuteScalar<string>("SELECT after_json FROM config_audit_log WHERE action = 'create_database_profile'");
-          
+
           using var doc = System.Text.Json.JsonDocument.Parse(afterJson);
           var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();
           foreach (var excluded in new[] { "password", "last_test_result", "last_tested_at", "used_by_count" })
@@ -804,7 +804,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
       {
           DatabaseHelper.InitializeDatabase(path);
           var repo = new ConfigRepository(path);
-          
+
           // 1. Create with password
           var dp = new DatabaseProfile
           {
@@ -847,7 +847,7 @@ Add remaining tests validating profile deletions, missing deletions, exact field
           {
               Assert.DoesNotContain("my_original_password", json);
               Assert.DoesNotContain("dpapi:", json);
-              
+
               // Verify "password" property itself is excluded, but "has_password" is fine
               using var doc = System.Text.Json.JsonDocument.Parse(json);
               var props = doc.RootElement.EnumerateObject().Select(p => p.Name).ToList();

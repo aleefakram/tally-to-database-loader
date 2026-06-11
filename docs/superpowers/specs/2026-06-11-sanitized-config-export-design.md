@@ -34,24 +34,14 @@ Create a small Core service:
 ```csharp
 public sealed class ConfigExportService
 {
-    public ConfigExportService(IConfigRepository repository, IAppVersionProvider versionProvider);
+    public ConfigExportService(IConfigRepository repository, string applicationVersion);
 
     public string ExportJson(DateTimeOffset exportedAt);
 }
 ```
 
 The service returns JSON as a string. File selection and writing are UI/application concerns and are outside this slice.
-
-If the codebase does not already have `IAppVersionProvider`, add a minimal Core abstraction:
-
-```csharp
-public interface IAppVersionProvider
-{
-    string ApplicationVersion { get; }
-}
-```
-
-Tests may use a fake provider.
+The application version is passed as a constructor string to avoid adding a single-use version-provider abstraction.
 
 ## JSON Envelope
 
@@ -76,7 +66,7 @@ Rules:
 
 - `format` is a stable string used by future import routing.
 - `schema_version` starts at `1`.
-- `application_version` comes from `IAppVersionProvider`.
+- `application_version` comes from the constructor-supplied string.
 - `exported_at` uses the caller-supplied `DateTimeOffset` in round-trip format.
 - JSON property names use lowercase snake_case.
 - The exporter must not serialize repository model objects directly.
@@ -100,6 +90,8 @@ Rules:
 - `password` is omitted entirely.
 - DPAPI ciphertext is omitted entirely.
 - `has_password` is `true` when the repository model has a non-empty password after normal repository loading.
+- Phase 1 accepts that `GetAllDatabaseProfiles()` returns decrypted password values. The exporter must use the value only to compute `has_password`, must not serialize it, and must not retain it outside the local projection step.
+- If DPAPI decryption fails and the repository returns an empty password, export will report `has_password = false`; this is an accepted Phase 1 compromise to avoid adding a new credential-presence query in this slice.
 - `last_test_result`, `last_tested_at`, and `used_by_count` are excluded.
 - IDs are included for intra-export references only. Future import may remap them.
 
@@ -136,21 +128,9 @@ Rules:
 
 ## Auditing
 
-This export operation is read-only, but it is safety-relevant because it discloses configuration topology.
+This slice does not write an audit row. Export is strictly read-only and must not mutate local SQLite state.
 
-If `ConfigRepository` exposes no public append-only audit method, do not expand the repository public interface in this slice. Instead, leave export auditing as an explicit follow-up tied to a broader audit service design.
-
-If an internal Core-owned audit append method already exists during implementation, write one audit row:
-
-```text
-action = "export_sanitized_config"
-entity_type = "configuration_export"
-entity_id = 0
-entity_name = null
-reason = "Sanitized configuration exported"
-```
-
-The export itself must never include audit rows.
+Export auditing is a future slice after a Core-owned audit append service exists. The export JSON itself must never include audit rows.
 
 ## Error Handling
 
@@ -170,7 +150,7 @@ Add tests for:
 - Database profile `has_password` is present.
 - Company profiles include exactly allowed configuration fields.
 - Company profile runtime fields are absent.
-- Empty repository exports valid empty arrays.
+- Empty repository exports valid empty arrays at `payload.database_profiles` and `payload.company_profiles`.
 - Export does not change profile counts or write sync runs.
 
 Default `dotnet test` must remain fast and local.

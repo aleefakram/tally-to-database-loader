@@ -122,5 +122,75 @@ namespace TallyDbLoader.Tests
             }
             Assert.True(allowedProperties.SetEquals(actualProperties), "Database profile keys mismatch");
         }
+
+        [Fact]
+        public void ExportJson_ProjectsCompanyProfilesCorrectly()
+        {
+            var fakeRepo = new FakeConfigRepository();
+            fakeRepo.CompanyProfiles.Add(new CompanyProfile
+            {
+                Id = 101,
+                Name = "Acme Corp",
+                TallyGuid = "guid-123",
+                Consolidated = true,
+                BooksFrom = new DateTime(2026, 4, 1, 0, 0, 0, DateTimeKind.Unspecified),
+                BooksTo = new DateTime(2026, 6, 30, 0, 0, 0, DateTimeKind.Unspecified),
+                DbProfileId = 42,
+                TargetCatalog = "acme_db",
+                Schema = "custom_schema",
+                TablePrefix = "custom_",
+                Mode = "incremental",
+                IntervalMinutes = 10,
+                Enabled = true,
+                NotifyOnError = false,
+                PauseOnTallyClose = true,
+                EntityFlags = 7,
+                Status = "ok",
+                LastRunAt = DateTime.UtcNow,
+                LastDurationMs = 200,
+                LastRowsWritten = 1000,
+                ErrorCount24h = 0
+            });
+
+            var service = new ConfigExportService(fakeRepo, "1.0.0");
+            string json = service.ExportJson(DateTimeOffset.Now);
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var companyProfiles = root.GetProperty("payload").GetProperty("company_profiles");
+
+            var element = companyProfiles[0];
+            Assert.Equal(101, element.GetProperty("id").GetInt32());
+            Assert.Equal("Acme Corp", element.GetProperty("name").GetString());
+            Assert.Equal("guid-123", element.GetProperty("tally_guid").GetString());
+            Assert.True(element.GetProperty("consolidated").GetBoolean());
+            Assert.Equal("2026-04-01T00:00:00.0000000", element.GetProperty("books_from").GetString());
+            Assert.Equal("2026-06-30T00:00:00.0000000", element.GetProperty("books_to").GetString());
+            Assert.Equal(42, element.GetProperty("db_profile_id").GetInt32());
+            Assert.Equal("acme_db", element.GetProperty("target_catalog").GetString());
+            Assert.Equal("custom_schema", element.GetProperty("schema").GetString());
+            Assert.Equal("custom_", element.GetProperty("table_prefix").GetString());
+            Assert.Equal("incremental", element.GetProperty("mode").GetString());
+            Assert.Equal(10, element.GetProperty("interval_minutes").GetInt32());
+            Assert.True(element.GetProperty("enabled").GetBoolean());
+            Assert.False(element.GetProperty("notify_on_error").GetBoolean());
+            Assert.True(element.GetProperty("pause_on_tally_close").GetBoolean());
+            Assert.Equal(7, element.GetProperty("entity_flags").GetInt32());
+
+            // Enforce exact payload shape
+            var allowedProperties = new System.Collections.Generic.HashSet<string>
+            {
+                "id", "name", "tally_guid", "consolidated", "books_from", "books_to",
+                "db_profile_id", "target_catalog", "schema", "table_prefix", "mode",
+                "interval_minutes", "enabled", "notify_on_error", "pause_on_tally_close",
+                "entity_flags"
+            };
+            var actualProperties = new System.Collections.Generic.HashSet<string>();
+            foreach (var prop in element.EnumerateObject())
+            {
+                actualProperties.Add(prop.Name);
+            }
+            Assert.True(allowedProperties.SetEquals(actualProperties), "Company profile keys mismatch");
+        }
     }
 }

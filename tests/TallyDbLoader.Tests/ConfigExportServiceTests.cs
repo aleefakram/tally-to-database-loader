@@ -89,6 +89,19 @@ namespace TallyDbLoader.Tests
                 LastTestedAt = DateTime.UtcNow,
                 UsedByCount = 5
             });
+            fakeRepo.DatabaseProfiles.Add(new DatabaseProfile
+            {
+                Id = 43,
+                Name = "NoPasswordDB",
+                Technology = "postgres",
+                Server = "localhost",
+                Port = 5432,
+                Username = "pg_user",
+                Password = "",
+                LastTestResult = "Passed",
+                LastTestedAt = DateTime.UtcNow,
+                UsedByCount = 1
+            });
 
             var service = new ConfigExportService(fakeRepo, "1.0.0");
             string json = service.ExportJson(DateTimeOffset.Now);
@@ -100,7 +113,8 @@ namespace TallyDbLoader.Tests
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
             var dbProfiles = root.GetProperty("payload").GetProperty("database_profiles");
-            
+            Assert.Equal(2, dbProfiles.GetArrayLength());
+
             var element = dbProfiles[0];
             Assert.Equal(42, element.GetProperty("id").GetInt32());
             Assert.Equal("SecretDB", element.GetProperty("name").GetString());
@@ -121,6 +135,11 @@ namespace TallyDbLoader.Tests
                 actualProperties.Add(prop.Name);
             }
             Assert.True(allowedProperties.SetEquals(actualProperties), "Database profile keys mismatch");
+
+            var secondElement = dbProfiles[1];
+            Assert.Equal(43, secondElement.GetProperty("id").GetInt32());
+            Assert.Equal("NoPasswordDB", secondElement.GetProperty("name").GetString());
+            Assert.False(secondElement.GetProperty("has_password").GetBoolean());
         }
 
         [Fact]
@@ -268,9 +287,8 @@ namespace TallyDbLoader.Tests
                 Assert.Equal(1, comps.GetArrayLength());
 
                 Assert.Equal("RealPostgres", dbs[0].GetProperty("name").GetString());
-                
-                // Note: This integration test assumes standard DPAPI works on the Windows local test runner.
-                // If DPAPI decryption fails, has_password will report false, which is accepted in Phase 1.
+
+                // Note: Since ConfigRepository decrypts the password using local DPAPI, has_password should be true on the same Windows local test runner machine.
                 Assert.True(dbs[0].GetProperty("has_password").GetBoolean());
                 Assert.Equal("Real Company", comps[0].GetProperty("name").GetString());
             }

@@ -29,7 +29,14 @@ Excluded:
 
 ## Export Service
 
-Create a small Core service:
+Create a small Core service at:
+
+```text
+src/TallyDbLoader.Core/Data/ConfigExportService.cs
+namespace TallyDbLoader.Core.Data
+```
+
+The service belongs beside `IConfigRepository` because it is a persistence/config projection service, not a UI or sync runtime service.
 
 ```csharp
 public sealed class ConfigExportService
@@ -42,6 +49,11 @@ public sealed class ConfigExportService
 
 The service returns JSON as a string. File selection and writing are UI/application concerns and are outside this slice.
 The application version is passed as a constructor string to avoid adding a single-use version-provider abstraction.
+
+Constructor validation:
+
+- Throw `ArgumentNullException` when `repository` is null.
+- Throw `ArgumentException` when `applicationVersion` is null, empty, or whitespace.
 
 ## JSON Envelope
 
@@ -70,6 +82,7 @@ Rules:
 - `exported_at` uses the caller-supplied `DateTimeOffset` in round-trip format.
 - JSON property names use lowercase snake_case.
 - The exporter must not serialize repository model objects directly.
+- Use explicit anonymous objects or private projection records for every payload object.
 
 ## Database Profile Payload
 
@@ -122,7 +135,7 @@ Rules:
 
 - Runtime fields are excluded: `status`, `last_run_at`, `last_duration_ms`, `last_rows_written`, and `error_count_24h`.
 - Joined `DatabaseProfile` objects are excluded.
-- Date values use round-trip ISO strings or `null`.
+- Date values use explicit round-trip ISO strings or `null`; project with `c.BooksFrom?.ToString("o")` and `c.BooksTo?.ToString("o")` instead of relying on direct `DateTime?` JSON serialization.
 - `db_profile_id` preserves the local reference for future import mapping.
 - The current `CompanyProfile` name is accepted as the implementation name for Sync Job Profile.
 
@@ -152,6 +165,8 @@ Add tests for:
 - Company profile runtime fields are absent.
 - Empty repository exports valid empty arrays at `payload.database_profiles` and `payload.company_profiles`.
 - Export does not change profile counts or write sync runs.
+- At least one test uses a real temporary SQLite database initialized by `DatabaseHelper.InitializeDatabase` plus `ConfigRepository`, proving repository-loaded data is projected correctly.
+- Secret exclusion tests check the entire exported JSON string for plaintext passwords and `dpapi:` substrings.
 
 Default `dotnet test` must remain fast and local.
 

@@ -20,7 +20,7 @@ Included:
 - Expose a repository-level transactional import method in `IConfigRepository`: `ImportSanitizedConfig`.
 - Encapsulate DPAPI password encryption inside `ConfigRepository`.
 - Remap temporary source database profile IDs to newly created local IDs during import.
-- Default imported company profiles to `enabled = false` and `status = "review_required"`, unless the import decision explicitly preserves runnable state.
+- Always default imported company profiles to `enabled = false` and `status = "review_required"`.
 - Write a single `import_sanitized_config` summary row to `config_audit_log` inside the SQLite transaction.
 - Fast local unit and integration tests.
 
@@ -30,6 +30,7 @@ Excluded:
 - Importing password ciphertexts or migrating DPAPI secrets from external systems.
 - Legacy configuration migrations beyond schema version 1.
 - Automatic password generation or scanning.
+- Runnable state preservation (all imported company profiles are disabled + review_required).
 
 ## Conflict Resolution & Identity Rules
 
@@ -57,7 +58,6 @@ public class ImportDecision
     public Dictionary<string, string> DatabasePasswords { get; set; } = new();
     public Dictionary<string, ConflictResolutionStrategy> DatabaseConflicts { get; set; } = new();
     public Dictionary<string, ConflictResolutionStrategy> CompanyConflicts { get; set; } = new();
-    public bool PreserveRunnableState { get; set; } = false;
 }
 
 public enum ConflictResolutionStrategy
@@ -69,16 +69,16 @@ public enum ConflictResolutionStrategy
 
 ## Validation (Pre-Transaction)
 
-The import service must validate the entire payload and decision object before opening any transaction or performing any writes. If validation fails, it throws a `ValidationException` detailing all errors:
+The import service must validate the entire payload and decision object before opening any transaction or performing any writes. If validation fails, it throws a custom `ConfigImportValidationException` holding all aggregated errors in an `Errors` collection:
 
 1. **Envelope Validation:**
    - Verify `format` is exactly `"tally-db-loader.config-export"`.
    - Verify `schema_version` is supported (exactly `1` in this slice).
-   - Verify `application_version` is parseable.
+   - Verify `application_version` is a non-empty string.
 2. **Structural Validation:**
    - Verify JSON is well-formed.
    - Detect duplicate source IDs within the export payload.
-   - Verify all `db_profile_id` references in company profiles map to valid database profiles present in the export payload or existing in the database.
+   - Verify all `db_profile_id` references in company profiles map *only* to database profiles present in the export payload. A company profile cannot bind directly to an existing local database ID without matching a profile in the payload.
 3. **Decision & Password Validation:**
    - For every database profile in the payload where `has_password = true` and the profile is new or being overwritten, a password must be provided in `DatabasePasswords`.
    - All detected conflicts must have a matching resolution strategy in `DatabaseConflicts` or `CompanyConflicts`.
@@ -86,16 +86,44 @@ The import service must validate the entire payload and decision object before o
 
 ## Data Persistence & Repository Contract
 
-To support transactional integrity, the repository contract is expanded.
+To support transactional integrity and safe reference remapping, the repository contract is expanded using dedicated resolution models.
 
 ### Interface Changes
+
+Add these resolved import models and repository method to the codebase:
+
+```csharp
+public enum ImportAction
+{
+    Create,
+    Overwrite
+}
+
+public class ResolvedDatabaseProfileImport
+{
+    public int SourceId { get; set; }
+    public int? ExistingLocalId { get; set; }
+    public ImportAction Action { get; set; }
+    public DatabaseProfile Profile { get; set; } = null!;
+    public string? Password { get; set; }
+}
+
+public class ResolvedCompanyProfileImport
+{
+    public int SourceId { get; set; }
+    public int? ExistingLocalId { get; set; }
+    public int SourceDbProfileId { get; set; }
+    public ImportAction Action { get; set; }
+    public CompanyProfile Profile { get; set; } = null!;
+}
+```
 
 Add to `IConfigRepository`:
 
 ```csharp
 void ImportSanitizedConfig(
-    List<DatabaseProfile> databaseProfiles,
-    List<CompanyProfile> companyProfiles,
+    List<ResolvedDatabaseProfileImport> databaseProfiles,
+    List<ResolvedCompanyProfileImport> companyProfiles,
     string actor,
     string reason,
     string beforeJson,
@@ -105,15 +133,15 @@ void ImportSanitizedConfig(
 ### Encapsulation of DPAPI
 `ConfigRepository` implements `ImportSanitizedConfig` inside a single SQLite transaction:
 
-1. For each new or overwritten database profile, encrypt the caller-supplied password using the existing private `EncryptPassword` helper.
+1. For each database profile to import (Create or Overwrite), encrypt the password (if supplied in `ResolvedDatabaseProfileImport`) using the existing private `EncryptPassword` helper.
 2. Remap transient database profile IDs:
-   - For new database profiles, insert them, retrieve the new autoincremented ID, and map the temporary source ID to this new ID.
-   - For existing/overwritten database profiles, update them and map their temporary ID to the existing ID.
+   - For `Create` database profiles, insert them, retrieve the new autoincremented ID, and map the temporary `SourceId` to this new ID.
+   - For `Overwrite` database profiles, update the existing row and map the temporary `SourceId` to `ExistingLocalId`.
 3. Map company profiles' `DbProfileId` using the remapped IDs.
 4. For company profiles:
-   - If `PreserveRunnableState` is `false`, set `Enabled = false` and `Status = "review_required"`.
-   - If `PreserveRunnableState` is `true`, map `Enabled` and `Status` from the export payload.
-   - Insert new company profiles or update existing ones.
+   - Always force `Enabled = false` and `Status = "review_required"`.
+   - For `Create` company profiles, insert them.
+   - For `Overwrite` company profiles, update the existing row using `ExistingLocalId`.
 5. Write a single `import_sanitized_config` audit row using `InsertConfigAuditLog`.
 6. Commit the transaction. If any step fails, roll back everything.
 
@@ -145,7 +173,7 @@ A single audit log entry is written for the entire import operation:
 
 Add unit and integration tests in `tests/TallyDbLoader.Tests/ConfigImportServiceTests.cs`:
 
-- **Envelope Validation Tests:** Reject invalid formats, newer schemas, and corrupt JSON.
+- **Envelope Validation Tests:** Reject invalid formats, newer schemas, and corrupt JSON. Treat `application_version` as an opaque string.
 - **Conflict Resolution Tests:**
   - Test name-matching conflict behavior for database profiles.
   - Test GUID/name-matching conflict behavior for company profiles.
@@ -153,8 +181,13 @@ Add unit and integration tests in `tests/TallyDbLoader.Tests/ConfigImportService
 - **Credential Safety Tests:**
   - Verify missing passwords for profiles with `has_password = true` fail validation.
   - Verify imported passwords are encrypted with DPAPI and saved, and never leak into audit logs.
-- **Safety State Tests:** Verify company profiles default to `enabled = false` and `status = "review_required"` unless explicitly overridden.
-- **SQLite Transaction Test:** Verify a failure during company profile import rolls back database profile insertions.
+- **Safety State Tests:** Verify company profiles default to `enabled = false` and `status = "review_required"`.
+- **SQLite Transaction and Remapping Tests:**
+  - Verify that a validation failure or payload exception leaves profile counts and audit counts unchanged.
+  - Verify successful import writes exactly one audit row.
+  - Verify that a broken source `db_profile_id` cannot bind to a coincidentally matching local SQLite ID.
+  - Verify that overwrite correctly remaps the source DB profile ID to the existing local DB profile ID for imported company profiles.
+  - Verify a failure during company profile import rolls back database profile insertions.
 
 ## Success Criteria
 

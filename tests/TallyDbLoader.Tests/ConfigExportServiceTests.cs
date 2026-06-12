@@ -71,5 +71,56 @@ namespace TallyDbLoader.Tests
             Assert.Empty(payload.GetProperty("database_profiles").EnumerateArray());
             Assert.Empty(payload.GetProperty("company_profiles").EnumerateArray());
         }
+
+        [Fact]
+        public void ExportJson_SanitizesSecrets_AndOmittedFields()
+        {
+            var fakeRepo = new FakeConfigRepository();
+            fakeRepo.DatabaseProfiles.Add(new DatabaseProfile
+            {
+                Id = 42,
+                Name = "SecretDB",
+                Technology = "mssql",
+                Server = "secret-server",
+                Port = 1433,
+                Username = "sa",
+                Password = "SuperSecretPassword123",
+                LastTestResult = "Passed",
+                LastTestedAt = DateTime.UtcNow,
+                UsedByCount = 5
+            });
+
+            var service = new ConfigExportService(fakeRepo, "1.0.0");
+            string json = service.ExportJson(DateTimeOffset.Now);
+
+            // Assert secrets are absolutely absent
+            Assert.DoesNotContain("SuperSecretPassword123", json);
+            Assert.DoesNotContain("dpapi:", json);
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var dbProfiles = root.GetProperty("payload").GetProperty("database_profiles");
+            
+            var element = dbProfiles[0];
+            Assert.Equal(42, element.GetProperty("id").GetInt32());
+            Assert.Equal("SecretDB", element.GetProperty("name").GetString());
+            Assert.Equal("mssql", element.GetProperty("technology").GetString());
+            Assert.Equal("secret-server", element.GetProperty("server").GetString());
+            Assert.Equal(1433, element.GetProperty("port").GetInt32());
+            Assert.Equal("sa", element.GetProperty("username").GetString());
+            Assert.True(element.GetProperty("has_password").GetBoolean());
+
+            // Enforce exact payload shape
+            var allowedProperties = new System.Collections.Generic.HashSet<string>
+            {
+                "id", "name", "technology", "server", "port", "username", "has_password"
+            };
+            var actualProperties = new System.Collections.Generic.HashSet<string>();
+            foreach (var prop in element.EnumerateObject())
+            {
+                actualProperties.Add(prop.Name);
+            }
+            Assert.True(allowedProperties.SetEquals(actualProperties), "Database profile keys mismatch");
+        }
     }
 }

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using TallyDbLoader.Core.Models;
 
@@ -21,6 +23,8 @@ namespace TallyDbLoader.Core.Data
 
         public string ExportJson(DateTimeOffset exportedAt)
         {
+            var dbProfiles = _repository.GetAllDatabaseProfiles() ?? new List<DatabaseProfile>();
+
             var envelope = new
             {
                 format = "tally-db-loader.config-export",
@@ -29,7 +33,16 @@ namespace TallyDbLoader.Core.Data
                 exported_at = exportedAt.ToString("o"),
                 payload = new
                 {
-                    database_profiles = new object[0],
+                    database_profiles = dbProfiles.Select(p => new
+                    {
+                        id = p.Id,
+                        name = p.Name,
+                        technology = p.Technology,
+                        server = p.Server,
+                        port = p.Port,
+                        username = p.Username,
+                        has_password = !string.IsNullOrEmpty(p.Password)
+                    }).ToList(),
                     company_profiles = new object[0]
                 }
             };

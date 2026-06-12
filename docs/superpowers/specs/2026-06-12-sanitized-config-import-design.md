@@ -50,14 +50,19 @@ Conflicts are identified before writing to the database using the following keys
 
 ## Import Decision Model
 
-To resolve conflicts and supply passwords, callers pass an `ImportDecision` object:
+To resolve conflicts and supply passwords, callers pass an `ImportDecision` object. Dictionaries are keyed by transient source IDs (`int`) from the exported payload to ensure stable and unambiguous matching:
 
 ```csharp
 public class ImportDecision
 {
-    public Dictionary<string, string> DatabasePasswords { get; set; } = new();
-    public Dictionary<string, ConflictResolutionStrategy> DatabaseConflicts { get; set; } = new();
-    public Dictionary<string, ConflictResolutionStrategy> CompanyConflicts { get; set; } = new();
+    // Key is the exported Database Profile ID (from payload.database_profiles[].id)
+    public Dictionary<int, string> DatabasePasswords { get; set; } = new();
+    
+    // Key is the exported Database Profile ID (from payload.database_profiles[].id)
+    public Dictionary<int, ConflictResolutionStrategy> DatabaseConflicts { get; set; } = new();
+    
+    // Key is the exported Company Profile ID (from payload.company_profiles[].id)
+    public Dictionary<int, ConflictResolutionStrategy> CompanyConflicts { get; set; } = new();
 }
 
 public enum ConflictResolutionStrategy
@@ -81,8 +86,12 @@ The import service must validate the entire payload and decision object before o
    - Verify all `db_profile_id` references in company profiles map *only* to database profiles present in the export payload. A company profile cannot bind directly to an existing local database ID without matching a profile in the payload.
 3. **Decision & Password Validation:**
    - For every database profile in the payload where `has_password = true` and the profile is new or being overwritten, a password must be provided in `DatabasePasswords`.
+   - For an overwritten database profile:
+     - If the source profile has `has_password = true`, the supplied password replaces the stored credential.
+     - If the source profile has `has_password = false`, the existing local password is preserved on overwrite (the sanitized export cannot prove intent to delete credentials).
    - All detected conflicts must have a matching resolution strategy in `DatabaseConflicts` or `CompanyConflicts`.
    - Any ambiguous conflicts must fail validation.
+   - If an imported company profile references an exported database profile that is skipped via `DatabaseConflicts`, the company profile itself must also be marked as `Skip` in `CompanyConflicts`. If the company is not skipped while its database profile is skipped, validation fails.
 
 ## Data Persistence & Repository Contract
 
@@ -106,6 +115,7 @@ public class ResolvedDatabaseProfileImport
     public ImportAction Action { get; set; }
     public DatabaseProfile Profile { get; set; } = null!;
     public string? Password { get; set; }
+    public bool PreserveExistingPassword { get; set; }
 }
 
 public class ResolvedCompanyProfileImport
@@ -131,9 +141,11 @@ void ImportSanitizedConfig(
 ```
 
 ### Encapsulation of DPAPI
-`ConfigRepository` implements `ImportSanitizedConfig` inside a single SQLite transaction:
+`ConfigRepository` implements `ImportSanitizedConfig` inside a single SQLite transaction. The method must assert that all resolved records are internally valid (e.g., matching database references, presence of required passwords unless preserved) and fail closed if called incorrectly.
 
-1. For each database profile to import (Create or Overwrite), encrypt the password (if supplied in `ResolvedDatabaseProfileImport`) using the existing private `EncryptPassword` helper.
+1. For each database profile to import (Create or Overwrite):
+   - If `Action == ImportAction.Create` or `Action == ImportAction.Overwrite` and `PreserveExistingPassword == false`, encrypt the supplied password using the existing private `EncryptPassword` helper.
+   - If `Action == ImportAction.Overwrite` and `PreserveExistingPassword == true`, retrieve the password from the existing database record and preserve it.
 2. Remap transient database profile IDs:
    - For `Create` database profiles, insert them, retrieve the new autoincremented ID, and map the temporary `SourceId` to this new ID.
    - For `Overwrite` database profiles, update the existing row and map the temporary `SourceId` to `ExistingLocalId`.
@@ -181,13 +193,16 @@ Add unit and integration tests in `tests/TallyDbLoader.Tests/ConfigImportService
 - **Credential Safety Tests:**
   - Verify missing passwords for profiles with `has_password = true` fail validation.
   - Verify imported passwords are encrypted with DPAPI and saved, and never leak into audit logs.
+  - Verify that overwriting a database profile where `has_password = false` preserves the existing local password.
 - **Safety State Tests:** Verify company profiles default to `enabled = false` and `status = "review_required"`.
 - **SQLite Transaction and Remapping Tests:**
   - Verify that a validation failure or payload exception leaves profile counts and audit counts unchanged.
   - Verify successful import writes exactly one audit row.
   - Verify that a broken source `db_profile_id` cannot bind to a coincidentally matching local SQLite ID.
   - Verify that overwrite correctly remaps the source DB profile ID to the existing local DB profile ID for imported company profiles.
+  - Verify that validation fails when an imported company profile references an exported database profile that is skipped, and the company profile itself is not skipped.
   - Verify a failure during company profile import rolls back database profile insertions.
+  - Verify repository `ImportSanitizedConfig` asserts internal validity of its resolved records and fails closed if violated.
 
 ## Success Criteria
 

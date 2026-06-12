@@ -49,5 +49,27 @@ namespace TallyDbLoader.Tests
             Assert.Throws<ArgumentException>(() => new ConfigExportService(fakeRepo, ""));
             Assert.Throws<ArgumentException>(() => new ConfigExportService(fakeRepo, "   "));
         }
+
+        [Fact]
+        public void ExportJson_WithEmptyRepository_ReturnsValidEmptyEnvelope()
+        {
+            var fakeRepo = new FakeConfigRepository();
+            var service = new ConfigExportService(fakeRepo, "2.0.0-beta");
+            var exportedAt = new DateTimeOffset(2026, 6, 12, 10, 15, 30, TimeSpan.FromHours(5.5));
+
+            string json = service.ExportJson(exportedAt);
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            Assert.Equal("tally-db-loader.config-export", root.GetProperty("format").GetString());
+            Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+            Assert.Equal("2.0.0-beta", root.GetProperty("application_version").GetString());
+            Assert.Equal("2026-06-12T10:15:30.0000000+05:30", root.GetProperty("exported_at").GetString());
+
+            var payload = root.GetProperty("payload");
+            Assert.Empty(payload.GetProperty("database_profiles").EnumerateArray());
+            Assert.Empty(payload.GetProperty("company_profiles").EnumerateArray());
+        }
     }
 }

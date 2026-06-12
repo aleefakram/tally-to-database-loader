@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json;
 using TallyDbLoader.Core.Models;
 
 namespace TallyDbLoader.Core.Data
@@ -20,7 +21,25 @@ namespace TallyDbLoader.Core.Data
 
         public string ExportJson(DateTimeOffset exportedAt)
         {
-            throw new NotImplementedException();
+            var envelope = new
+            {
+                format = "tally-db-loader.config-export",
+                schema_version = 1,
+                application_version = _applicationVersion,
+                exported_at = exportedAt.ToString("o"),
+                payload = new
+                {
+                    database_profiles = new object[0],
+                    company_profiles = new object[0]
+                }
+            };
+
+            var options = new JsonSerializerOptions
+            {
+                WriteIndented = true
+            };
+
+            return JsonSerializer.Serialize(envelope, options);
         }
     }
 }

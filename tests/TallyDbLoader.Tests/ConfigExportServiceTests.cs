@@ -192,5 +192,96 @@ namespace TallyDbLoader.Tests
             }
             Assert.True(allowedProperties.SetEquals(actualProperties), "Company profile keys mismatch");
         }
+
+        [Fact]
+        public void ExportJson_WithRealDatabase_WorksCorrectly()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_export_real_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                var dbProfile = new DatabaseProfile
+                {
+                    Name = "RealPostgres",
+                    Technology = "postgres",
+                    Server = "127.0.0.1",
+                    Port = 5432,
+                    Username = "user",
+                    Password = "RealSecretPassword"
+                };
+                repo.SaveDatabaseProfile(dbProfile);
+                var savedDb = repo.GetDatabaseProfileByName("RealPostgres");
+                Assert.NotNull(savedDb);
+
+                var company = new CompanyProfile
+                {
+                    Name = "Real Company",
+                    DbProfileId = savedDb.Id,
+                    TargetCatalog = "real_db",
+                    BooksFrom = new DateTime(2026, 1, 1),
+                    Enabled = true
+                };
+                repo.SaveCompanyProfile(company);
+
+                int dbCountBefore, companyCountBefore, syncRunsCountBefore, auditLogsCountBefore;
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    dbCountBefore = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM database_profiles");
+                    companyCountBefore = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM company_profiles");
+                    syncRunsCountBefore = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM sync_runs");
+                    auditLogsCountBefore = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log");
+                }
+
+                var service = new ConfigExportService(repo, "1.2.3");
+                string json = service.ExportJson(DateTimeOffset.Now);
+
+                int dbCountAfter, companyCountAfter, syncRunsCountAfter, auditLogsCountAfter;
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    dbCountAfter = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM database_profiles");
+                    companyCountAfter = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM company_profiles");
+                    syncRunsCountAfter = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM sync_runs");
+                    auditLogsCountAfter = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log");
+                }
+
+                // Verify read-only guarantees (no mutations, no new sync runs, no new audit log rows from export)
+                Assert.Equal(dbCountBefore, dbCountAfter);
+                Assert.Equal(companyCountBefore, companyCountAfter);
+                Assert.Equal(syncRunsCountBefore, syncRunsCountAfter);
+                Assert.Equal(auditLogsCountBefore, auditLogsCountAfter);
+
+                // Assert secrets are absolutely absent
+                Assert.DoesNotContain("RealSecretPassword", json);
+                Assert.DoesNotContain("dpapi:", json);
+
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
+                Assert.Equal("1.2.3", root.GetProperty("application_version").GetString());
+
+                var payload = root.GetProperty("payload");
+                var dbs = payload.GetProperty("database_profiles");
+                var comps = payload.GetProperty("company_profiles");
+
+                Assert.Equal(1, dbs.GetArrayLength());
+                Assert.Equal(1, comps.GetArrayLength());
+
+                Assert.Equal("RealPostgres", dbs[0].GetProperty("name").GetString());
+                
+                // Note: This integration test assumes standard DPAPI works on the Windows local test runner.
+                // If DPAPI decryption fails, has_password will report false, which is accepted in Phase 1.
+                Assert.True(dbs[0].GetProperty("has_password").GetBoolean());
+                Assert.Equal("Real Company", comps[0].GetProperty("name").GetString());
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(testDbPath))
+                {
+                    try { File.Delete(testDbPath); } catch { }
+                }
+            }
+        }
     }
 }

@@ -65,13 +65,95 @@ namespace TallyDbLoader.Tests
         }
 
         [Fact]
-        public void ImportJson_ThrowsNotImplementedException_Initially()
+        public void ImportJson_WithNullOrEmptyJson_ThrowsArgumentException()
         {
             var fake = new FakeConfigRepository();
             var service = new ConfigImportService(fake);
 
-            Assert.Throws<NotImplementedException>(() =>
-                service.ImportJson("{}", new ImportDecision(), "actor", "reason"));
+            Assert.Throws<ArgumentException>(() => service.ImportJson(null!, new ImportDecision(), "actor", "reason"));
+            Assert.Throws<ArgumentException>(() => service.ImportJson("", new ImportDecision(), "actor", "reason"));
+            Assert.Throws<ArgumentException>(() => service.ImportJson("   ", new ImportDecision(), "actor", "reason"));
+        }
+
+        [Fact]
+        public void ImportJson_WithNullActorOrReason_ThrowsArgumentException()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            Assert.Throws<ArgumentException>(() => service.ImportJson("{}", new ImportDecision(), null!, "reason"));
+            Assert.Throws<ArgumentException>(() => service.ImportJson("{}", new ImportDecision(), "", "reason"));
+            Assert.Throws<ArgumentException>(() => service.ImportJson("{}", new ImportDecision(), "actor", null!));
+            Assert.Throws<ArgumentException>(() => service.ImportJson("{}", new ImportDecision(), "actor", ""));
+        }
+
+        [Fact]
+        public void ImportJson_WithInvalidJsonFormat_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() =>
+                service.ImportJson("invalid json", new ImportDecision(), "actor", "reason"));
+            
+            Assert.Single(ex.Errors);
+            Assert.Contains("Invalid JSON content", ex.Errors[0]);
+        }
+
+        [Fact]
+        public void ImportJson_WithUnsupportedFormatOrSchemaOrAppVersion_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            // Invalid format
+            string json1 = @"{
+                ""format"": ""invalid-format"",
+                ""schema_version"": 1,
+                ""application_version"": ""1.0.0"",
+                ""payload"": { ""database_profiles"": [], ""company_profiles"": [] }
+            }";
+            var ex1 = Assert.Throws<ConfigImportValidationException>(() => service.ImportJson(json1, new ImportDecision(), "actor", "reason"));
+            Assert.Contains("Unsupported or invalid format string.", ex1.Errors);
+
+            // Invalid schema version
+            string json2 = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 2,
+                ""application_version"": ""1.0.0"",
+                ""payload"": { ""database_profiles"": [], ""company_profiles"": [] }
+            }";
+            var ex2 = Assert.Throws<ConfigImportValidationException>(() => service.ImportJson(json2, new ImportDecision(), "actor", "reason"));
+            Assert.Contains("Unsupported schema version. Only version 1 is supported.", ex2.Errors);
+
+            // Missing app version
+            string json3 = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": """",
+                ""payload"": { ""database_profiles"": [], ""company_profiles"": [] }
+            }";
+            var ex3 = Assert.Throws<ConfigImportValidationException>(() => service.ImportJson(json3, new ImportDecision(), "actor", "reason"));
+            Assert.Contains("Application version must be a non-empty string.", ex3.Errors);
+        }
+
+        [Fact]
+        public void ImportJson_WithMissingPayload_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""1.0.0"",
+                ""payload"": null
+            }";
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() =>
+                service.ImportJson(json, new ImportDecision(), "actor", "reason"));
+
+            Assert.Contains("Configuration payload is missing or empty.", ex.Errors);
         }
     }
 }

@@ -155,5 +155,235 @@ namespace TallyDbLoader.Tests
 
             Assert.Contains("Configuration payload is missing or empty.", ex.Errors);
         }
+
+        [Fact]
+        public void ImportJson_WithUnresolvedConflicts_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            fake.DatabaseProfiles.Add(new DatabaseProfile { Id = 1, Name = "ExistingDB" });
+            var service = new ConfigImportService(fake);
+
+            // Payload contains DB profile with the same name, creating a conflict
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": ""ExistingDB"",
+                            ""technology"": ""postgres"",
+                            ""server"": ""localhost""
+                        }
+                    ],
+                    ""company_profiles"": []
+                }
+            }";
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() =>
+                service.ImportJson(json, new ImportDecision(), "system", "reason"));
+            
+            Assert.Contains("Conflict detected for database profile 'ExistingDB'", ex.Errors[0]);
+        }
+
+        [Fact]
+        public void ImportJson_WithMissingRequiredFields_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": """",
+                            ""technology"": ""postgres"",
+                            ""server"": """"
+                        }
+                    ],
+                    ""company_profiles"": [
+                        {
+                            ""id"": 2,
+                            ""name"": ""MyCompany"",
+                            ""db_profile_id"": 1,
+                            ""target_catalog"": """"
+                        }
+                    ]
+                }
+            }";
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() =>
+                service.ImportJson(json, new ImportDecision(), "system", "reason"));
+
+            Assert.Contains("is missing a name.", ex.Errors[0]);
+            Assert.Contains("is missing target_catalog.", ex.Errors[ex.Errors.Count - 1]);
+        }
+
+        [Fact]
+        public void ImportJson_WithInvalidDateFormat_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": ""MyDB"",
+                            ""technology"": ""postgres"",
+                            ""server"": ""localhost""
+                        }
+                    ],
+                    ""company_profiles"": [
+                        {
+                            ""id"": 2,
+                            ""name"": ""MyCompany"",
+                            ""db_profile_id"": 1,
+                            ""books_from"": ""invalid-date-format"",
+                            ""target_catalog"": ""catalog""
+                        }
+                    ]
+                }
+            }";
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() =>
+                service.ImportJson(json, new ImportDecision(), "system", "reason"));
+
+            Assert.Contains("has an invalid books_from date format", ex.Errors[0]);
+        }
+
+
+        [Fact]
+        public void ImportJson_WithValidPayloadAndConflictStrategy_ImportsSuccessfully()
+        {
+            var fake = new FakeConfigRepository();
+            fake.DatabaseProfiles.Add(new DatabaseProfile { Id = 10, Name = "TargetDB" });
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": ""TargetDB"",
+                            ""technology"": ""mssql"",
+                            ""server"": ""localhost"",
+                            ""port"": 1433,
+                            ""username"": ""sa"",
+                            ""has_password"": true
+                        }
+                    ],
+                    ""company_profiles"": []
+                }
+            }";
+
+            var decision = new ImportDecision();
+            decision.DatabaseConflicts[1] = ConflictResolutionStrategy.Overwrite;
+            decision.DatabasePasswords[1] = "new-pass";
+
+            service.ImportJson(json, decision, "system", "reason");
+            
+            // Verify it invoked repository import with correct mapped arguments
+            Assert.NotNull(fake.LastDatabaseImports);
+            Assert.Single(fake.LastDatabaseImports);
+            var mappedDb = fake.LastDatabaseImports[0];
+            Assert.Equal(1, mappedDb.SourceId);
+            Assert.Equal(10, mappedDb.ExistingLocalId);
+            Assert.Equal(ImportAction.Overwrite, mappedDb.Action);
+            Assert.Equal("new-pass", mappedDb.Password);
+            Assert.False(mappedDb.PreserveExistingPassword);
+        }
+
+        [Fact]
+        public void ImportJson_WithAmbiguousCompanyMatches_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            // Match guid with one company profile, name with another
+            fake.CompanyProfiles.Add(new CompanyProfile { Id = 101, Name = "CompanyOne", TallyGuid = "guid-111" });
+            fake.CompanyProfiles.Add(new CompanyProfile { Id = 102, Name = "CompanyTwo", TallyGuid = "guid-222" });
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": ""MyDB"",
+                            ""technology"": ""postgres"",
+                            ""server"": ""localhost""
+                        }
+                    ],
+                    ""company_profiles"": [
+                        {
+                            ""id"": 5,
+                            ""name"": ""CompanyOne"",
+                            ""tally_guid"": ""guid-222"",
+                            ""db_profile_id"": 1,
+                            ""target_catalog"": ""catalog""
+                        }
+                    ]
+                }
+            }";
+
+            var decision = new ImportDecision();
+            decision.CompanyConflicts[5] = ConflictResolutionStrategy.Overwrite;
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() => service.ImportJson(json, decision, "system", "reason"));
+            Assert.Contains("Ambiguous conflict for company profile 'CompanyOne'", ex.Errors[0]);
+        }
+
+        [Fact]
+        public void ImportJson_WithSkippedDbReference_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            fake.DatabaseProfiles.Add(new DatabaseProfile { Id = 10, Name = "MyDB" });
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": ""MyDB"",
+                            ""technology"": ""postgres"",
+                            ""server"": ""localhost""
+                        }
+                    ],
+                    ""company_profiles"": [
+                        {
+                            ""id"": 5,
+                            ""name"": ""MyCompany"",
+                            ""db_profile_id"": 1,
+                            ""target_catalog"": ""catalog""
+                        }
+                    ]
+                }
+            }";
+
+            var decision = new ImportDecision();
+            decision.DatabaseConflicts[1] = ConflictResolutionStrategy.Skip;
+            decision.CompanyConflicts[5] = ConflictResolutionStrategy.Overwrite; // Overwrite company but DB is skipped -> invalid!
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() => service.ImportJson(json, decision, "system", "reason"));
+            Assert.Contains("is skipped, but the company profile is not marked to skip", ex.Errors[0]);
+        }
     }
 }

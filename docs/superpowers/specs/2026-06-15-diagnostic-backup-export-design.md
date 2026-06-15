@@ -118,6 +118,7 @@ manifest.json
 
 Rules:
 
+- Use the standard `System.IO.Compression.ZipArchive` APIs for ZIP creation.
 - Use forward-slash ZIP entry names.
 - Do not include absolute local paths in ZIP entry names.
 - Preserve relative paths under `logs/` and `raw_xml/` only where needed to avoid name collisions.
@@ -140,6 +141,7 @@ source.BackupDatabase(destination);
 ```
 
 Write the copied database to a temporary working directory first, then add it to the ZIP as `config/config.db`.
+The temporary working directory may be a unique subdirectory under `request.OutputDirectoryPath` or `Path.GetTempPath()`.
 
 Rules:
 
@@ -190,6 +192,8 @@ is_64_bit_process
 ```
 
 Do not include environment variables, command-line arguments, database passwords, connection strings, or raw file paths.
+
+System information collection is best-effort. Values such as `Environment.MachineName`, `Environment.UserName`, process name, or memory counters must be read through small safe helpers that catch platform, permission, or process-lifetime exceptions and return `"Unknown"` for string fields or `0` for numeric fields. Diagnostic backup creation must not fail because a non-critical system info property is unavailable in a test or locked-down environment.
 
 ## Manifest
 

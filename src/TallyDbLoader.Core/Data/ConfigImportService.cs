@@ -33,11 +33,11 @@ namespace TallyDbLoader.Core.Data
         {
             public int Id { get; set; }
             public string Name { get; set; } = "";
-            public string Technology { get; set; } = "postgres";
+            public string? Technology { get; set; }
             public string Server { get; set; } = "";
             public int Port { get; set; }
             public string Username { get; set; } = "";
-            public bool Has_Password { get; set; }
+            public bool? Has_Password { get; set; }
         }
 
         private class ExportCompanyProfile
@@ -132,6 +132,10 @@ namespace TallyDbLoader.Core.Data
                 {
                     errors.Add($"Database profile '{db.Name}' (ID {db.Id}) is missing server host.");
                 }
+                if (db.Has_Password == null)
+                {
+                    errors.Add($"Database profile '{db.Name}' (ID {db.Id}) is missing has_password flag.");
+                }
             }
 
             foreach (var comp in companyProfiles)
@@ -214,7 +218,7 @@ namespace TallyDbLoader.Core.Data
                     string? password = null;
                     bool preservePassword = true;
 
-                    if (sourceDb.Has_Password)
+                    if (sourceDb.Has_Password.GetValueOrDefault())
                     {
                         if (!decision.DatabasePasswords.TryGetValue(sourceDb.Id, out password) || string.IsNullOrEmpty(password))
                         {
@@ -234,7 +238,7 @@ namespace TallyDbLoader.Core.Data
                         Profile = new DatabaseProfile
                         {
                             Name = sourceDb.Name,
-                            Technology = sourceDb.Technology,
+                            Technology = sourceDb.Technology ?? string.Empty,
                             Server = sourceDb.Server,
                             Port = sourceDb.Port,
                             Username = sourceDb.Username ?? string.Empty
@@ -245,7 +249,7 @@ namespace TallyDbLoader.Core.Data
                 {
                     // Create
                     string? password = null;
-                    if (sourceDb.Has_Password)
+                    if (sourceDb.Has_Password.GetValueOrDefault())
                     {
                         if (!decision.DatabasePasswords.TryGetValue(sourceDb.Id, out password) || string.IsNullOrEmpty(password))
                         {
@@ -263,7 +267,7 @@ namespace TallyDbLoader.Core.Data
                         Profile = new DatabaseProfile
                         {
                             Name = sourceDb.Name,
-                            Technology = sourceDb.Technology,
+                            Technology = sourceDb.Technology ?? string.Empty,
                             Server = sourceDb.Server,
                             Port = sourceDb.Port,
                             Username = sourceDb.Username ?? string.Empty

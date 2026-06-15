@@ -116,12 +116,12 @@ namespace TallyDbLoader.Core.Data
                             });
 
                             int affected = conn.Execute(@"
-                                UPDATE database_profiles 
-                                SET name = @Name, 
-                                    technology = @Technology, 
-                                    server = @Server, 
-                                    port = @Port, 
-                                    username = @Username, 
+                                UPDATE database_profiles
+                                SET name = @Name,
+                                    technology = @Technology,
+                                    server = @Server,
+                                    port = @Port,
+                                    username = @Username,
                                     password = @Password,
                                     last_test_result = @LastTestResult,
                                     last_tested_at = @LastTestedAt
@@ -199,10 +199,10 @@ namespace TallyDbLoader.Core.Data
                 conn.Open();
                 conn.Execute("PRAGMA foreign_keys = ON;");
                 var profiles = conn.Query<DatabaseProfile>("SELECT id, name, technology, server, port, username, password, last_test_result AS LastTestResult, last_tested_at AS LastTestedAt FROM database_profiles").AsList();
-                
+
                 var countMap = conn.Query<(int DbProfileId, int Cnt)>(@"
-                    SELECT db_profile_id AS DbProfileId, COUNT(*) AS Cnt 
-                    FROM company_profiles 
+                    SELECT db_profile_id AS DbProfileId, COUNT(*) AS Cnt
+                    FROM company_profiles
                     GROUP BY db_profile_id").ToDictionary(x => x.DbProfileId, x => x.Cnt);
 
                 foreach (var profile in profiles)
@@ -381,18 +381,18 @@ namespace TallyDbLoader.Core.Data
                 conn.Open();
                 conn.Execute("PRAGMA foreign_keys = ON;");
                 var sql = @"
-                    SELECT c.id AS Id, 
-                           c.name AS Name, 
+                    SELECT c.id AS Id,
+                           c.name AS Name,
                            c.tally_guid AS TallyGuid,
                            c.consolidated AS Consolidated,
                            c.books_from AS BooksFrom,
                            c.books_to AS BooksTo,
-                           c.db_profile_id AS DbProfileId, 
+                           c.db_profile_id AS DbProfileId,
                            c.target_catalog AS TargetCatalog,
                            c.schema AS Schema,
                            c.table_prefix AS TablePrefix,
-                           c.mode AS Mode, 
-                           c.interval_minutes AS IntervalMinutes, 
+                           c.mode AS Mode,
+                           c.interval_minutes AS IntervalMinutes,
                            c.enabled AS Enabled,
                            c.notify_on_error AS NotifyOnError,
                            c.pause_on_tally_close AS PauseOnTallyClose,
@@ -508,13 +508,13 @@ namespace TallyDbLoader.Core.Data
                 conn.Open();
                 conn.Execute("PRAGMA foreign_keys = ON;");
                 var settings = conn.QueryFirstOrDefault<TallySettings>(@"
-                    SELECT id AS Id, 
-                           server AS Server, 
-                           port AS Port, 
-                           tally_exe_path AS TallyExePath, 
-                           tally_ini_path AS TallyIniPath, 
-                           auto_start_tally AS AutoStartTally 
-                    FROM tally_settings 
+                    SELECT id AS Id,
+                           server AS Server,
+                           port AS Port,
+                           tally_exe_path AS TallyExePath,
+                           tally_ini_path AS TallyIniPath,
+                           auto_start_tally AS AutoStartTally
+                    FROM tally_settings
                     WHERE id = 1");
                 return settings ?? new TallySettings();
             }
@@ -656,8 +656,8 @@ namespace TallyDbLoader.Core.Data
                 {
                     try
                     {
-                        string? endedAtStr = (run.Status == "running" || run.EndedAt == default(System.DateTime)) 
-                            ? null 
+                        string? endedAtStr = (run.Status == "running" || run.EndedAt == default(System.DateTime))
+                            ? null
                             : run.EndedAt.ToString("o");
 
                         conn.Execute(@"
@@ -677,7 +677,7 @@ namespace TallyDbLoader.Core.Data
                                 run.ResultSummary,
                                 run.LogExcerpt
                             }, transaction);
-                        
+
                         long id = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
                         transaction.Commit();
                         run.Id = id;
@@ -960,15 +960,15 @@ namespace TallyDbLoader.Core.Data
                     {
                         // 2. Load the company profile
                         var profile = conn.QuerySingleOrDefault<CompanyProfile>(
-                            "SELECT id, name, status FROM company_profiles WHERE id = @Id", 
+                            "SELECT id, name, status FROM company_profiles WHERE id = @Id",
                             new { Id = companyProfileId }, transaction);
 
                         if (profile == null)
                             throw new KeyNotFoundException($"Company profile with ID {companyProfileId} was not found.");
 
                         // 3. Verify status eligibility
-                        if (profile.Status != "review_required" && 
-                            profile.Status != "attention_required" && 
+                        if (profile.Status != "review_required" &&
+                            profile.Status != "attention_required" &&
                             profile.Status != "unknown")
                         {
                             throw new InvalidOperationException($"Cannot resolve safety state. Company profile status is '{profile.Status}', which is not a safety-blocked state.");
@@ -1025,6 +1025,11 @@ namespace TallyDbLoader.Core.Data
             string beforeJson,
             string afterJson)
         {
+            if (databaseProfiles == null)
+                throw new ArgumentNullException(nameof(databaseProfiles));
+            if (companyProfiles == null)
+                throw new ArgumentNullException(nameof(companyProfiles));
+
             foreach (var db in databaseProfiles)
             {
                 if (db.Profile == null)
@@ -1112,12 +1117,12 @@ namespace TallyDbLoader.Core.Data
                               else
                               {
                                   int affected = conn.Execute(@"
-                                      UPDATE database_profiles 
-                                      SET name = @Name, 
-                                          technology = @Technology, 
-                                          server = @Server, 
-                                          port = @Port, 
-                                          username = @Username, 
+                                      UPDATE database_profiles
+                                      SET name = @Name,
+                                          technology = @Technology,
+                                          server = @Server,
+                                          port = @Port,
+                                          username = @Username,
                                           password = @Password
                                       WHERE id = @Id",
                                       new
@@ -1158,11 +1163,11 @@ namespace TallyDbLoader.Core.Data
                                   company.TablePrefix,
                                   company.Mode,
                                   company.IntervalMinutes,
-                                  Enabled = false, 
+                                  Enabled = false,
                                   company.NotifyOnError,
                                   company.PauseOnTallyClose,
                                   company.EntityFlags,
-                                  Status = "review_required", 
+                                  Status = "review_required",
                                   LastRunAt = (string?)null,
                                   LastDurationMs = (int?)null,
                                   LastRowsWritten = (long?)null,

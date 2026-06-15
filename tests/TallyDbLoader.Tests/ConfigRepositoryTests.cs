@@ -1677,6 +1677,14 @@ namespace TallyDbLoader.Tests
         }
 
         [Fact]
+        public void ImportSanitizedConfig_WithNullArgs_ThrowsArgumentNullException()
+        {
+            var repo = new ConfigRepository(":memory:");
+            Assert.Throws<ArgumentNullException>(() => repo.ImportSanitizedConfig(null!, new List<ResolvedCompanyProfileImport>(), "actor", "reason", "{}", "{}"));
+            Assert.Throws<ArgumentNullException>(() => repo.ImportSanitizedConfig(new List<ResolvedDatabaseProfileImport>(), null!, "actor", "reason", "{}", "{}"));
+        }
+
+        [Fact]
         public void ImportSanitizedConfig_WhenExceptionOccurs_RollsBackTransaction()
         {
             string testDbPath = Path.Combine(Path.GetTempPath(), $"test_import_fail_{Guid.NewGuid()}.db");
@@ -1698,20 +1706,21 @@ namespace TallyDbLoader.Tests
                     }
                 };
 
-                // Company referencing a missing source DB ID to trigger repository-level exception
+                // Company overwrite with non-existent LocalId to trigger mid-transaction exception
                 var compProfile = new CompanyProfile { Name = "Invalid Company", TargetCatalog = "catalog_db" };
                 var compImports = new List<ResolvedCompanyProfileImport>
                 {
                     new ResolvedCompanyProfileImport
                     {
                         SourceId = 200,
-                        Action = ImportAction.Create,
-                        SourceDbProfileId = 9999, // referenced DB profile is missing!
+                        Action = ImportAction.Overwrite,
+                        ExistingLocalId = 999999, // does not exist in DB!
+                        SourceDbProfileId = 99, // references valid source DB profile in payload
                         Profile = compProfile
                     }
                 };
 
-                Assert.Throws<ArgumentException>(() => repo.ImportSanitizedConfig(dbImports, compImports, "test-user", "Will fail", "{}", "{}"));
+                Assert.Throws<InvalidOperationException>(() => repo.ImportSanitizedConfig(dbImports, compImports, "test-user", "Will fail", "{}", "{}"));
 
                 // Verify nothing was committed (db_profiles and company_profiles are empty)
                 Assert.Empty(repo.GetAllDatabaseProfiles());

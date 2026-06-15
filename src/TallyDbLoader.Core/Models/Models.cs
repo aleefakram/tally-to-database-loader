@@ -64,7 +64,7 @@ namespace TallyDbLoader.Core.Models
         public bool PauseOnTallyClose { get; set; } = false;
 
         // Default: 15 (Vouchers=1 | Ledgers=2 | StockItems=4 | Groups=8)
-        public int EntityFlags { get; set; } = 15; 
+        public int EntityFlags { get; set; } = 15;
 
         public string Status { get; set; } = "idle"; // "ok" | "warn" | "err" | "idle"
         public DateTime? LastRunAt { get; set; }
@@ -141,4 +141,3 @@ namespace TallyDbLoader.Core.Models
         public CompanyProfile Profile { get; set; } = null!;
     }
 }
-

@@ -95,7 +95,7 @@ namespace TallyDbLoader.Tests
 
             var ex = Assert.Throws<ConfigImportValidationException>(() =>
                 service.ImportJson("invalid json", new ImportDecision(), "actor", "reason"));
-            
+
             Assert.Single(ex.Errors);
             Assert.Contains("Invalid JSON content", ex.Errors[0]);
         }
@@ -174,7 +174,8 @@ namespace TallyDbLoader.Tests
                             ""id"": 1,
                             ""name"": ""ExistingDB"",
                             ""technology"": ""postgres"",
-                            ""server"": ""localhost""
+                            ""server"": ""localhost"",
+                            ""has_password"": false
                         }
                     ],
                     ""company_profiles"": []
@@ -183,7 +184,7 @@ namespace TallyDbLoader.Tests
 
             var ex = Assert.Throws<ConfigImportValidationException>(() =>
                 service.ImportJson(json, new ImportDecision(), "system", "reason"));
-            
+
             Assert.Contains("Conflict detected for database profile 'ExistingDB'", ex.Errors[0]);
         }
 
@@ -240,7 +241,8 @@ namespace TallyDbLoader.Tests
                             ""id"": 1,
                             ""name"": ""MyDB"",
                             ""technology"": ""postgres"",
-                            ""server"": ""localhost""
+                            ""server"": ""localhost"",
+                            ""has_password"": false
                         }
                     ],
                     ""company_profiles"": [
@@ -294,7 +296,7 @@ namespace TallyDbLoader.Tests
             decision.DatabasePasswords[1] = "new-pass";
 
             service.ImportJson(json, decision, "system", "reason");
-            
+
             // Verify it invoked repository import with correct mapped arguments
             Assert.NotNull(fake.LastDatabaseImports);
             Assert.Single(fake.LastDatabaseImports);
@@ -325,7 +327,8 @@ namespace TallyDbLoader.Tests
                             ""id"": 1,
                             ""name"": ""MyDB"",
                             ""technology"": ""postgres"",
-                            ""server"": ""localhost""
+                            ""server"": ""localhost"",
+                            ""has_password"": false
                         }
                     ],
                     ""company_profiles"": [
@@ -364,7 +367,8 @@ namespace TallyDbLoader.Tests
                             ""id"": 1,
                             ""name"": ""MyDB"",
                             ""technology"": ""postgres"",
-                            ""server"": ""localhost""
+                            ""server"": ""localhost"",
+                            ""has_password"": false
                         }
                     ],
                     ""company_profiles"": [
@@ -384,6 +388,64 @@ namespace TallyDbLoader.Tests
 
             var ex = Assert.Throws<ConfigImportValidationException>(() => service.ImportJson(json, decision, "system", "reason"));
             Assert.Contains("is skipped, but the company profile is not marked to skip", ex.Errors[0]);
+        }
+
+        [Fact]
+        public void ImportJson_WithMissingTechnology_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": ""MyDB"",
+                            ""server"": ""localhost"",
+                            ""has_password"": false
+                        }
+                    ],
+                    ""company_profiles"": []
+                }
+            }";
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() =>
+                service.ImportJson(json, new ImportDecision(), "system", "reason"));
+
+            Assert.Contains("is missing technology.", ex.Errors[0]);
+        }
+
+        [Fact]
+        public void ImportJson_WithMissingHasPassword_ThrowsConfigImportValidationException()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": ""MyDB"",
+                            ""technology"": ""postgres"",
+                            ""server"": ""localhost""
+                        }
+                    ],
+                    ""company_profiles"": []
+                }
+            }";
+
+            var ex = Assert.Throws<ConfigImportValidationException>(() =>
+                service.ImportJson(json, new ImportDecision(), "system", "reason"));
+
+            Assert.Contains("is missing has_password flag.", ex.Errors[0]);
         }
     }
 }

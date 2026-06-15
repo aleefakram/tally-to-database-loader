@@ -1,6 +1,6 @@
 # Sanitized Configuration Import Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [px]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement a core service and repository method to safely parse, validate, resolve conflicts, and transactionally import a sanitized configuration JSON file into the local SQLite database.
 
@@ -15,6 +15,7 @@
 **Files:**
 - Modify: `src/TallyDbLoader.Core/Models/Models.cs`
 - Modify: `src/TallyDbLoader.Core/Data/IConfigRepository.cs`
+- Modify: `tests/TallyDbLoader.Tests/ConfigExportServiceTests.cs`
 
 - [ ] **Step 1: Write resolved import models in Models.cs**
 
@@ -78,15 +79,32 @@
           }
   ```
 
-- [ ] **Step 4: Verify the project compiles**
+- [ ] **Step 4: Stub the implementation in ConfigExportServiceTests.cs FakeConfigRepository**
+
+  Add the `ImportSanitizedConfig` stub to `tests/TallyDbLoader.Tests/ConfigExportServiceTests.cs` (inside the `FakeConfigRepository` private class on line 15):
+
+  ```csharp
+              public void ImportSanitizedConfig(
+                  List<ResolvedDatabaseProfileImport> databaseProfiles,
+                  List<ResolvedCompanyProfileImport> companyProfiles,
+                  string actor,
+                  string reason,
+                  string beforeJson,
+                  string afterJson)
+              {
+                  throw new NotImplementedException();
+              }
+  ```
+
+- [ ] **Step 5: Verify the project compiles**
 
   Run: `dotnet build src/TallyDbLoader.sln`
-  Expected: Successful compilation.
+  Expected: Successful compilation without missing interface member errors.
 
-- [ ] **Step 5: Commit changes**
+- [ ] **Step 6: Commit changes**
 
   ```bash
-  git add src/TallyDbLoader.Core/Models/Models.cs src/TallyDbLoader.Core/Data/IConfigRepository.cs src/TallyDbLoader.Core/Data/ConfigRepository.cs
+  git add src/TallyDbLoader.Core/Models/Models.cs src/TallyDbLoader.Core/Data/IConfigRepository.cs src/TallyDbLoader.Core/Data/ConfigRepository.cs tests/TallyDbLoader.Tests/ConfigExportServiceTests.cs
   git commit -m "feat(config): add resolved import models and update repository interface"
   ```
 
@@ -102,6 +120,7 @@
 
   Add failing integration tests to `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs` that check:
   - Repository asserts resolved records are internally valid (e.g., throwing `ArgumentException` if overwrite has no existing ID).
+  - Pre-transaction check: database profile creation or overwrite without preservation must have a non-empty password, otherwise throws `ArgumentException`.
   - Failure during import rolls back all writes (assert profile count remains unchanged).
   - Correct remapping of database profile IDs.
   - Successful import writes exactly one audit row with `action = "import_sanitized_config"`.
@@ -166,6 +185,15 @@
                       throw new ArgumentException("Overwrite database profile must have an ExistingLocalId.", nameof(databaseProfiles));
                   if (db.Action == ImportAction.Create && db.SourceId <= 0)
                       throw new ArgumentException("Create database profile must have a valid SourceId.", nameof(databaseProfiles));
+
+                  if (db.Action == ImportAction.Create ||
+                      (db.Action == ImportAction.Overwrite && !db.PreserveExistingPassword))
+                  {
+                      if (string.IsNullOrEmpty(db.Password))
+                      {
+                          throw new ArgumentException($"A non-empty password is required for database profile '{db.Profile.Name}' when creating or overwriting without password preservation.", nameof(databaseProfiles));
+                      }
+                  }
               }
 
               foreach (var company in companyProfiles)
@@ -202,7 +230,6 @@
                                   encryptedPassword = EncryptPassword(record.Password ?? string.Empty);
                               }
                               else if (record.Action == ImportAction.Overwrite && record.PreserveExistingPassword)
-                              {
                                   var existing = conn.QueryFirstOrDefault<DatabaseProfile>(
                                       "SELECT password FROM database_profiles WHERE id = @Id",
                                       new { Id = record.ExistingLocalId },
@@ -538,10 +565,17 @@
   {
       public class ConfigImportServiceTests
       {
-          private class FakeConfigRepository : IConfigRepository
+          public class FakeConfigRepository : IConfigRepository
           {
               public List<DatabaseProfile> DatabaseProfiles { get; set; } = new();
               public List<CompanyProfile> CompanyProfiles { get; set; } = new();
+              
+              public List<ResolvedDatabaseProfileImport>? LastDatabaseImports { get; private set; }
+              public List<ResolvedCompanyProfileImport>? LastCompanyImports { get; private set; }
+              public string? LastActor { get; private set; }
+              public string? LastReason { get; private set; }
+              public string? LastBeforeJson { get; private set; }
+              public string? LastAfterJson { get; private set; }
 
               public List<DatabaseProfile> GetAllDatabaseProfiles() => DatabaseProfiles;
               public List<CompanyProfile> GetAllCompanyProfiles() => CompanyProfiles;
@@ -566,6 +600,12 @@
 
               public void ImportSanitizedConfig(List<ResolvedDatabaseProfileImport> databaseProfiles, List<ResolvedCompanyProfileImport> companyProfiles, string actor, string reason, string beforeJson, string afterJson)
               {
+                  LastDatabaseImports = databaseProfiles;
+                  LastCompanyImports = companyProfiles;
+                  LastActor = actor;
+                  LastReason = reason;
+                  LastBeforeJson = beforeJson;
+                  LastAfterJson = afterJson;
               }
           }
 
@@ -720,7 +760,7 @@
 
 - [ ] **Step 1: Write integration tests for import validation, duplicate IDs, missing passwords, conflict strategies, and skipped DB profile references**
 
-  Add tests to `tests/TallyDbLoader.Tests/ConfigImportServiceTests.cs` showing validation rejects conflicts that are unresolved, DB profiles requiring passwords that aren't supplied, and skipped database profile references causing company validation failures:
+  Add tests to `tests/TallyDbLoader.Tests/ConfigImportServiceTests.cs` showing validation rejects conflicts that are unresolved, DB profiles requiring passwords that aren't supplied, and skipped database profile references causing company validation failures. Assert against mapped models on the fake repository to verify mapping correctness.
 
   ```csharp
           [Fact]
@@ -766,7 +806,7 @@
 
 - [ ] **Step 3: Implement full import parsing, validation, and commit in ConfigImportService.cs**
 
-  Complete `ImportJson` in `src/TallyDbLoader.Core/Data/ConfigImportService.cs`. Add internal payload classes to parse JSON with `System.Text.Json` to project into resolution classes, validate structure/conflicts/passwords/references, and call `_repository.ImportSanitizedConfig`.
+  Complete `ImportJson` in `src/TallyDbLoader.Core/Data/ConfigImportService.cs`. Verify structural presence of all required fields before calling methods like `Trim()` or dereferencing to prevent `NullReferenceException`. Ensure date parsing is performed safely via `DateTime.TryParse` and error collection. Build `before_json` containing only the overwritten records to prevent audit log bloat.
 
   ```csharp
           private class ExportEnvelope
@@ -856,7 +896,65 @@
 
               var payload = envelope.payload ?? new ExportPayload();
 
-              // 1. Basic duplicate source ID checks
+              // 1. Basic structural validation to prevent NullReferenceException on dereferences
+              foreach (var db in payload.database_profiles)
+              {
+                  if (db == null)
+                  {
+                      errors.Add("Database profile element is null.");
+                      continue;
+                  }
+                  if (db.id <= 0)
+                  {
+                      errors.Add("Database profile has an invalid or missing ID.");
+                  }
+                  if (string.IsNullOrWhiteSpace(db.name))
+                  {
+                      errors.Add($"Database profile ID {db.id} is missing a name.");
+                  }
+                  if (string.IsNullOrWhiteSpace(db.technology))
+                  {
+                      errors.Add($"Database profile '{db.name}' (ID {db.id}) is missing technology.");
+                  }
+                  if (string.IsNullOrWhiteSpace(db.server))
+                  {
+                      errors.Add($"Database profile '{db.name}' (ID {db.id}) is missing server host.");
+                  }
+                  if (string.IsNullOrWhiteSpace(db.username))
+                  {
+                      errors.Add($"Database profile '{db.name}' (ID {db.id}) is missing username.");
+                  }
+              }
+
+              foreach (var comp in payload.company_profiles)
+              {
+                  if (comp == null)
+                  {
+                      errors.Add("Company profile element is null.");
+                      continue;
+                  }
+                  if (comp.id <= 0)
+                  {
+                      errors.Add("Company profile has an invalid or missing ID.");
+                  }
+                  if (string.IsNullOrWhiteSpace(comp.name))
+                  {
+                      errors.Add($"Company profile ID {comp.id} is missing a name.");
+                  }
+                  if (comp.db_profile_id <= 0)
+                  {
+                      errors.Add($"Company profile '{comp.name}' (ID {comp.id}) is missing db_profile_id.");
+                  }
+                  if (string.IsNullOrWhiteSpace(comp.target_catalog))
+                  {
+                      errors.Add($"Company profile '{comp.name}' (ID {comp.id}) is missing target_catalog.");
+                  }
+              }
+
+              if (errors.Count > 0)
+                  throw new ConfigImportValidationException(errors);
+
+              // 2. Duplicate source ID checks
               var dbSourceIds = new HashSet<int>();
               foreach (var db in payload.database_profiles)
               {
@@ -871,7 +969,10 @@
                       errors.Add($"Duplicate company profile source ID: {comp.id}");
               }
 
-              // 2. Load existing models for conflict matching
+              if (errors.Count > 0)
+                  throw new ConfigImportValidationException(errors);
+
+              // 3. Load existing models for conflict matching
               var existingDbs = _repository.GetAllDatabaseProfiles() ?? new List<DatabaseProfile>();
               var existingComps = _repository.GetAllCompanyProfiles() ?? new List<CompanyProfile>();
 
@@ -881,7 +982,7 @@
               var skippedDbIds = new HashSet<int>();
               var skippedCompIds = new HashSet<int>();
 
-              // 3. Resolve Database Conflicts & Passwords
+              // 4. Resolve Database Conflicts & Passwords
               foreach (var sourceDb in payload.database_profiles)
               {
                   var sourceNameNorm = sourceDb.name.Trim().ToLowerInvariant();
@@ -963,7 +1064,7 @@
                   }
               }
 
-              // 4. Resolve Company Conflicts & skipped DB profiles validation
+              // 5. Resolve Company Conflicts & skipped DB profiles validation
               foreach (var sourceComp in payload.company_profiles)
               {
                   // A company profile must only reference a DB profile in the payload
@@ -998,6 +1099,33 @@
                       existingMatch = existingComps.FirstOrDefault(e => e.Name.Trim().ToLowerInvariant() == sourceNameNorm);
                   }
 
+                  // Parse dates safely with TryParse
+                  DateTime? booksFromVal = null;
+                  if (!string.IsNullOrEmpty(sourceComp.books_from))
+                  {
+                      if (DateTime.TryParse(sourceComp.books_from, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var dtFrom))
+                      {
+                          booksFromVal = dtFrom;
+                      }
+                      else
+                      {
+                          errors.Add($"Company profile '{sourceComp.name}' has an invalid books_from date format: '{sourceComp.books_from}'.");
+                      }
+                  }
+
+                  DateTime? booksToVal = null;
+                  if (!string.IsNullOrEmpty(sourceComp.books_to))
+                  {
+                      if (DateTime.TryParse(sourceComp.books_to, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind, out var dtTo))
+                      {
+                          booksToVal = dtTo;
+                      }
+                      else
+                      {
+                          errors.Add($"Company profile '{sourceComp.name}' has an invalid books_to date format: '{sourceComp.books_to}'.");
+                      }
+                  }
+
                   if (existingMatch != null)
                   {
                       if (!decision.CompanyConflicts.TryGetValue(sourceComp.id, out var strategy))
@@ -1027,8 +1155,8 @@
                               Name = sourceComp.name,
                               TallyGuid = sourceComp.tally_guid,
                               Consolidated = sourceComp.consolidated,
-                              BooksFrom = string.IsNullOrEmpty(sourceComp.books_from) ? (DateTime?)null : DateTime.Parse(sourceComp.books_from),
-                              BooksTo = string.IsNullOrEmpty(sourceComp.books_to) ? (DateTime?)null : DateTime.Parse(sourceComp.books_to),
+                              BooksFrom = booksFromVal,
+                              BooksTo = booksToVal,
                               TargetCatalog = sourceComp.target_catalog,
                               Schema = sourceComp.schema,
                               TablePrefix = sourceComp.table_prefix,
@@ -1062,8 +1190,8 @@
                               Name = sourceComp.name,
                               TallyGuid = sourceComp.tally_guid,
                               Consolidated = sourceComp.consolidated,
-                              BooksFrom = string.IsNullOrEmpty(sourceComp.books_from) ? (DateTime?)null : DateTime.Parse(sourceComp.books_from),
-                              BooksTo = string.IsNullOrEmpty(sourceComp.books_to) ? (DateTime?)null : DateTime.Parse(sourceComp.books_to),
+                              BooksFrom = booksFromVal,
+                              BooksTo = booksToVal,
                               TargetCatalog = sourceComp.target_catalog,
                               Schema = sourceComp.schema,
                               TablePrefix = sourceComp.table_prefix,
@@ -1080,11 +1208,15 @@
               if (errors.Count > 0)
                   throw new ConfigImportValidationException(errors);
 
-              // 5. Build Compact Audit JSON Payloads
+              // 6. Build Compact Audit JSON Payloads (overwritten records only, plus counts of skipped/created records)
               var auditBefore = new
               {
-                  database_profiles = existingDbs.Select(d => new { name = d.Name, technology = d.Technology }).ToList(),
-                  company_profiles = existingComps.Select(c => new { name = c.Name, target_catalog = c.TargetCatalog }).ToList()
+                  overwritten_database_profiles = existingDbs
+                      .Where(e => resolvedDbs.Any(r => r.Action == ImportAction.Overwrite && r.ExistingLocalId == e.Id))
+                      .Select(d => new { name = d.Name, technology = d.Technology }).ToList(),
+                  overwritten_company_profiles = existingComps
+                      .Where(e => resolvedComps.Any(r => r.Action == ImportAction.Overwrite && r.ExistingLocalId == e.Id))
+                      .Select(c => new { name = c.Name, target_catalog = c.TargetCatalog }).ToList()
               };
 
               var auditAfter = new
@@ -1096,7 +1228,7 @@
               string beforeJson = JsonSerializer.Serialize(auditBefore);
               string afterJson = JsonSerializer.Serialize(auditAfter);
 
-              // 6. Invoke transactional repository write
+              // 7. Invoke transactional repository write
               _repository.ImportSanitizedConfig(
                   resolvedDbs,
                   resolvedComps,
@@ -1109,11 +1241,12 @@
 
 - [ ] **Step 4: Write remaining tests for complete success state mapping and validation**
 
-  Add tests to verify:
+  Add tests in `tests/TallyDbLoader.Tests/ConfigImportServiceTests.cs` to verify:
   - Database profiles name-matching overwrite resolution.
   - Company profile GUID mapping conflict resolution.
   - Ambiguous matches fail validation.
-  - Skipped database profile references fail if company profile isn't skipped.
+  - Skipped database profile references fail if company profile itself isn't skipped.
+  - Verify mapping correctness by asserting properties on `FakeConfigRepository` mock fields (`LastDatabaseImports`, `LastCompanyImports`, etc.) match expected action types, IDs, passwords, and preserve flags.
 
   ```csharp
           [Fact]
@@ -1148,7 +1281,16 @@
               decision.DatabasePasswords[1] = "new-pass";
 
               service.ImportJson(json, decision, "system", "reason");
-              // Verify no validation exceptions are thrown
+              
+              // Verify it invoked repository import with correct mapped arguments
+              Assert.NotNull(fake.LastDatabaseImports);
+              Assert.Single(fake.LastDatabaseImports);
+              var mappedDb = fake.LastDatabaseImports[0];
+              Assert.Equal(1, mappedDb.SourceId);
+              Assert.Equal(10, mappedDb.ExistingLocalId);
+              Assert.Equal(ImportAction.Overwrite, mappedDb.Action);
+              Assert.Equal("new-pass", mappedDb.Password);
+              Assert.False(mappedDb.PreserveExistingPassword);
           }
   ```
 

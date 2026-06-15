@@ -306,6 +306,55 @@ namespace TallyDbLoader.Tests
             Assert.Equal(ImportAction.Overwrite, mappedDb.Action);
             Assert.Equal("new-pass", mappedDb.Password);
             Assert.False(mappedDb.PreserveExistingPassword);
+
+            // Verify audit before/after JSON does not contain any passwords/secrets
+            Assert.NotNull(fake.LastBeforeJson);
+            Assert.NotNull(fake.LastAfterJson);
+            Assert.DoesNotContain("new-pass", fake.LastBeforeJson);
+            Assert.DoesNotContain("new-pass", fake.LastAfterJson);
+            Assert.DoesNotContain("password", fake.LastBeforeJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("password", fake.LastAfterJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("dpapi:", fake.LastBeforeJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("dpapi:", fake.LastAfterJson, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void ImportJson_AuditExcludesSecrets()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        {
+                            ""id"": 1,
+                            ""name"": ""MyDB"",
+                            ""technology"": ""postgres"",
+                            ""server"": ""localhost"",
+                            ""has_password"": true
+                        }
+                    ],
+                    ""company_profiles"": []
+                }
+            }";
+
+            var decision = new ImportDecision();
+            decision.DatabasePasswords[1] = "secret-import-password-12345";
+
+            service.ImportJson(json, decision, "system", "reason");
+
+            Assert.NotNull(fake.LastBeforeJson);
+            Assert.NotNull(fake.LastAfterJson);
+            Assert.DoesNotContain("secret-import-password-12345", fake.LastBeforeJson);
+            Assert.DoesNotContain("secret-import-password-12345", fake.LastAfterJson);
+            Assert.DoesNotContain("password", fake.LastBeforeJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("password", fake.LastAfterJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("dpapi:", fake.LastBeforeJson, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("dpapi:", fake.LastAfterJson, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]

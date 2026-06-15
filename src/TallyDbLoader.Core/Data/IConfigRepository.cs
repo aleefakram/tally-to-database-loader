@@ -35,5 +35,13 @@ namespace TallyDbLoader.Core.Data
             string actor,
             string reason,
             System.DateTime resolvedAt);
+
+        void ImportSanitizedConfig(
+            List<ResolvedDatabaseProfileImport> databaseProfiles,
+            List<ResolvedCompanyProfileImport> companyProfiles,
+            string actor,
+            string reason,
+            string beforeJson,
+            string afterJson);
     }
 }

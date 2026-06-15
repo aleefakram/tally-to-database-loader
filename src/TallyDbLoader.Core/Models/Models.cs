@@ -115,4 +115,30 @@ namespace TallyDbLoader.Core.Models
     //   public DateTime? BooksFrom { get; set; }
     //   public DateTime? BooksTo { get; set; }
     // Keep existing IsGroup as bool, and map to CompanyProfile.Consolidated (as int) only when saving.
+
+    public enum ImportAction
+    {
+        Create,
+        Overwrite
+    }
+
+    public class ResolvedDatabaseProfileImport
+    {
+        public int SourceId { get; set; }
+        public int? ExistingLocalId { get; set; }
+        public ImportAction Action { get; set; }
+        public DatabaseProfile Profile { get; set; } = null!;
+        public string? Password { get; set; }
+        public bool PreserveExistingPassword { get; set; }
+    }
+
+    public class ResolvedCompanyProfileImport
+    {
+        public int SourceId { get; set; }
+        public int? ExistingLocalId { get; set; }
+        public int SourceDbProfileId { get; set; }
+        public ImportAction Action { get; set; }
+        public CompanyProfile Profile { get; set; } = null!;
+    }
 }
+

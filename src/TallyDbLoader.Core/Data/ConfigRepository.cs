@@ -1016,6 +1016,17 @@ namespace TallyDbLoader.Core.Data
             }
         }
 
+        public void ImportSanitizedConfig(
+            List<ResolvedDatabaseProfileImport> databaseProfiles,
+            List<ResolvedCompanyProfileImport> companyProfiles,
+            string actor,
+            string reason,
+            string beforeJson,
+            string afterJson)
+        {
+            throw new NotImplementedException();
+        }
+
         private static long InsertConfigAuditLog(
             SqliteConnection conn,
             SqliteTransaction transaction,

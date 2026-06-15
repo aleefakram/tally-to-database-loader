@@ -37,6 +37,7 @@ namespace TallyDbLoader.Tests
             public void UpdateSyncRun(SyncRun run) => throw new NotImplementedException();
             public void ReconcileStaleRuns(DateTime now) => throw new NotImplementedException();
             public long ResolveCompanyProfileSafetyState(int companyProfileId, string actor, string reason, DateTime resolvedAt) => throw new NotImplementedException();
+            public void ImportSanitizedConfig(List<ResolvedDatabaseProfileImport> databaseProfiles, List<ResolvedCompanyProfileImport> companyProfiles, string actor, string reason, string beforeJson, string afterJson) => throw new NotImplementedException();
         }
 
         [Fact]

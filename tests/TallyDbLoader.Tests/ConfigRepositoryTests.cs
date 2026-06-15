@@ -1551,5 +1551,238 @@ namespace TallyDbLoader.Tests
                 if (File.Exists(path)) try { File.Delete(path); } catch { }
             }
         }
+
+        [Fact]
+        public void ImportSanitizedConfig_WithInvalidRecord_ThrowsArgumentException()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_import_val_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                var dbImports = new List<ResolvedDatabaseProfileImport>
+                {
+                    new ResolvedDatabaseProfileImport
+                    {
+                        SourceId = 1,
+                        Action = ImportAction.Overwrite,
+                        ExistingLocalId = null, // Invalid: overwrite needs local ID
+                        Profile = new DatabaseProfile { Name = "InvalidDB" }
+                    }
+                };
+
+                Assert.Throws<ArgumentException>(() => repo.ImportSanitizedConfig(
+                    dbImports, new List<ResolvedCompanyProfileImport>(), "system", "reason", "{}", "{}"));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                try { if (File.Exists(testDbPath)) File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void ImportSanitizedConfig_WithMissingPasswordForOverwriteNoPreservation_ThrowsArgumentException()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_import_pw_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                var dbImports = new List<ResolvedDatabaseProfileImport>
+                {
+                    new ResolvedDatabaseProfileImport
+                    {
+                        SourceId = 1,
+                        Action = ImportAction.Overwrite,
+                        ExistingLocalId = 1,
+                        Profile = new DatabaseProfile { Name = "ExistingDB" },
+                        Password = "", // Empty password is forbidden for overwrite when PreserveExistingPassword is false
+                        PreserveExistingPassword = false
+                    }
+                };
+
+                Assert.Throws<ArgumentException>(() => repo.ImportSanitizedConfig(
+                    dbImports, new List<ResolvedCompanyProfileImport>(), "system", "reason", "{}", "{}"));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                try { if (File.Exists(testDbPath)) File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void ImportSanitizedConfig_WithValidPayload_SavesAndRemapsAndAudits()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_import_run_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                var dbProfile = new DatabaseProfile { Name = "ImportedDB", Technology = "mssql", Server = "127.0.0.1", Port = 1433, Username = "sa" };
+                var dbImports = new List<ResolvedDatabaseProfileImport>
+                {
+                    new ResolvedDatabaseProfileImport
+                    {
+                        SourceId = 99,
+                        Action = ImportAction.Create,
+                        Profile = dbProfile,
+                        Password = "my_password",
+                        PreserveExistingPassword = false
+                    }
+                };
+
+                var compProfile = new CompanyProfile { Name = "Imported Company", TargetCatalog = "catalog_db" };
+                var compImports = new List<ResolvedCompanyProfileImport>
+                {
+                    new ResolvedCompanyProfileImport
+                    {
+                        SourceId = 200,
+                        Action = ImportAction.Create,
+                        SourceDbProfileId = 99,
+                        Profile = compProfile
+                    }
+                };
+
+                repo.ImportSanitizedConfig(dbImports, compImports, "test-user", "Imported config", "{}", "{\"imported\":true}");
+
+                var loadedDbs = repo.GetAllDatabaseProfiles();
+                Assert.Single(loadedDbs);
+                Assert.Equal("ImportedDB", loadedDbs[0].Name);
+                Assert.Equal("my_password", loadedDbs[0].Password);
+
+                var loadedCompanies = repo.GetAllCompanyProfiles();
+                Assert.Single(loadedCompanies);
+                Assert.Equal("Imported Company", loadedCompanies[0].Name);
+                Assert.Equal(loadedDbs[0].Id, loadedCompanies[0].DbProfileId);
+                Assert.False(loadedCompanies[0].Enabled);
+                Assert.Equal("review_required", loadedCompanies[0].Status);
+
+                int auditCount;
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    auditCount = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log WHERE action = 'import_sanitized_config'");
+                }
+                Assert.Equal(1, auditCount);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                try { if (File.Exists(testDbPath)) File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void ImportSanitizedConfig_WhenExceptionOccurs_RollsBackTransaction()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_import_fail_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                var dbProfile = new DatabaseProfile { Name = "ShouldRollbackDB", Technology = "mssql", Server = "127.0.0.1", Port = 1433, Username = "sa" };
+                var dbImports = new List<ResolvedDatabaseProfileImport>
+                {
+                    new ResolvedDatabaseProfileImport
+                    {
+                        SourceId = 99,
+                        Action = ImportAction.Create,
+                        Profile = dbProfile,
+                        Password = "rollback_password",
+                        PreserveExistingPassword = false
+                    }
+                };
+
+                // Company referencing a missing source DB ID to trigger repository-level exception
+                var compProfile = new CompanyProfile { Name = "Invalid Company", TargetCatalog = "catalog_db" };
+                var compImports = new List<ResolvedCompanyProfileImport>
+                {
+                    new ResolvedCompanyProfileImport
+                    {
+                        SourceId = 200,
+                        Action = ImportAction.Create,
+                        SourceDbProfileId = 9999, // referenced DB profile is missing!
+                        Profile = compProfile
+                    }
+                };
+
+                Assert.Throws<ArgumentException>(() => repo.ImportSanitizedConfig(dbImports, compImports, "test-user", "Will fail", "{}", "{}"));
+
+                // Verify nothing was committed (db_profiles and company_profiles are empty)
+                Assert.Empty(repo.GetAllDatabaseProfiles());
+                Assert.Empty(repo.GetAllCompanyProfiles());
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                try { if (File.Exists(testDbPath)) File.Delete(testDbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void ImportSanitizedConfig_WithPreservePassword_PreservesPassword()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_import_preserve_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                // Insert existing profile
+                var dp = new DatabaseProfile
+                {
+                    Name = "ExistingDB",
+                    Technology = "postgres",
+                    Server = "localhost",
+                    Port = 5432,
+                    Username = "postgres",
+                    Password = "original_secret"
+                };
+                repo.SaveDatabaseProfile(dp);
+
+                var existingDbs = repo.GetAllDatabaseProfiles();
+                Assert.Single(existingDbs);
+                var existingId = existingDbs[0].Id;
+
+                // Import that overwrites the existing profile but preserves the password
+                var updatedProfile = new DatabaseProfile
+                {
+                    Name = "ExistingDB",
+                    Technology = "postgres",
+                    Server = "new-host",
+                    Port = 5432,
+                    Username = "postgres"
+                };
+
+                var dbImports = new List<ResolvedDatabaseProfileImport>
+                {
+                    new ResolvedDatabaseProfileImport
+                    {
+                        SourceId = 1,
+                        ExistingLocalId = existingId,
+                        Action = ImportAction.Overwrite,
+                        Profile = updatedProfile,
+                        PreserveExistingPassword = true
+                    }
+                };
+
+                repo.ImportSanitizedConfig(dbImports, new List<ResolvedCompanyProfileImport>(), "test-user", "Overwrite config", "{}", "{}");
+
+                var loadedDbs = repo.GetAllDatabaseProfiles();
+                Assert.Single(loadedDbs);
+                Assert.Equal("new-host", loadedDbs[0].Server);
+                Assert.Equal("original_secret", loadedDbs[0].Password); // Password remains original_secret!
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                try { if (File.Exists(testDbPath)) File.Delete(testDbPath); } catch { }
+            }
+        }
     }
 }

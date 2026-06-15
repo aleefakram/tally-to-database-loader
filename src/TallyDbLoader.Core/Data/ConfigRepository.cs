@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using Microsoft.Data.Sqlite;
 using Dapper;
 using System.Text.Json;
+using System.Linq;
 using TallyDbLoader.Core.Models;
 
 namespace TallyDbLoader.Core.Data
@@ -1024,8 +1025,201 @@ namespace TallyDbLoader.Core.Data
             string beforeJson,
             string afterJson)
         {
-            throw new NotImplementedException();
+            foreach (var db in databaseProfiles)
+            {
+                if (db.Profile == null)
+                    throw new ArgumentException("Database profile model cannot be null.", nameof(databaseProfiles));
+                if (db.Action == ImportAction.Overwrite && db.ExistingLocalId == null)
+                    throw new ArgumentException("Overwrite database profile must have an ExistingLocalId.", nameof(databaseProfiles));
+                if (db.Action == ImportAction.Create && db.SourceId <= 0)
+                    throw new ArgumentException("Create database profile must have a valid SourceId.", nameof(databaseProfiles));
+
+                if (db.Action == ImportAction.Overwrite && !db.PreserveExistingPassword)
+                {
+                    if (string.IsNullOrEmpty(db.Password))
+                    {
+                        throw new ArgumentException($"A non-empty password is required for database profile '{db.Profile.Name}' when overwriting without password preservation.", nameof(databaseProfiles));
+                    }
+                }
+            }
+
+            foreach (var company in companyProfiles)
+            {
+                if (company.Profile == null)
+                    throw new ArgumentException("Company profile model cannot be null.", nameof(companyProfiles));
+                if (company.Action == ImportAction.Overwrite && company.ExistingLocalId == null)
+                    throw new ArgumentException("Overwrite company profile must have an ExistingLocalId.", nameof(companyProfiles));
+                if (!databaseProfiles.Any(d => d.SourceId == company.SourceDbProfileId))
+                {
+                    throw new ArgumentException($"Company profile '{company.Profile.Name}' references source database profile ID {company.SourceDbProfileId} which is not present in the import list.", nameof(companyProfiles));
+                }
+            }
+
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                      {
+                          var dbIdMap = new Dictionary<int, int>();
+
+                          // 1. Process Database Profiles
+                          foreach (var record in databaseProfiles)
+                          {
+                              var profile = record.Profile;
+                              string encryptedPassword = string.Empty;
+
+                              if (record.Action == ImportAction.Create ||
+                                  (record.Action == ImportAction.Overwrite && !record.PreserveExistingPassword))
+                              {
+                                  encryptedPassword = EncryptPassword(record.Password ?? string.Empty);
+                              }
+                              else if (record.Action == ImportAction.Overwrite && record.PreserveExistingPassword)
+                              {
+                                  var existing = conn.QueryFirstOrDefault<DatabaseProfile>(
+                                      "SELECT password FROM database_profiles WHERE id = @Id",
+                                      new { Id = record.ExistingLocalId },
+                                      transaction);
+                                  if (existing == null)
+                                  {
+                                      throw new InvalidOperationException($"Cannot overwrite database profile: existing profile with ID {record.ExistingLocalId} was not found.");
+                                  }
+                                  encryptedPassword = existing.Password;
+                              }
+
+                              if (record.Action == ImportAction.Create)
+                              {
+                                  conn.Execute(@"
+                                      INSERT INTO database_profiles (name, technology, server, port, username, password, last_test_result, last_tested_at)
+                                      VALUES (@Name, @Technology, @Server, @Port, @Username, @Password, @LastTestResult, @LastTestedAt)",
+                                      new
+                                      {
+                                          profile.Name,
+                                          profile.Technology,
+                                          profile.Server,
+                                          profile.Port,
+                                          profile.Username,
+                                          Password = encryptedPassword,
+                                          LastTestResult = "Untested",
+                                          LastTestedAt = (string?)null
+                                      }, transaction);
+
+                                  long generatedId = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
+                                  dbIdMap[record.SourceId] = (int)generatedId;
+                              }
+                              else
+                              {
+                                  int affected = conn.Execute(@"
+                                      UPDATE database_profiles 
+                                      SET name = @Name, 
+                                          technology = @Technology, 
+                                          server = @Server, 
+                                          port = @Port, 
+                                          username = @Username, 
+                                          password = @Password
+                                      WHERE id = @Id",
+                                      new
+                                      {
+                                          profile.Name,
+                                          profile.Technology,
+                                          profile.Server,
+                                          profile.Port,
+                                          profile.Username,
+                                          Password = encryptedPassword,
+                                          Id = record.ExistingLocalId
+                                      }, transaction);
+
+                                  if (affected != 1)
+                                      throw new InvalidOperationException($"Expected to update exactly 1 database profile (ID: {record.ExistingLocalId}), but updated {affected}.");
+
+                                  dbIdMap[record.SourceId] = record.ExistingLocalId.GetValueOrDefault();
+                              }
+                          }
+
+                          // 2. Process Company Profiles
+                          foreach (var record in companyProfiles)
+                          {
+                              var company = record.Profile;
+                              int remappedDbId = dbIdMap[record.SourceDbProfileId];
+
+                              var parameters = new
+                              {
+                                  Id = record.ExistingLocalId,
+                                  company.Name,
+                                  company.TallyGuid,
+                                  company.Consolidated,
+                                  BooksFrom = company.BooksFrom?.ToString("o"),
+                                  BooksTo = company.BooksTo?.ToString("o"),
+                                  DbProfileId = remappedDbId,
+                                  company.TargetCatalog,
+                                  company.Schema,
+                                  company.TablePrefix,
+                                  company.Mode,
+                                  company.IntervalMinutes,
+                                  Enabled = false, 
+                                  company.NotifyOnError,
+                                  company.PauseOnTallyClose,
+                                  company.EntityFlags,
+                                  Status = "review_required", 
+                                  LastRunAt = (string?)null,
+                                  LastDurationMs = (int?)null,
+                                  LastRowsWritten = (long?)null,
+                                  ErrorCount24h = 0
+                              };
+
+                              if (record.Action == ImportAction.Create)
+                              {
+                                  conn.Execute(@"
+                                      INSERT INTO company_profiles (name, tally_guid, consolidated, books_from, books_to, db_profile_id, target_catalog, schema, table_prefix, mode, interval_minutes, enabled, notify_on_error, pause_on_tally_close, entity_flags, status, last_run_at, last_duration_ms, last_rows_written, error_count_24h)
+                                      VALUES (@Name, @TallyGuid, @Consolidated, @BooksFrom, @BooksTo, @DbProfileId, @TargetCatalog, @Schema, @TablePrefix, @Mode, @IntervalMinutes, @Enabled, @NotifyOnError, @PauseOnTallyClose, @EntityFlags, @Status, @LastRunAt, @LastDurationMs, @LastRowsWritten, @ErrorCount24h)",
+                                      parameters, transaction);
+                              }
+                              else
+                              {
+                                  int affected = conn.Execute(@"
+                                      UPDATE company_profiles
+                                      SET name = @Name, tally_guid = @TallyGuid, consolidated = @Consolidated,
+                                          books_from = @BooksFrom, books_to = @BooksTo, db_profile_id = @DbProfileId,
+                                          target_catalog = @TargetCatalog, schema = @Schema, table_prefix = @TablePrefix,
+                                          mode = @Mode, interval_minutes = @IntervalMinutes, enabled = @Enabled,
+                                          notify_on_error = @NotifyOnError, pause_on_tally_close = @PauseOnTallyClose,
+                                          entity_flags = @EntityFlags, status = @Status, last_run_at = @LastRunAt,
+                                          last_duration_ms = @LastDurationMs, last_rows_written = @LastRowsWritten,
+                                          error_count_24h = @ErrorCount24h
+                                      WHERE id = @Id", parameters, transaction);
+
+                                  if (affected != 1)
+                                      throw new InvalidOperationException($"Expected to update exactly 1 company profile (ID: {record.ExistingLocalId}), but updated {affected}.");
+                              }
+                          }
+
+                          // 3. Write Audit Row
+                          InsertConfigAuditLog(
+                              conn,
+                              transaction,
+                              DateTime.UtcNow,
+                              actor,
+                              "import_sanitized_config",
+                              "config",
+                              0,
+                              "sanitized_import",
+                              beforeJson,
+                              afterJson,
+                              reason);
+
+                          transaction.Commit();
+                      }
+                      catch
+                      {
+                          transaction.Rollback();
+                          throw;
+                      }
+                }
+            }
         }
+
 
         private static long InsertConfigAuditLog(
             SqliteConnection conn,

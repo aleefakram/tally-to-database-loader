@@ -120,7 +120,7 @@
 
   Add failing integration tests to `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs` that check:
   - Repository asserts resolved records are internally valid (e.g., throwing `ArgumentException` if overwrite has no existing ID).
-  - Pre-transaction check: database profile creation or overwrite without preservation must have a non-empty password, otherwise throws `ArgumentException`.
+  - Pre-transaction check: database profile overwrite without preservation must have a non-empty password, otherwise throws `ArgumentException`.
   - Failure during import rolls back all writes (assert profile count remains unchanged).
   - Correct remapping of database profile IDs.
   - Successful import writes exactly one audit row with `action = "import_sanitized_config"`.
@@ -154,7 +154,7 @@
               finally
               {
                   Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-                  if (File.Exists(testDbPath)) File.Delete(testDbPath);
+                  try { if (File.Exists(testDbPath)) File.Delete(testDbPath); } catch { }
               }
           }
   ```
@@ -186,12 +186,11 @@
                   if (db.Action == ImportAction.Create && db.SourceId <= 0)
                       throw new ArgumentException("Create database profile must have a valid SourceId.", nameof(databaseProfiles));
 
-                  if (db.Action == ImportAction.Create ||
-                      (db.Action == ImportAction.Overwrite && !db.PreserveExistingPassword))
+                  if (db.Action == ImportAction.Overwrite && !db.PreserveExistingPassword)
                   {
                       if (string.IsNullOrEmpty(db.Password))
                       {
-                          throw new ArgumentException($"A non-empty password is required for database profile '{db.Profile.Name}' when creating or overwriting without password preservation.", nameof(databaseProfiles));
+                          throw new ArgumentException($"A non-empty password is required for database profile '{db.Profile.Name}' when overwriting without password preservation.", nameof(databaseProfiles));
                       }
                   }
               }
@@ -230,6 +229,7 @@
                                   encryptedPassword = EncryptPassword(record.Password ?? string.Empty);
                               }
                               else if (record.Action == ImportAction.Overwrite && record.PreserveExistingPassword)
+                              {
                                   var existing = conn.QueryFirstOrDefault<DatabaseProfile>(
                                       "SELECT password FROM database_profiles WHERE id = @Id",
                                       new { Id = record.ExistingLocalId },
@@ -380,7 +380,7 @@
 
 - [ ] **Step 5: Write remaining integration tests for remapping, rollback on error, password preservation, and auditing**
 
-  Add these tests to `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs`:
+  Add these tests to `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs` using guarded cleanup calls for the temporary databases:
 
   ```csharp
           [Fact]
@@ -441,7 +441,7 @@
               finally
               {
                   Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
-                  if (File.Exists(testDbPath)) File.Delete(testDbPath);
+                  try { if (File.Exists(testDbPath)) File.Delete(testDbPath); } catch { }
               }
           }
   ```
@@ -669,7 +669,7 @@
               string jsonWrongFormat = @"{""format"":""invalid.format"",""schema_version"":1,""application_version"":""1.0"",""payload"":{}}";
               var exWrongFormat = Assert.Throws<ConfigImportValidationException>(() => 
                   service.ImportJson(jsonWrongFormat, new ImportDecision(), "system", "reason"));
-              Assert.Contains("Unsupported or invalid format", exWrongFormat.Errors[0]);
+              Assert.Contains("Unsupported or invalid format string.", exWrongFormat.Errors[0]);
 
               // 3. Newer unsupported schema_version
               string jsonNewerSchema = @"{""format"":""tally-db-loader.config-export"",""schema_version"":2,""application_version"":""1.0"",""payload"":{}}";
@@ -730,6 +730,11 @@
                       errors.Add("Application version must be a non-empty string.");
                   }
 
+                  if (!root.TryGetProperty("payload", out var payloadProp) || payloadProp.ValueKind == JsonValueKind.Null)
+                  {
+                      errors.Add("Configuration payload is missing or empty.");
+                  }
+
                   if (errors.Count > 0)
                   {
                       throw new ConfigImportValidationException(errors);
@@ -760,7 +765,7 @@
 
 - [ ] **Step 1: Write integration tests for import validation, duplicate IDs, missing passwords, conflict strategies, and skipped DB profile references**
 
-  Add tests to `tests/TallyDbLoader.Tests/ConfigImportServiceTests.cs` showing validation rejects conflicts that are unresolved, DB profiles requiring passwords that aren't supplied, and skipped database profile references causing company validation failures. Assert against mapped models on the fake repository to verify mapping correctness.
+  Add tests to `tests/TallyDbLoader.Tests/ConfigImportServiceTests.cs` showing validation rejects conflicts that are unresolved, DB profiles requiring passwords that aren't supplied, skipped database profile references causing company validation failures, malformed required fields, and invalid date formats. Assert against mapped models on the fake repository to verify mapping correctness.
 
   ```csharp
           [Fact]
@@ -797,6 +802,46 @@
               
               Assert.Contains("Conflict detected for database profile 'ExistingDB'", ex.Errors[0]);
           }
+
+          [Fact]
+          public void ImportJson_WithMalformedRequiredFieldsAndDates_ThrowsConfigImportValidationException()
+          {
+              var fake = new FakeConfigRepository();
+              var service = new ConfigImportService(fake);
+
+              // Export contains database profiles with missing fields and company with invalid date formats
+              string json = @"{
+                  ""format"": ""tally-db-loader.config-export"",
+                  ""schema_version"": 1,
+                  ""application_version"": ""2.0.0"",
+                  ""payload"": {
+                      ""database_profiles"": [
+                          {
+                              ""id"": 1,
+                              ""name"": """",
+                              ""technology"": ""postgres"",
+                              ""server"": """",
+                              ""username"": """"
+                          }
+                      ],
+                      ""company_profiles"": [
+                          {
+                              ""id"": 2,
+                              ""name"": ""MyCompany"",
+                              ""db_profile_id"": 1,
+                              ""books_from"": ""invalid-date-format"",
+                              ""target_catalog"": ""catalog""
+                          }
+                      ]
+                  }
+              }";
+
+              var ex = Assert.Throws<ConfigImportValidationException>(() =>
+                  service.ImportJson(json, new ImportDecision(), "system", "reason"));
+
+              Assert.Contains("is missing a name.", ex.Errors[0]);
+              Assert.Contains("has an invalid books_from date format", ex.Errors[ex.Errors.Count - 1]);
+          }
   ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -806,7 +851,7 @@
 
 - [ ] **Step 3: Implement full import parsing, validation, and commit in ConfigImportService.cs**
 
-  Complete `ImportJson` in `src/TallyDbLoader.Core/Data/ConfigImportService.cs`. Verify structural presence of all required fields before calling methods like `Trim()` or dereferencing to prevent `NullReferenceException`. Ensure date parsing is performed safely via `DateTime.TryParse` and error collection. Build `before_json` containing only the overwritten records to prevent audit log bloat.
+  Complete `ImportJson` in `src/TallyDbLoader.Core/Data/ConfigImportService.cs`. Verify structural presence of all required fields before calling methods like `Trim()` or dereferencing to prevent `NullReferenceException`. Ensure date parsing is performed safely via `DateTime.TryParse` and error collection. Build `before_json` containing only the overwritten records and counts for created/skipped items.
 
   ```csharp
           private class ExportEnvelope
@@ -814,7 +859,7 @@
               public string format { get; set; } = "";
               public int schema_version { get; set; }
               public string application_version { get; set; } = "";
-              public ExportPayload payload { get; set; } = new();
+              public ExportPayload? payload { get; set; }
           }
 
           private class ExportPayload
@@ -890,11 +935,15 @@
               {
                   errors.Add("Application version must be a non-empty string.");
               }
+              if (envelope.payload == null)
+              {
+                  errors.Add("Configuration payload is missing or empty.");
+              }
 
               if (errors.Count > 0)
                   throw new ConfigImportValidationException(errors);
 
-              var payload = envelope.payload ?? new ExportPayload();
+              var payload = envelope.payload!;
 
               // 1. Basic structural validation to prevent NullReferenceException on dereferences
               foreach (var db in payload.database_profiles)
@@ -1208,7 +1257,7 @@
               if (errors.Count > 0)
                   throw new ConfigImportValidationException(errors);
 
-              // 6. Build Compact Audit JSON Payloads (overwritten records only, plus counts of skipped/created records)
+              // 6. Build Compact Audit JSON Payloads (overwritten records and skipped/created summary counts)
               var auditBefore = new
               {
                   overwritten_database_profiles = existingDbs
@@ -1216,7 +1265,11 @@
                       .Select(d => new { name = d.Name, technology = d.Technology }).ToList(),
                   overwritten_company_profiles = existingComps
                       .Where(e => resolvedComps.Any(r => r.Action == ImportAction.Overwrite && r.ExistingLocalId == e.Id))
-                      .Select(c => new { name = c.Name, target_catalog = c.TargetCatalog }).ToList()
+                      .Select(c => new { name = c.Name, target_catalog = c.TargetCatalog }).ToList(),
+                  created_database_profiles_count = resolvedDbs.Count(r => r.Action == ImportAction.Create),
+                  created_company_profiles_count = resolvedComps.Count(r => r.Action == ImportAction.Create),
+                  skipped_database_profiles_count = skippedDbIds.Count,
+                  skipped_company_profiles_count = skippedCompIds.Count
               };
 
               var auditAfter = new

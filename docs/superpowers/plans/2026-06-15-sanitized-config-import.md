@@ -120,7 +120,7 @@
 
   Add failing integration tests to `tests/TallyDbLoader.Tests/ConfigRepositoryTests.cs` that check:
   - Repository asserts resolved records are internally valid (e.g., throwing `ArgumentException` if overwrite has no existing ID).
-  - Pre-transaction check: database profile overwrite without preservation must have a non-empty password, otherwise throws `ArgumentException`.
+  - Repository fail-closed check: database profile overwrite without preservation must have a non-empty password, otherwise throws `ArgumentException`.
   - Failure during import rolls back all writes (assert profile count remains unchanged).
   - Correct remapping of database profile IDs.
   - Successful import writes exactly one audit row with `action = "import_sanitized_config"`.
@@ -820,8 +820,7 @@
                               ""id"": 1,
                               ""name"": """",
                               ""technology"": ""postgres"",
-                              ""server"": """",
-                              ""username"": """"
+                              ""server"": """"
                           }
                       ],
                       ""company_profiles"": [
@@ -851,7 +850,7 @@
 
 - [ ] **Step 3: Implement full import parsing, validation, and commit in ConfigImportService.cs**
 
-  Complete `ImportJson` in `src/TallyDbLoader.Core/Data/ConfigImportService.cs`. Verify structural presence of all required fields before calling methods like `Trim()` or dereferencing to prevent `NullReferenceException`. Ensure date parsing is performed safely via `DateTime.TryParse` and error collection. Build `before_json` containing only the overwritten records and counts for created/skipped items.
+  Complete `ImportJson` in `src/TallyDbLoader.Core/Data/ConfigImportService.cs`. Verify structural presence of all required fields before calling methods like `Trim()` or dereferencing to prevent `NullReferenceException`. Ensure date parsing is performed safely via `DateTime.TryParse` and error collection. Build `before_json` containing only the overwritten records and counts for created/skipped items. Handle optional database list properties safely.
 
   ```csharp
           private class ExportEnvelope
@@ -864,8 +863,8 @@
 
           private class ExportPayload
           {
-              public List<ExportDatabaseProfile> database_profiles { get; set; } = new();
-              public List<ExportCompanyProfile> company_profiles { get; set; } = new();
+              public List<ExportDatabaseProfile>? database_profiles { get; set; }
+              public List<ExportCompanyProfile>? company_profiles { get; set; }
           }
 
           private class ExportDatabaseProfile
@@ -944,9 +943,11 @@
                   throw new ConfigImportValidationException(errors);
 
               var payload = envelope.payload!;
+              var dbProfiles = payload.database_profiles ?? new List<ExportDatabaseProfile>();
+              var companyProfiles = payload.company_profiles ?? new List<ExportCompanyProfile>();
 
               // 1. Basic structural validation to prevent NullReferenceException on dereferences
-              foreach (var db in payload.database_profiles)
+              foreach (var db in dbProfiles)
               {
                   if (db == null)
                   {
@@ -969,13 +970,9 @@
                   {
                       errors.Add($"Database profile '{db.name}' (ID {db.id}) is missing server host.");
                   }
-                  if (string.IsNullOrWhiteSpace(db.username))
-                  {
-                      errors.Add($"Database profile '{db.name}' (ID {db.id}) is missing username.");
-                  }
               }
 
-              foreach (var comp in payload.company_profiles)
+              foreach (var comp in companyProfiles)
               {
                   if (comp == null)
                   {
@@ -1005,14 +1002,14 @@
 
               // 2. Duplicate source ID checks
               var dbSourceIds = new HashSet<int>();
-              foreach (var db in payload.database_profiles)
+              foreach (var db in dbProfiles)
               {
                   if (!dbSourceIds.Add(db.id))
                       errors.Add($"Duplicate database profile source ID: {db.id}");
               }
 
               var compSourceIds = new HashSet<int>();
-              foreach (var comp in payload.company_profiles)
+              foreach (var comp in companyProfiles)
               {
                   if (!compSourceIds.Add(comp.id))
                       errors.Add($"Duplicate company profile source ID: {comp.id}");
@@ -1032,7 +1029,7 @@
               var skippedCompIds = new HashSet<int>();
 
               // 4. Resolve Database Conflicts & Passwords
-              foreach (var sourceDb in payload.database_profiles)
+              foreach (var sourceDb in dbProfiles)
               {
                   var sourceNameNorm = sourceDb.name.Trim().ToLowerInvariant();
                   var existingMatch = existingDbs.FirstOrDefault(e => e.Name.Trim().ToLowerInvariant() == sourceNameNorm);
@@ -1078,7 +1075,7 @@
                               Technology = sourceDb.technology,
                               Server = sourceDb.server,
                               Port = sourceDb.port,
-                              Username = sourceDb.username
+                              Username = sourceDb.username ?? string.Empty
                           }
                       });
                   }
@@ -1107,17 +1104,17 @@
                               Technology = sourceDb.technology,
                               Server = sourceDb.server,
                               Port = sourceDb.port,
-                              Username = sourceDb.username
+                              Username = sourceDb.username ?? string.Empty
                           }
                       });
                   }
               }
 
               // 5. Resolve Company Conflicts & skipped DB profiles validation
-              foreach (var sourceComp in payload.company_profiles)
+              foreach (var sourceComp in companyProfiles)
               {
                   // A company profile must only reference a DB profile in the payload
-                  var dbInPayload = payload.database_profiles.FirstOrDefault(d => d.id == sourceComp.db_profile_id);
+                  var dbInPayload = dbProfiles.FirstOrDefault(d => d.id == sourceComp.db_profile_id);
                   if (dbInPayload == null)
                   {
                       errors.Add($"Company profile '{sourceComp.name}' references database profile ID {sourceComp.db_profile_id} which is not present in the import payload.");

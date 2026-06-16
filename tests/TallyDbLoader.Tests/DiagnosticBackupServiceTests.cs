@@ -199,5 +199,255 @@ namespace TallyDbLoader.Tests
             Assert.DoesNotContain("password", info);
             Assert.DoesNotContain("dpapi", info);
         }
+
+        [Fact]
+        public void CreateBackup_PackagesRecursiveStructure_GeneratesValidManifestAndCleansWorkingFiles()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"diag_zip_{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            string sourceDbPath = Path.Combine(tempDir, "source.db");
+            string outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+            
+            string logsDir = Path.Combine(tempDir, "logs");
+            Directory.CreateDirectory(logsDir);
+            string subLogsDir = Path.Combine(logsDir, "subfolder");
+            Directory.CreateDirectory(subLogsDir);
+
+            string xmlDir = Path.Combine(tempDir, "xml");
+            Directory.CreateDirectory(xmlDir);
+            string subXmlDir = Path.Combine(xmlDir, "subxml");
+            Directory.CreateDirectory(subXmlDir);
+
+            try
+            {
+                DatabaseHelper.InitializeDatabase(sourceDbPath);
+                
+                // Add dummy records to DB
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sourceDbPath};Pooling=False;"))
+                {
+                    conn.Open();
+                    conn.Execute("INSERT INTO database_profiles (name, technology, server, port, password) VALUES ('TestProfile', 'mssql', 'localhost', 1433, 'dpapi:xyz123')");
+                }
+
+                // Create nested logs and raw XMLs
+                File.WriteAllText(Path.Combine(logsDir, "root.log"), "Root log content");
+                File.WriteAllText(Path.Combine(subLogsDir, "nested.log"), "Nested log content");
+                
+                File.WriteAllText(Path.Combine(xmlDir, "root.xml"), "<ENVELOPE></ENVELOPE>");
+                File.WriteAllText(Path.Combine(subXmlDir, "nested.xml"), "<DATA></DATA>");
+
+                var service = new DiagnosticBackupService(_repoFake);
+                var request = new DiagnosticBackupRequest
+                {
+                    ConfigDatabasePath = sourceDbPath,
+                    LogDirectoryPath = logsDir,
+                    RawXmlDirectoryPath = xmlDir,
+                    OutputDirectoryPath = outputDir,
+                    ApplicationVersion = "2.0.0-beta",
+                    Actor = "test_agent",
+                    Reason = "troubleshoot",
+                    IncludeRawXml = true,
+                    CreatedAt = new DateTimeOffset(2026, 6, 15, 15, 30, 0, TimeSpan.FromHours(5.5))
+                };
+
+                var result = service.CreateBackup(request);
+
+                Assert.True(File.Exists(result.FilePath));
+                Assert.Equal("tally_diagnostic_20260615_153000.zip", result.FileName);
+                Assert.Equal(2, result.LogFileCount);
+                Assert.Equal(2, result.RawXmlFileCount);
+
+                // Extract and inspect ZIP contents
+                string extractDir = Path.Combine(tempDir, "extract");
+                Directory.CreateDirectory(extractDir);
+                System.IO.Compression.ZipFile.ExtractToDirectory(result.FilePath, extractDir);
+
+                Assert.True(File.Exists(Path.Combine(extractDir, "config/config.db")));
+                Assert.True(File.Exists(Path.Combine(extractDir, "logs/root.log")));
+                Assert.True(File.Exists(Path.Combine(extractDir, "logs/subfolder/nested.log")));
+                Assert.True(File.Exists(Path.Combine(extractDir, "system/system_info.txt")));
+                Assert.True(File.Exists(Path.Combine(extractDir, "raw_xml/root.xml")));
+                Assert.True(File.Exists(Path.Combine(extractDir, "raw_xml/subxml/nested.xml")));
+                Assert.True(File.Exists(Path.Combine(extractDir, "manifest.json")));
+
+                string manifestJson = File.ReadAllText(Path.Combine(extractDir, "manifest.json"));
+                using (var doc = System.Text.Json.JsonDocument.Parse(manifestJson))
+                {
+                    var root = doc.RootElement;
+                    Assert.Equal("tally-db-loader.diagnostic-backup", root.GetProperty("format").GetString());
+                    Assert.Equal(1, root.GetProperty("schema_version").GetInt32());
+                    Assert.Equal("2.0.0-beta", root.GetProperty("application_version").GetString());
+                    Assert.Equal("2026-06-15T15:30:00.0000000+05:30", root.GetProperty("created_at").GetString());
+                    Assert.True(root.GetProperty("include_raw_xml").GetBoolean());
+                    
+                    var entries = root.GetProperty("entries");
+                    Assert.True(entries.GetProperty("config_database").GetBoolean());
+                    Assert.True(entries.GetProperty("system_info").GetBoolean());
+                    Assert.Equal(2, entries.GetProperty("log_file_count").GetInt32());
+                    Assert.Equal(2, entries.GetProperty("raw_xml_file_count").GetInt32());
+                    Assert.Equal(0, entries.GetProperty("skipped_file_count").GetInt32());
+                }
+
+                // Verify SQLite database in zip is readable and contains our record
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(extractDir, "config/config.db")};Pooling=False;"))
+                {
+                    conn.Open();
+                    int count = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM database_profiles WHERE name = 'TestProfile'");
+                    Assert.Equal(1, count);
+                }
+
+                // Assert security requirements: no passwords, no raw XML file contents, or absolute path leaks
+                Assert.DoesNotContain("dpapi:", manifestJson);
+                Assert.DoesNotContain("C:/", manifestJson);
+                Assert.DoesNotContain("C:\\", manifestJson);
+                Assert.DoesNotContain("diag_zip_", manifestJson);
+                Assert.DoesNotContain("<ENVELOPE>", manifestJson);
+                Assert.DoesNotContain("<DATA>", manifestJson);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void CreateBackup_ExcludeRawXmlByDefault_AndHandlesMissingLogDir()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"diag_defaults_{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            string sourceDbPath = Path.Combine(tempDir, "source.db");
+            string outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+            string nonexistentLogs = Path.Combine(tempDir, "nonexistent_logs");
+            string xmlDir = Path.Combine(tempDir, "xml");
+            Directory.CreateDirectory(xmlDir);
+
+            try
+            {
+                DatabaseHelper.InitializeDatabase(sourceDbPath);
+                File.WriteAllText(Path.Combine(xmlDir, "should_be_ignored.xml"), "<IGNORE />");
+
+                var service = new DiagnosticBackupService(_repoFake);
+                var request = new DiagnosticBackupRequest
+                {
+                    ConfigDatabasePath = sourceDbPath,
+                    LogDirectoryPath = nonexistentLogs,
+                    RawXmlDirectoryPath = xmlDir,
+                    OutputDirectoryPath = outputDir,
+                    ApplicationVersion = "1.0",
+                    Actor = "defaults_agent",
+                    Reason = "test defaults",
+                    IncludeRawXml = false,
+                    CreatedAt = DateTimeOffset.Now
+                };
+
+                var result = service.CreateBackup(request);
+
+                Assert.True(File.Exists(result.FilePath));
+                Assert.Equal(0, result.LogFileCount);
+                Assert.Equal(0, result.RawXmlFileCount);
+
+                string extractDir = Path.Combine(tempDir, "extract");
+                Directory.CreateDirectory(extractDir);
+                System.IO.Compression.ZipFile.ExtractToDirectory(result.FilePath, extractDir);
+
+                // Assert XML and Log directories are not created inside the zip
+                Assert.False(Directory.Exists(Path.Combine(extractDir, "raw_xml")));
+                Assert.False(Directory.Exists(Path.Combine(extractDir, "logs")));
+                Assert.True(File.Exists(Path.Combine(extractDir, "config/config.db")));
+                Assert.True(File.Exists(Path.Combine(extractDir, "system/system_info.txt")));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void CreateBackup_TracksSkippedFiles_WhenReadFailureOccurs()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"diag_skipped_{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            string sourceDbPath = Path.Combine(tempDir, "source.db");
+            string outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+            string logsDir = Path.Combine(tempDir, "logs");
+            Directory.CreateDirectory(logsDir);
+
+            try
+            {
+                DatabaseHelper.InitializeDatabase(sourceDbPath);
+                
+                string log1 = Path.Combine(logsDir, "app1.log");
+                string log2 = Path.Combine(logsDir, "app2.log");
+                File.WriteAllText(log1, "Log content 1");
+                File.WriteAllText(log2, "Log content 2");
+
+                // Lock log1 exclusively to simulate a read failure during file system copying
+                using (var lockStream = new FileStream(log1, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    var service = new DiagnosticBackupService(_repoFake);
+                    var request = new DiagnosticBackupRequest
+                    {
+                        ConfigDatabasePath = sourceDbPath,
+                        LogDirectoryPath = logsDir,
+                        OutputDirectoryPath = outputDir,
+                        ApplicationVersion = "1.0",
+                        Actor = "skipped_agent",
+                        Reason = "test skips",
+                        IncludeRawXml = false,
+                        CreatedAt = DateTimeOffset.Now
+                    };
+
+                    var result = service.CreateBackup(request);
+
+                    Assert.Equal(1, result.LogFileCount);
+                    Assert.True(result.AuditId > 0);
+
+                    string extractDir = Path.Combine(tempDir, "extract");
+                    Directory.CreateDirectory(extractDir);
+                    System.IO.Compression.ZipFile.ExtractToDirectory(result.FilePath, extractDir);
+
+                    // Confirm app2.log exists, but app1.log is missing
+                    Assert.True(File.Exists(Path.Combine(extractDir, "logs/app2.log")));
+                    Assert.False(File.Exists(Path.Combine(extractDir, "logs/app1.log")));
+
+                    string manifestJson = File.ReadAllText(Path.Combine(extractDir, "manifest.json"));
+                    using (var doc = System.Text.Json.JsonDocument.Parse(manifestJson))
+                    {
+                        var root = doc.RootElement;
+                        var entries = root.GetProperty("entries");
+                        Assert.Equal(1, entries.GetProperty("skipped_file_count").GetInt32());
+
+                        var skippedArray = root.GetProperty("skipped_files");
+                        Assert.Single(skippedArray.EnumerateArray());
+                        var item = skippedArray[0].GetString()!;
+                        Assert.StartsWith("logs/app1.log: IOException", item);
+                        
+                        // Ensure absolute paths do not leak through exception details
+                        Assert.DoesNotContain("C:/", item);
+                        Assert.DoesNotContain("C:\\", item);
+                        Assert.DoesNotContain("diag_skipped_", item);
+                    }
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
     }
 }

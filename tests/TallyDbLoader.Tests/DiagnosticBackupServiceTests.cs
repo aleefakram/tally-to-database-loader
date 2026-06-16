@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Xunit;
+using Dapper;
 using TallyDbLoader.Core.Data;
 using TallyDbLoader.Core.Models;
 
@@ -137,6 +138,45 @@ namespace TallyDbLoader.Tests
             finally
             {
                 if (File.Exists(dbPath)) File.Delete(dbPath);
+            }
+        }
+
+        [Fact]
+        public void PerformSQLiteBackup_CopiesDatabase_SafelyAndSuccessfully()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"diag_temp_{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            string sourceDbPath = Path.Combine(tempDir, "source.db");
+            string targetDb = Path.Combine(tempDir, "target.db");
+
+            try
+            {
+                DatabaseHelper.InitializeDatabase(sourceDbPath);
+                
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sourceDbPath}"))
+                {
+                    conn.Open();
+                    conn.Execute("INSERT INTO database_profiles (name, technology, server, port) VALUES ('LiveDb', 'mssql', 'localhost', 1433)");
+                }
+
+                var service = new DiagnosticBackupService(_repoFake);
+                service.PerformSQLiteBackup(sourceDbPath, targetDb);
+
+                Assert.True(File.Exists(targetDb));
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={targetDb}"))
+                {
+                    conn.Open();
+                    int count = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM database_profiles WHERE name = 'LiveDb'");
+                    Assert.Equal(1, count);
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
             }
         }
     }

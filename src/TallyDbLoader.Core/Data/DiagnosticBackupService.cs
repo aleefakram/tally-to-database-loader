@@ -67,5 +67,22 @@ namespace TallyDbLoader.Core.Data
 
             return new DiagnosticBackupResult();
         }
+
+        internal void PerformSQLiteBackup(string sourceDbPath, string destinationDbPath)
+        {
+            var destDir = Path.GetDirectoryName(destinationDbPath);
+            if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+            {
+                Directory.CreateDirectory(destDir);
+            }
+
+            using (var source = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sourceDbPath}"))
+            using (var destination = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={destinationDbPath}"))
+            {
+                source.Open();
+                destination.Open();
+                source.BackupDatabase(destination);
+            }
+        }
     }
 }

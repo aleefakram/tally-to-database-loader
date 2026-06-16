@@ -475,6 +475,8 @@ namespace TallyDbLoader.Wpf
         public ICommand CancelDbEditCommand { get; }
         public ICommand CancelJobEditCommand { get; }
         public ICommand ResolveSafetyBlockCommand { get; }
+        public ICommand ExportSanitizedConfigCommand { get; }
+        public ICommand CreateDiagnosticBackupCommand { get; }
 
         public MainViewModel(string dbPath)
         {
@@ -511,6 +513,8 @@ namespace TallyDbLoader.Wpf
             CancelDbEditCommand = new RelayCommand(() => StartEditingDbProfile(null));
             CancelJobEditCommand = new RelayCommand(() => GoBack());
             ResolveSafetyBlockCommand = new RelayCommand<object?>(ResolveSafetyBlock);
+            ExportSanitizedConfigCommand = new RelayCommand(ExportSanitizedConfig);
+            CreateDiagnosticBackupCommand = new RelayCommand(CreateDiagnosticBackup);
 
             LoadConfiguration();
 
@@ -1356,6 +1360,109 @@ namespace TallyDbLoader.Wpf
             _logLines.Clear();
             LogOutput = string.Empty;
             ShowToast("Log Cleared", "Console output buffer cleared.", "info");
+        }
+
+        private void ExportSanitizedConfig()
+        {
+            try
+            {
+                string defaultFilename = "tally-sync-config.json";
+                string filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*";
+                string? filePath = SaveFileDialogHandler != null 
+                    ? SaveFileDialogHandler(defaultFilename, filter) 
+                    : null;
+
+                if (string.IsNullOrWhiteSpace(filePath))
+                {
+                    return;
+                }
+
+                string version = GetApplicationVersion();
+                var service = new ConfigExportService(_repo, version);
+                string json = service.ExportJson(DateTimeOffset.Now);
+                File.WriteAllText(filePath, json);
+
+                ShowToast("Export Succeeded", $"Configuration saved to {Path.GetFileName(filePath)}", "ok");
+            }
+            catch (Exception ex)
+            {
+                ShowToast("Export Failed", ex.Message, "err");
+            }
+        }
+
+        private void CreateDiagnosticBackup()
+        {
+            _ = CreateDiagnosticBackupAsync();
+        }
+
+        public async Task CreateDiagnosticBackupAsync()
+        {
+            try
+            {
+                string? outputDir = FolderBrowserDialogHandler != null ? FolderBrowserDialogHandler() : null;
+                if (string.IsNullOrWhiteSpace(outputDir))
+                {
+                    return;
+                }
+
+                bool includeRawXml = false;
+                string baseDir = DiagnosticsBaseDirectory;
+                string rawXmlPath = Path.Combine(baseDir, "raw_xml");
+                bool rawXmlFolderExists = Directory.Exists(rawXmlPath);
+
+                if (ConfirmationPromptHandler != null && ConfirmationPromptHandler("Would you like to include raw XML diagnostic payloads in the backup?", "Include Raw XML?"))
+                {
+                    if (rawXmlFolderExists)
+                    {
+                        includeRawXml = true;
+                    }
+                    else
+                    {
+                        ShowToast("Folder Missing", "Raw XML diagnostics directory is missing. Proceeding without XML payloads.", "warn");
+                    }
+                }
+
+                string logPath = Path.Combine(baseDir, "logs");
+                string dbPath = _dbPath;
+                string version = GetApplicationVersion();
+                string actor = GetActorName();
+
+                // Propagate token to Task.Run to handle shutdown gracefully
+                await System.Threading.Tasks.Task.Run(() =>
+                {
+                    var request = new DiagnosticBackupRequest
+                    {
+                        ConfigDatabasePath = dbPath,
+                        LogDirectoryPath = logPath,
+                        RawXmlDirectoryPath = rawXmlFolderExists ? rawXmlPath : null,
+                        OutputDirectoryPath = outputDir,
+                        ApplicationVersion = version,
+                        Actor = actor,
+                        Reason = "User requested diagnostic backup from WPF settings",
+                        IncludeRawXml = includeRawXml,
+                        CreatedAt = DateTimeOffset.Now
+                    };
+
+                    var service = new DiagnosticBackupService(_repo);
+                    var result = service.CreateBackup(request);
+
+                    InvokeOnDispatcher(() =>
+                    {
+                        ShowToast("Backup Created", $"Diagnostic backup saved: {result.FileName}", "ok");
+                    });
+                }, _asyncOpsCts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // App is shutting down or canceled; exit silently without posting error toasts
+            }
+            catch (Exception ex)
+            {
+                InvokeOnDispatcher(() =>
+                {
+                    ShowToast("Backup Failed", ex.Message, "err");
+                });
+            }
         }
 
         private void FlushLogs(object? sender, EventArgs e)

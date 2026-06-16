@@ -68,6 +68,7 @@ namespace TallyDbLoader.Wpf
     public class MainViewModel : BaseViewModel, IDisposable
     {
         private readonly IConfigRepository _repo;
+        private readonly string _dbPath;
         private BackgroundSyncWorker? _worker;
         private readonly DispatcherTimer _logBatchTimer;
         private readonly ConcurrentQueue<string> _logQueue = new ConcurrentQueue<string>();
@@ -77,6 +78,13 @@ namespace TallyDbLoader.Wpf
         // Navigation callback for opening Dialog from View Model
         public Func<List<TallyCompanyInfo>, TallyCompanyInfo?>? CompanySelector { get; set; }
         public Func<string, string?>? SafetyResolveReasonPrompter { get; set; }
+
+        public Func<string, string, string?>? SaveFileDialogHandler { get; set; }
+        public Func<string?>? FolderBrowserDialogHandler { get; set; }
+        public Func<string, string, bool>? ConfirmationPromptHandler { get; set; }
+
+        // Expose test-overridable diagnostics directory to prevent environment-sensitive tests
+        public string DiagnosticsBaseDirectory { get; set; } = AppDomain.CurrentDomain.BaseDirectory;
 
         public Func<string, int, TallyClient>? TallyClientFactory { get; set; }
         public Action<string, string, System.Windows.MessageBoxButton, System.Windows.MessageBoxImage>? MessageBoxShowHandler { get; set; }
@@ -472,6 +480,7 @@ namespace TallyDbLoader.Wpf
         {
             DatabaseHelper.InitializeDatabase(dbPath);
             _repo = new ConfigRepository(dbPath);
+            _dbPath = dbPath;
 
             // Initialize Routing
             _currentRoute = new NavigationRoute { Screen = RouteScreen.Dashboard };
@@ -680,30 +689,8 @@ namespace TallyDbLoader.Wpf
                 reason = "Resolved via automation script.";
             }
 
-            // Resolve actor via hierarchy inside a guarded try-catch block
-            string actor = "unknown-user";
-            try
-            {
-                string? winIdentity = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name;
-                if (!string.IsNullOrWhiteSpace(winIdentity))
-                {
-                    actor = winIdentity;
-                }
-                else
-                {
-                    string? envUser = Environment.UserName;
-                    if (!string.IsNullOrWhiteSpace(envUser)) actor = envUser;
-                }
-            }
-            catch
-            {
-                try
-                {
-                    string? envUser = Environment.UserName;
-                    if (!string.IsNullOrWhiteSpace(envUser)) actor = envUser;
-                }
-                catch { }
-            }
+            // Resolve actor via hierarchy helper
+            string actor = GetActorName();
 
             try
             {
@@ -1387,6 +1374,51 @@ namespace TallyDbLoader.Wpf
             }
 
             LogOutput = string.Join(Environment.NewLine, _logLines) + Environment.NewLine;
+        }
+
+        private string GetActorName()
+        {
+            try
+            {
+                string? winIdentity = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name;
+                if (!string.IsNullOrWhiteSpace(winIdentity))
+                {
+                    return winIdentity;
+                }
+            }
+            catch { }
+
+            try
+            {
+                string? envUser = Environment.UserName;
+                if (!string.IsNullOrWhiteSpace(envUser))
+                {
+                    return envUser;
+                }
+            }
+            catch { }
+
+            return "unknown";
+        }
+
+        private string GetApplicationVersion()
+        {
+            try
+            {
+                var assembly = typeof(MainViewModel).Assembly;
+                var infoVersionAttr = (System.Reflection.AssemblyInformationalVersionAttribute?)Attribute.GetCustomAttribute(assembly, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+                if (infoVersionAttr != null && !string.IsNullOrWhiteSpace(infoVersionAttr.InformationalVersion))
+                {
+                    return infoVersionAttr.InformationalVersion;
+                }
+                var version = assembly.GetName().Version;
+                if (version != null)
+                {
+                    return version.ToString();
+                }
+            }
+            catch { }
+            return "dev";
         }
     }
 }

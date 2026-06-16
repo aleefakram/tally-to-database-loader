@@ -1368,11 +1368,7 @@ namespace TallyDbLoader.Wpf
 
         private void ImportSanitizedConfig()
         {
-            if (State == EngineState.Running)
-            {
-                ShowToast("Engine is running", "Configuration import is blocked while the sync engine is running.", "warn");
-                return;
-            }
+            if (GuardEngineRunning("ImportSanitizedConfig")) return;
 
             try
             {
@@ -1435,7 +1431,7 @@ namespace TallyDbLoader.Wpf
                     }
                 }
 
-                string actor = "WPF User";
+                string actor = GetActorName();
                 string reason = $"Imported configuration from file {Path.GetFileName(filePath)}";
 
                 service.ImportJson(json, decision, actor, reason);

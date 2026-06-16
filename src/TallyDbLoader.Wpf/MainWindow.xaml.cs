@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using TallyDbLoader.Wpf.Views;
@@ -77,7 +78,7 @@ namespace TallyDbLoader.Wpf
 
             _vm.PasswordPromptHandler = (preview) =>
             {
-                var dialog = new ImportPasswordPromptWindow(preview.DatabaseProfiles);
+                var dialog = new ImportPasswordPromptWindow(preview.DatabaseProfiles.Where(d => d.HasPassword));
                 dialog.Owner = this;
                 if (dialog.ShowDialog() == true)
                 {

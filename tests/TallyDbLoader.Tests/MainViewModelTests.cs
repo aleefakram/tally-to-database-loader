@@ -623,5 +623,265 @@ namespace TallyDbLoader.Tests
                 if (Directory.Exists(tempBaseDir)) try { Directory.Delete(tempBaseDir, true); } catch { }
             }
         }
+
+        [Fact]
+        public void Test_ImportSanitizedConfig_CancelledFileDialog_ExitsSilently()
+        {
+            string dbPath = $"vm_test_import_cancel_{Guid.NewGuid():N}.db";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                // Dialog handler returns null
+                vm.OpenFileDialogHandler = (filter) => null;
+
+                vm.ImportSanitizedConfigCommand.Execute(null);
+
+                // Assert no toasts and no DB configurations written
+                Assert.Empty(vm.Toasts);
+                var repo = new ConfigRepository(dbPath);
+                Assert.Empty(repo.GetAllDatabaseProfiles());
+                Assert.Empty(repo.GetAllCompanyProfiles());
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_ImportSanitizedConfig_PasswordPromptCancelled_ExitsSilently()
+        {
+            string dbPath = $"vm_test_import_pw_cancel_{Guid.NewGuid():N}.db";
+            string importFile = $"vm_test_import_pw_cancel_{Guid.NewGuid():N}.json";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                string jsonContent = @"{
+                    ""format"": ""tally-db-loader.config-export"",
+                    ""schema_version"": 1,
+                    ""application_version"": ""2.0.0"",
+                    ""payload"": {
+                        ""database_profiles"": [
+                            { ""id"": 1, ""name"": ""TargetDB"", ""technology"": ""postgres"", ""server"": ""localhost"", ""has_password"": true }
+                        ],
+                        ""company_profiles"": []
+                    }
+                }";
+                File.WriteAllText(importFile, jsonContent);
+                vm.OpenFileDialogHandler = (filter) => importFile;
+
+                // Password Prompt returns null (User clicked Cancel)
+                vm.PasswordPromptHandler = (preview) => null;
+
+                vm.ImportSanitizedConfigCommand.Execute(null);
+
+                // Assert no toasts and no DB configurations written
+                Assert.Empty(vm.Toasts);
+                var repo = new ConfigRepository(dbPath);
+                Assert.Empty(repo.GetAllDatabaseProfiles());
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (File.Exists(importFile)) try { File.Delete(importFile); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_ImportSanitizedConfig_InvalidJson_ShowsErrorToastAndDoesNotImport()
+        {
+            string dbPath = $"vm_test_import_invalid_{Guid.NewGuid():N}.db";
+            string importFile = $"vm_test_import_invalid_{Guid.NewGuid():N}.json";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                File.WriteAllText(importFile, "invalid-json-content");
+                vm.OpenFileDialogHandler = (filter) => importFile;
+
+                vm.ImportSanitizedConfigCommand.Execute(null);
+
+                Assert.Contains(vm.Toasts, t => t.Kind == "err" && t.Body.Contains("Invalid JSON content"));
+                var repo = new ConfigRepository(dbPath);
+                Assert.Empty(repo.GetAllDatabaseProfiles());
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (File.Exists(importFile)) try { File.Delete(importFile); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_ImportSanitizedConfig_Conflicts_BlocksImportAndToastsWarning()
+        {
+            string dbPath = $"vm_test_import_conflict_{Guid.NewGuid():N}.db";
+            string importFile = $"vm_test_import_conflict_{Guid.NewGuid():N}.json";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var repo = new ConfigRepository(dbPath);
+                repo.SaveDatabaseProfile(new DatabaseProfile { Name = "ConflictingDb", Technology = "postgres" });
+
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                // Payload contains database profile with Name "ConflictingDb", creating a conflict
+                string jsonContent = @"{
+                    ""format"": ""tally-db-loader.config-export"",
+                    ""schema_version"": 1,
+                    ""application_version"": ""2.0.0"",
+                    ""payload"": {
+                        ""database_profiles"": [
+                            { ""id"": 1, ""name"": ""ConflictingDb"", ""technology"": ""postgres"", ""server"": ""localhost"", ""has_password"": false }
+                        ],
+                        ""company_profiles"": []
+                    }
+                }";
+                File.WriteAllText(importFile, jsonContent);
+                vm.OpenFileDialogHandler = (filter) => importFile;
+
+                vm.ImportSanitizedConfigCommand.Execute(null);
+
+                Assert.Contains(vm.Toasts, t => t.Kind == "err" && t.Body.Contains("this version only supports new profiles"));
+
+                // Verify the database has only the pre-existing profile and nothing else was written
+                Assert.Single(repo.GetAllDatabaseProfiles());
+                Assert.Empty(repo.GetAllCompanyProfiles());
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (File.Exists(importFile)) try { File.Delete(importFile); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_ImportSanitizedConfig_MissingPassword_BlocksImport()
+        {
+            string dbPath = $"vm_test_import_password_missing_{Guid.NewGuid():N}.db";
+            string importFile = $"vm_test_import_password_missing_{Guid.NewGuid():N}.json";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                string jsonContent = @"{
+                    ""format"": ""tally-db-loader.config-export"",
+                    ""schema_version"": 1,
+                    ""application_version"": ""2.0.0"",
+                    ""payload"": {
+                        ""database_profiles"": [
+                            { ""id"": 1, ""name"": ""NewDb"", ""technology"": ""postgres"", ""server"": ""localhost"", ""has_password"": true }
+                        ],
+                        ""company_profiles"": []
+                    }
+                }";
+                File.WriteAllText(importFile, jsonContent);
+                vm.OpenFileDialogHandler = (filter) => importFile;
+
+                // Password Prompt returns empty dictionary (missing passwords)
+                vm.PasswordPromptHandler = (preview) => new Dictionary<int, string>();
+
+                vm.ImportSanitizedConfigCommand.Execute(null);
+
+                Assert.Contains(vm.Toasts, t => t.Kind == "err" && t.Body.Contains("requires a password"));
+                var repo = new ConfigRepository(dbPath);
+                Assert.Empty(repo.GetAllDatabaseProfiles());
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (File.Exists(importFile)) try { File.Delete(importFile); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_ImportSanitizedConfig_EngineRunning_IsBlocked()
+        {
+            string dbPath = $"vm_test_import_blocked_engine_{Guid.NewGuid():N}.db";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+                vm.State = EngineState.Running; // Engine is running
+
+                vm.ImportSanitizedConfigCommand.Execute(null);
+
+                Assert.Contains(vm.Toasts, t => t.Kind == "warn" && t.Title.Contains("Engine is running"));
+                var repo = new ConfigRepository(dbPath);
+                Assert.Empty(repo.GetAllDatabaseProfiles());
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_ImportSanitizedConfig_Success()
+        {
+            string dbPath = $"vm_test_import_ok_{Guid.NewGuid():N}.db";
+            string importFile = $"vm_test_import_ok_{Guid.NewGuid():N}.json";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                string jsonContent = @"{
+                    ""format"": ""tally-db-loader.config-export"",
+                    ""schema_version"": 1,
+                    ""application_version"": ""2.0.0"",
+                    ""payload"": {
+                        ""database_profiles"": [
+                            { ""id"": 1, ""name"": ""TargetDB"", ""technology"": ""postgres"", ""server"": ""localhost"", ""has_password"": true }
+                        ],
+                        ""company_profiles"": [
+                            { ""id"": 10, ""name"": ""TargetComp"", ""db_profile_id"": 1, ""target_catalog"": ""catalog"", ""enabled"": true }
+                        ]
+                    }
+                }";
+                File.WriteAllText(importFile, jsonContent);
+                vm.OpenFileDialogHandler = (filter) => importFile;
+
+                vm.PasswordPromptHandler = (preview) => new Dictionary<int, string> { { 1, "secret-pass" } };
+
+                vm.ImportSanitizedConfigCommand.Execute(null);
+
+                Assert.Contains(vm.Toasts, t => t.Kind == "ok" && t.Title.Contains("Import Succeeded"));
+
+                // Verify loaded configuration in ViewModel collections
+                Assert.Single(vm.DatabaseProfiles);
+                Assert.Equal("TargetDB", vm.DatabaseProfiles[0].Name);
+
+                Assert.Single(vm.Companies);
+                Assert.Equal("TargetComp", vm.Companies[0].Name);
+                Assert.False(vm.Companies[0].Enabled); // Must be disabled by default
+                Assert.Equal("review_required", vm.Companies[0].Status); // Must be review_required
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (File.Exists(importFile)) try { File.Delete(importFile); } catch { }
+            }
+        }
     }
 }

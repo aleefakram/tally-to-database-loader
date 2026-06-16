@@ -82,6 +82,8 @@ namespace TallyDbLoader.Wpf
         public Func<string, string, string?>? SaveFileDialogHandler { get; set; }
         public Func<string?>? FolderBrowserDialogHandler { get; set; }
         public Func<string, string, bool>? ConfirmationPromptHandler { get; set; }
+        public Func<string, string?>? OpenFileDialogHandler { get; set; }
+        public Func<TallyDbLoader.Core.Models.ConfigImportPreview, Dictionary<int, string>?>? PasswordPromptHandler { get; set; }
 
         // Expose test-overridable diagnostics directory to prevent environment-sensitive tests
         public string DiagnosticsBaseDirectory { get; set; } = AppDomain.CurrentDomain.BaseDirectory;
@@ -477,6 +479,7 @@ namespace TallyDbLoader.Wpf
         public ICommand ResolveSafetyBlockCommand { get; }
         public ICommand ExportSanitizedConfigCommand { get; }
         public ICommand CreateDiagnosticBackupCommand { get; }
+        public ICommand ImportSanitizedConfigCommand { get; }
 
         public MainViewModel(string dbPath)
         {
@@ -515,6 +518,7 @@ namespace TallyDbLoader.Wpf
             ResolveSafetyBlockCommand = new RelayCommand<object?>(ResolveSafetyBlock);
             ExportSanitizedConfigCommand = new RelayCommand(ExportSanitizedConfig);
             CreateDiagnosticBackupCommand = new RelayCommand(CreateDiagnosticBackup);
+            ImportSanitizedConfigCommand = new RelayCommand(ImportSanitizedConfig);
 
             LoadConfiguration();
 
@@ -1360,6 +1364,94 @@ namespace TallyDbLoader.Wpf
             _logLines.Clear();
             LogOutput = string.Empty;
             ShowToast("Log Cleared", "Console output buffer cleared.", "info");
+        }
+
+        private void ImportSanitizedConfig()
+        {
+            if (State == EngineState.Running)
+            {
+                ShowToast("Engine is running", "Configuration import is blocked while the sync engine is running.", "warn");
+                return;
+            }
+
+            try
+            {
+                string filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*";
+                string? filePath = OpenFileDialogHandler != null
+                    ? OpenFileDialogHandler(filter)
+                    : null;
+
+                if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                {
+                    return;
+                }
+
+                string json = File.ReadAllText(filePath);
+                var service = new ConfigImportService(_repo);
+                var preview = service.PreviewJson(json);
+
+                if (preview.ValidationErrors != null && preview.ValidationErrors.Any())
+                {
+                    string details = string.Join("; ", preview.ValidationErrors);
+                    ShowToast("Validation Failed", $"Import rejected due to validation errors: {details}", "err");
+                    return;
+                }
+
+                if (preview.HasConflicts)
+                {
+                    ShowToast("Conflicts Detected", "Import blocked: conflicts detected with existing database or company profiles. Note: this version only supports new profiles.", "err");
+                    return;
+                }
+
+                var decision = new ImportDecision();
+                var dbProfilesWithPasswords = preview.DatabaseProfiles?
+                    .Where(db => db.HasPassword)
+                    .ToList() ?? new List<TallyDbLoader.Core.Models.ConfigImportPreviewDatabaseProfile>();
+
+                if (dbProfilesWithPasswords.Any())
+                {
+                    if (PasswordPromptHandler == null)
+                    {
+                        ShowToast("Import Error", "Password collection dialog prompt handler is not registered.", "err");
+                        return;
+                    }
+
+                    var passwordResults = PasswordPromptHandler(preview);
+                    if (passwordResults == null)
+                    {
+                        // User cancelled password prompt dialog, exit silently
+                        return;
+                    }
+
+                    // Check that all required passwords are provided
+                    foreach (var db in dbProfilesWithPasswords)
+                    {
+                        if (!passwordResults.TryGetValue(db.SourceId, out string? pw) || string.IsNullOrWhiteSpace(pw))
+                        {
+                            ShowToast("Import Blocked", $"Database profile '{db.Name}' requires a password.", "err");
+                            return;
+                        }
+                        decision.DatabasePasswords[db.SourceId] = pw;
+                    }
+                }
+
+                string actor = "WPF User";
+                string reason = $"Imported configuration from file {Path.GetFileName(filePath)}";
+
+                service.ImportJson(json, decision, actor, reason);
+
+                LoadConfiguration();
+                ShowToast("Import Succeeded", $"Configuration imported successfully from {Path.GetFileName(filePath)}", "ok");
+            }
+            catch (ConfigImportValidationException valEx)
+            {
+                string details = string.Join("; ", valEx.Errors);
+                ShowToast("Import Blocked", $"Import rejected due to validation errors: {details}", "err");
+            }
+            catch (Exception ex)
+            {
+                ShowToast("Import Failed", ex.Message, "err");
+            }
         }
 
         private void ExportSanitizedConfig()

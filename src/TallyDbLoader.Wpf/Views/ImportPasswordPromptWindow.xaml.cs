@@ -11,7 +11,7 @@ namespace TallyDbLoader.Wpf.Views
         private readonly Dictionary<int, PasswordBox> _passwordBoxes = new();
         public Dictionary<int, string>? Results { get; private set; }
 
-        public ImportPasswordPromptWindow(List<ConfigImportPreviewDatabaseProfile> targetProfiles)
+        public ImportPasswordPromptWindow(IEnumerable<ConfigImportPreviewDatabaseProfile> targetProfiles)
         {
             InitializeComponent();
 
@@ -53,7 +53,7 @@ namespace TallyDbLoader.Wpf.Views
                 string password = kvp.Value.Password;
                 if (string.IsNullOrWhiteSpace(password))
                 {
-                    MessageBox.Show(this, "All listed database profile passwords are required.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    System.Windows.MessageBox.Show(this, "All listed database profile passwords are required.", "Validation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                     return;
                 }
                 dict[kvp.Key] = password;

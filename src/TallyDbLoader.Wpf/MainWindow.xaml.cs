@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using TallyDbLoader.Wpf.Views;
+using TallyDbLoader.Core.Models;
 
 namespace TallyDbLoader.Wpf
 {
@@ -56,6 +58,30 @@ namespace TallyDbLoader.Wpf
                 if (dialog.ShowDialog() == true)
                 {
                     return dialog.FileName;
+                }
+                return null;
+            };
+
+            _vm.OpenFileDialogHandler = (filter) =>
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Filter = filter
+                };
+                if (dialog.ShowDialog() == true)
+                {
+                    return dialog.FileName;
+                }
+                return null;
+            };
+
+            _vm.PasswordPromptHandler = (preview) =>
+            {
+                var dialog = new ImportPasswordPromptWindow(preview.DatabaseProfiles);
+                dialog.Owner = this;
+                if (dialog.ShowDialog() == true)
+                {
+                    return dialog.Results;
                 }
                 return null;
             };

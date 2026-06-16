@@ -1,5 +1,12 @@
 ## Release History
 
+**Version: 2.1.0-beta [16-Jun-2026]**<br>
+Added:
+* WPF Sanitized Config Import UI, enabling import of sanitized JSON configuration files.
+* Create-new-only configuration imports: all profile conflicts with existing databases or companies are blocked.
+* Secure collection of required database passwords via a dedicated PasswordBox dialog.
+* Engine guard check: configuration imports are blocked if the sync engine is currently running.
+
 **Version: 2.0.0-beta [08-Jun-2026]**<br>
 Added:
 * Implement .NET Port of the utility with UI-free core library and WPF shell interface

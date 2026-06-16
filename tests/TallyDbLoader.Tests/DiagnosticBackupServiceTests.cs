@@ -449,5 +449,107 @@ namespace TallyDbLoader.Tests
                 }
             }
         }
+
+        [Fact]
+        public void CreateBackup_KeepsZipFileOnDisk_WhenAuditDatabaseWriteThrows()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"diag_audit_fail_{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            string sourceDbPath = Path.Combine(tempDir, "source.db");
+            string outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+
+            try
+            {
+                DatabaseHelper.InitializeDatabase(sourceDbPath);
+                
+                var failingRepo = new FakeDiagnosticBackupRepository { ShouldThrowOnAudit = true };
+                var service = new DiagnosticBackupService(failingRepo);
+                var request = new DiagnosticBackupRequest
+                {
+                    ConfigDatabasePath = sourceDbPath,
+                    OutputDirectoryPath = outputDir,
+                    ApplicationVersion = "1.0",
+                    Actor = "troubled_agent",
+                    Reason = "fail audit",
+                    IncludeRawXml = false,
+                    CreatedAt = DateTimeOffset.Now
+                };
+
+                // The ZIP creation must still complete, but writing the audit row throws.
+                // The operation should throw the audit exception, but the ZIP must remain on disk (fail-closed auditing).
+                var ex = Assert.Throws<InvalidOperationException>(() => service.CreateBackup(request));
+                Assert.Contains("Simulated audit database insertion failure", ex.Message);
+
+                var expectedZipFile = Directory.GetFiles(outputDir, "*.zip");
+                Assert.Single(expectedZipFile);
+                Assert.True(File.Exists(expectedZipFile[0]));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void CreateBackup_DoesNotLeakRawXmlContents_ToManifestOrAuditLogs()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"diag_xml_leak_{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            string sourceDbPath = Path.Combine(tempDir, "source.db");
+            string outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+            string xmlDir = Path.Combine(tempDir, "xml");
+            Directory.CreateDirectory(xmlDir);
+
+            try
+            {
+                DatabaseHelper.InitializeDatabase(sourceDbPath);
+                
+                // Sensitive raw XML content
+                string xmlContent1 = "<ENVELOPE><HEADER><VERSION>1</VERSION></HEADER><BODY><DATA><TALLYMESSAGE>SecretCompanyData</TALLYMESSAGE></DATA></BODY></ENVELOPE>";
+                File.WriteAllText(Path.Combine(xmlDir, "tally_export.xml"), xmlContent1);
+
+                var service = new DiagnosticBackupService(_repoFake);
+                var request = new DiagnosticBackupRequest
+                {
+                    ConfigDatabasePath = sourceDbPath,
+                    RawXmlDirectoryPath = xmlDir,
+                    OutputDirectoryPath = outputDir,
+                    ApplicationVersion = "1.0",
+                    Actor = "xml_checker",
+                    Reason = "security test",
+                    IncludeRawXml = true,
+                    CreatedAt = DateTimeOffset.Now
+                };
+
+                var result = service.CreateBackup(request);
+
+                // Verify ZIP extracts correctly
+                string extractDir = Path.Combine(tempDir, "extract");
+                Directory.CreateDirectory(extractDir);
+                System.IO.Compression.ZipFile.ExtractToDirectory(result.FilePath, extractDir);
+
+                string manifestJson = File.ReadAllText(Path.Combine(extractDir, "manifest.json"));
+
+                // Verify that raw xml tags and contents never leak to manifest.json
+                Assert.DoesNotContain("<ENVELOPE>", manifestJson);
+                Assert.DoesNotContain("<BODY>", manifestJson);
+                Assert.DoesNotContain("<DATA>", manifestJson);
+                Assert.DoesNotContain("SecretCompanyData", manifestJson);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
     }
 }

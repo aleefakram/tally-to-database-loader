@@ -359,5 +359,269 @@ namespace TallyDbLoader.Tests
                 }
             }
         }
+
+        [Fact]
+        public void Test_ExportSanitizedConfig_Success()
+        {
+            string dbPath = $"vm_test_export_ok_{Guid.NewGuid():N}.db";
+            string exportPath = $"vm_test_export_out_{Guid.NewGuid():N}.json";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                // Mock save file dialog
+                vm.SaveFileDialogHandler = (defaultName, filter) => exportPath;
+
+                // Run config export
+                vm.ExportSanitizedConfigCommand.Execute(null);
+
+                // Assert file exists and contains expected metadata
+                Assert.True(File.Exists(exportPath));
+                string content = File.ReadAllText(exportPath);
+                Assert.Contains("tally-db-loader.config-export", content);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (File.Exists(exportPath)) try { File.Delete(exportPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_ExportSanitizedConfig_Cancelled()
+        {
+            string dbPath = $"vm_test_export_cancel_{Guid.NewGuid():N}.db";
+            string exportPath = $"vm_test_export_cancel_out_{Guid.NewGuid():N}.json";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                // Mock user cancelled
+                vm.SaveFileDialogHandler = (defaultName, filter) => null;
+
+                vm.ExportSanitizedConfigCommand.Execute(null);
+
+                // Assert no file created and no toasts registered
+                Assert.False(File.Exists(exportPath));
+                Assert.Empty(vm.Toasts);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_ExportSanitizedConfig_Failure()
+        {
+            string dbPath = $"vm_test_export_fail_{Guid.NewGuid():N}.db";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                // Provide an invalid path that will cause write failure
+                vm.SaveFileDialogHandler = (defaultName, filter) => "invalid:\\path/to/nonexistent/file.json";
+
+                vm.ExportSanitizedConfigCommand.Execute(null);
+
+                // Toast collection should contain failure message
+                Assert.Contains(vm.Toasts, t => t.Kind == "err");
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task Test_CreateDiagnosticBackup_Success()
+        {
+            string dbPath = $"vm_test_diag_ok_{Guid.NewGuid():N}.db";
+            string outputDir = Path.Combine(Path.GetTempPath(), $"vm_diag_out_{Guid.NewGuid():N}");
+            string tempBaseDir = Path.Combine(Path.GetTempPath(), $"vm_diag_base_ok_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(outputDir);
+            Directory.CreateDirectory(tempBaseDir);
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+                vm.DiagnosticsBaseDirectory = tempBaseDir;
+
+                vm.FolderBrowserDialogHandler = () => outputDir;
+                vm.ConfirmationPromptHandler = (msg, title) => false; // No XML
+
+                await vm.CreateDiagnosticBackupAsync();
+
+                var files = Directory.GetFiles(outputDir, "*.zip");
+                Assert.Single(files);
+                Assert.Contains(vm.Toasts, t => t.Kind == "ok");
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (Directory.Exists(outputDir)) try { Directory.Delete(outputDir, true); } catch { }
+                if (Directory.Exists(tempBaseDir)) try { Directory.Delete(tempBaseDir, true); } catch { }
+            }
+        }
+
+        [Fact]
+        public void Test_CreateDiagnosticBackup_Cancelled()
+        {
+            string dbPath = $"vm_test_diag_cancel_{Guid.NewGuid():N}.db";
+            string outputDir = Path.Combine(Path.GetTempPath(), $"vm_diag_cancel_out_{Guid.NewGuid():N}");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                bool confirmationCalled = false;
+                vm.FolderBrowserDialogHandler = () => null;
+                vm.ConfirmationPromptHandler = (msg, title) => { confirmationCalled = true; return false; };
+
+                vm.CreateDiagnosticBackupCommand.Execute(null);
+
+                // Assert cancellation doesn't trigger prompts or output files or toasts
+                Assert.False(confirmationCalled);
+                Assert.Empty(vm.Toasts);
+                if (Directory.Exists(outputDir))
+                {
+                    Assert.Empty(Directory.GetFiles(outputDir, "*.zip"));
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task Test_CreateDiagnosticBackup_HandlerException()
+        {
+            string dbPath = $"vm_test_diag_exc_{Guid.NewGuid():N}.db";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+
+                // Mock handler that throws an exception
+                vm.FolderBrowserDialogHandler = () => throw new InvalidOperationException("Simulated dialog failure");
+
+                await vm.CreateDiagnosticBackupAsync();
+
+                // Assert failure toast was posted
+                Assert.Contains(vm.Toasts, t => t.Kind == "err" && t.Body.Contains("Simulated dialog failure"));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task Test_CreateDiagnosticBackup_MissingXmlDirectory()
+        {
+            string dbPath = $"vm_test_diag_xml_missing_{Guid.NewGuid():N}.db";
+            string outputDir = Path.Combine(Path.GetTempPath(), $"vm_diag_xml_out_{Guid.NewGuid():N}");
+            string tempBaseDir = Path.Combine(Path.GetTempPath(), $"vm_diag_base_xml_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(outputDir);
+            Directory.CreateDirectory(tempBaseDir); // Kept empty so raw_xml won't exist
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+                vm.DiagnosticsBaseDirectory = tempBaseDir;
+
+                vm.FolderBrowserDialogHandler = () => outputDir;
+                vm.ConfirmationPromptHandler = (msg, title) => true; // User asks for XML
+
+                await vm.CreateDiagnosticBackupAsync();
+
+                // Toast collection should contain warning message about folder missing
+                Assert.Contains(vm.Toasts, t => t.Kind == "warn" && t.Title.Contains("Folder Missing"));
+
+                // Verify ZIP manifest.json states include_raw_xml = false
+                var files = Directory.GetFiles(outputDir, "*.zip");
+                Assert.Single(files);
+                using (var archive = System.IO.Compression.ZipFile.OpenRead(files[0]))
+                {
+                    var manifestEntry = archive.GetEntry("manifest.json");
+                    Assert.NotNull(manifestEntry);
+                    using (var reader = new StreamReader(manifestEntry.Open()))
+                    {
+                        string json = reader.ReadToEnd();
+                        Assert.Contains("\"include_raw_xml\": false", json);
+                    }
+                    Assert.Empty(archive.Entries.Where(e => e.FullName.StartsWith("raw_xml/")));
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (Directory.Exists(outputDir)) try { Directory.Delete(outputDir, true); } catch { }
+                if (Directory.Exists(tempBaseDir)) try { Directory.Delete(tempBaseDir, true); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task Test_ExportAndBackup_AllowedWhileEngineRunning()
+        {
+            string dbPath = $"vm_test_engine_run_{Guid.NewGuid():N}.db";
+            string exportPath = $"vm_test_engine_run_out_{Guid.NewGuid():N}.json";
+            string outputDir = Path.Combine(Path.GetTempPath(), $"vm_diag_engine_run_out_{Guid.NewGuid():N}");
+            string tempBaseDir = Path.Combine(Path.GetTempPath(), $"vm_diag_base_run_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(outputDir);
+            Directory.CreateDirectory(tempBaseDir);
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+                vm.DiagnosticsBaseDirectory = tempBaseDir;
+
+                // Force State to Running directly without starting background threads
+                vm.State = EngineState.Running;
+                Assert.True(vm.IsSyncRunning);
+
+                // 1. Verify Config Export is allowed
+                vm.SaveFileDialogHandler = (defaultName, filter) => exportPath;
+                vm.ExportSanitizedConfigCommand.Execute(null);
+                Assert.True(File.Exists(exportPath));
+                Assert.Contains(vm.Toasts, t => t.Kind == "ok" && t.Title.Contains("Export Succeeded"));
+
+                // 2. Verify Diagnostic Backup is allowed
+                vm.FolderBrowserDialogHandler = () => outputDir;
+                vm.ConfirmationPromptHandler = (msg, title) => false;
+                await vm.CreateDiagnosticBackupAsync();
+
+                var files = Directory.GetFiles(outputDir, "*.zip");
+                Assert.Single(files);
+                Assert.Contains(vm.Toasts, t => t.Kind == "ok" && t.Title.Contains("Backup Created"));
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+                if (File.Exists(exportPath)) try { File.Delete(exportPath); } catch { }
+                if (Directory.Exists(outputDir)) try { Directory.Delete(outputDir, true); } catch { }
+                if (Directory.Exists(tempBaseDir)) try { Directory.Delete(tempBaseDir, true); } catch { }
+            }
+        }
     }
 }

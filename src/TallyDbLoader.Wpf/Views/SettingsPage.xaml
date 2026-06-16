@@ -59,13 +59,27 @@
                 <!-- Tally Exe Paths Card -->
                 <Border Style="{StaticResource FluentCardStyle}">
                     <StackPanel>
-                        <TextBlock Text="Executable File Paths" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,12"/>
+                          <TextBlock Text="Executable File Paths" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,12"/>
 
-                        <TextBlock Text="Path to Tally.exe" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
-                        <TextBox Text="{Binding TallyExePath, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,12"/>
+                          <TextBlock Text="Path to Tally.exe" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                          <TextBox Text="{Binding TallyExePath, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}" Margin="0,0,0,12"/>
 
-                        <TextBlock Text="Path to Tally.ini Configuration" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
-                        <TextBox Text="{Binding TallyIniPath, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}"/>
+                          <TextBlock Text="Path to Tally.ini Configuration" Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,4"/>
+                          <TextBox Text="{Binding TallyIniPath, Mode=TwoWay}" Style="{StaticResource AccentTextBoxStyle}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Configuration & Support Exports Card -->
+                <Border Style="{StaticResource FluentCardStyle}" Margin="0,16,0,0">
+                    <StackPanel>
+                        <TextBlock Text="Configuration &amp; Support Exports" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,12"/>
+                        
+                        <TextBlock Text="Export settings for backups, support tickets, and environment migration." Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="Export Sanitized Config" Command="{Binding ExportSanitizedConfigCommand}" Style="{StaticResource StandardButtonStyle}" Margin="0,0,12,0" ToolTip="Export database and company configuration without passwords."/>
+                            <Button Content="Create Diagnostic Backup" Command="{Binding CreateDiagnosticBackupCommand}" Style="{StaticResource StandardButtonStyle}" ToolTip="Generate a ZIP file with system information, logs, and settings."/>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
             </StackPanel>

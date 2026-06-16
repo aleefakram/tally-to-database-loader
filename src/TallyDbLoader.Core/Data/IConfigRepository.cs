@@ -43,5 +43,16 @@ namespace TallyDbLoader.Core.Data
             string reason,
             string beforeJson,
             string afterJson);
+
+        long RecordDiagnosticBackupExport(
+            string actor,
+            string reason,
+            string fileName,
+            long fileSizeBytes,
+            bool includeRawXml,
+            int logFileCount,
+            int rawXmlFileCount,
+            int skippedFileCount,
+            System.DateTime createdAt);
     }
 }

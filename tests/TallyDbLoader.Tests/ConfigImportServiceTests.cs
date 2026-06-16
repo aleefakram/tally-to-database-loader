@@ -56,6 +56,16 @@ namespace TallyDbLoader.Tests
             public void UpdateSyncRun(SyncRun run) => throw new NotImplementedException();
             public void ReconcileStaleRuns(DateTime now) => throw new NotImplementedException();
             public long ResolveCompanyProfileSafetyState(int companyProfileId, string actor, string reason, DateTime resolvedAt) => throw new NotImplementedException();
+            public long RecordDiagnosticBackupExport(
+                string actor,
+                string reason,
+                string fileName,
+                long fileSizeBytes,
+                bool includeRawXml,
+                int logFileCount,
+                int rawXmlFileCount,
+                int skippedFileCount,
+                DateTime createdAt) => throw new NotImplementedException();
         }
 
         [Fact]

@@ -1277,5 +1277,69 @@ namespace TallyDbLoader.Core.Data
                 throw new InvalidOperationException("Failed to write to the config audit log table.", ex);
             }
         }
+
+        public long RecordDiagnosticBackupExport(
+            string actor,
+            string reason,
+            string fileName,
+            long fileSizeBytes,
+            bool includeRawXml,
+            int logFileCount,
+            int rawXmlFileCount,
+            int skippedFileCount,
+            System.DateTime createdAt)
+        {
+            if (string.IsNullOrWhiteSpace(actor))
+                throw new ArgumentException("Actor cannot be null or empty.", nameof(actor));
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new ArgumentException("Reason cannot be null or empty.", nameof(reason));
+            if (string.IsNullOrWhiteSpace(fileName))
+                throw new ArgumentException("FileName cannot be null or empty.", nameof(fileName));
+
+            var payload = new
+            {
+                file_name = fileName,
+                file_size_bytes = fileSizeBytes,
+                include_raw_xml = includeRawXml,
+                log_file_count = logFileCount,
+                raw_xml_file_count = rawXmlFileCount,
+                skipped_file_count = skippedFileCount
+            };
+
+            string afterJson = JsonSerializer.Serialize(payload);
+            string beforeJson = "{}";
+
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        long auditId = InsertConfigAuditLog(
+                            conn,
+                            transaction,
+                            createdAt,
+                            actor,
+                            "export_diagnostic_backup",
+                            "diagnostic_backup",
+                            0,
+                            fileName,
+                            beforeJson,
+                            afterJson,
+                            reason);
+
+                        transaction.Commit();
+                        return auditId;
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
     }
 }

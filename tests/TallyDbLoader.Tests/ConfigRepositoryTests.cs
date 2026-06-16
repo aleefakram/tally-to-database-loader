@@ -1793,5 +1793,63 @@ namespace TallyDbLoader.Tests
                 try { if (File.Exists(testDbPath)) File.Delete(testDbPath); } catch { }
             }
         }
+
+        [Fact]
+        public void RecordDiagnosticBackupExport_WritesAuditRow_WithCorrectMetadata()
+        {
+            string testDbPath = Path.Combine(Path.GetTempPath(), $"test_diag_audit_{System.Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(testDbPath);
+                var repo = new ConfigRepository(testDbPath);
+
+                long auditId = repo.RecordDiagnosticBackupExport(
+                    actor: "support_engineer",
+                    reason: "debug connection issues",
+                    fileName: "tally_diagnostic_20260615_120000.zip",
+                    fileSizeBytes: 204850L,
+                    includeRawXml: true,
+                    logFileCount: 3,
+                    rawXmlFileCount: 5,
+                    skippedFileCount: 1,
+                    createdAt: new System.DateTime(2026, 6, 15, 12, 0, 0, System.DateTimeKind.Utc)
+                );
+
+                Assert.True(auditId > 0);
+
+                using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+                {
+                    var row = conn.QuerySingleOrDefault<dynamic>(
+                        "SELECT * FROM config_audit_log WHERE id = @Id", new { Id = auditId });
+
+                    Assert.NotNull(row);
+                    Assert.Equal("support_engineer", (string)row.actor);
+                    Assert.Equal("export_diagnostic_backup", (string)row.action);
+                    Assert.Equal("diagnostic_backup", (string)row.entity_type);
+                    Assert.Equal(0L, (long)row.entity_id);
+                    Assert.Equal("tally_diagnostic_20260615_120000.zip", (string)row.entity_name);
+                    Assert.Equal("{}", (string)row.before_json);
+                    Assert.Equal("debug connection issues", (string)row.reason);
+
+                    string afterJson = (string)row.after_json;
+                    using (var doc = System.Text.Json.JsonDocument.Parse(afterJson))
+                    {
+                        var root = doc.RootElement;
+                        Assert.Equal("tally_diagnostic_20260615_120000.zip", root.GetProperty("file_name").GetString());
+                        Assert.Equal(204850L, root.GetProperty("file_size_bytes").GetInt64());
+                        Assert.True(root.GetProperty("include_raw_xml").GetBoolean());
+                        Assert.Equal(3, root.GetProperty("log_file_count").GetInt32());
+                        Assert.Equal(5, root.GetProperty("raw_xml_file_count").GetInt32());
+                        Assert.Equal(1, root.GetProperty("skipped_file_count").GetInt32());
+                    }
+                }
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
+            }
+        }
     }
 }
+

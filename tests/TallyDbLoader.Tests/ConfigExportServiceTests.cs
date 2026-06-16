@@ -38,6 +38,16 @@ namespace TallyDbLoader.Tests
             public void ReconcileStaleRuns(DateTime now) => throw new NotImplementedException();
             public long ResolveCompanyProfileSafetyState(int companyProfileId, string actor, string reason, DateTime resolvedAt) => throw new NotImplementedException();
             public void ImportSanitizedConfig(List<ResolvedDatabaseProfileImport> databaseProfiles, List<ResolvedCompanyProfileImport> companyProfiles, string actor, string reason, string beforeJson, string afterJson) => throw new NotImplementedException();
+            public long RecordDiagnosticBackupExport(
+                string actor,
+                string reason,
+                string fileName,
+                long fileSizeBytes,
+                bool includeRawXml,
+                int logFileCount,
+                int rawXmlFileCount,
+                int skippedFileCount,
+                DateTime createdAt) => throw new NotImplementedException();
         }
 
         [Fact]

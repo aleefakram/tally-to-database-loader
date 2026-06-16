@@ -46,6 +46,38 @@ namespace TallyDbLoader.Wpf
                 return null;
             };
 
+            _vm.SaveFileDialogHandler = (defaultFilename, filter) =>
+            {
+                var dialog = new Microsoft.Win32.SaveFileDialog
+                {
+                    FileName = defaultFilename,
+                    Filter = filter
+                };
+                if (dialog.ShowDialog() == true)
+                {
+                    return dialog.FileName;
+                }
+                return null;
+            };
+
+            _vm.FolderBrowserDialogHandler = () =>
+            {
+                using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
+                {
+                    if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                    {
+                        return dialog.SelectedPath;
+                    }
+                }
+                return null;
+            };
+
+            _vm.ConfirmationPromptHandler = (message, title) =>
+            {
+                var result = System.Windows.MessageBox.Show(this, message, title, MessageBoxButton.YesNo, MessageBoxImage.Question);
+                return result == MessageBoxResult.Yes;
+            };
+
             // Session ending handler
             if (System.Windows.Application.Current != null)
             {

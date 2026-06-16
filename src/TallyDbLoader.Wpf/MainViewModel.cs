@@ -1368,8 +1368,8 @@ namespace TallyDbLoader.Wpf
             {
                 string defaultFilename = "tally-sync-config.json";
                 string filter = "JSON Files (*.json)|*.json|All Files (*.*)|*.*";
-                string? filePath = SaveFileDialogHandler != null 
-                    ? SaveFileDialogHandler(defaultFilename, filter) 
+                string? filePath = SaveFileDialogHandler != null
+                    ? SaveFileDialogHandler(defaultFilename, filter)
                     : null;
 
                 if (string.IsNullOrWhiteSpace(filePath))

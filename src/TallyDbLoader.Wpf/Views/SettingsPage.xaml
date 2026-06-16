@@ -73,7 +73,7 @@
                 <Border Style="{StaticResource FluentCardStyle}" Margin="0,16,0,0">
                     <StackPanel>
                         <TextBlock Text="Configuration &amp; Support Exports" Style="{StaticResource SubtitleTextStyle}" Margin="0,0,0,12"/>
-                        
+
                         <TextBlock Text="Export settings for backups, support tickets, and environment migration." Style="{StaticResource CaptionMuteTextStyle}" Margin="0,0,0,12" TextWrapping="Wrap"/>
 
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">

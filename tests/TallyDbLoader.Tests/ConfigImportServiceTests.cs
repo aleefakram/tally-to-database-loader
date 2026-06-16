@@ -506,5 +506,188 @@ namespace TallyDbLoader.Tests
 
             Assert.Contains("is missing has_password flag.", ex.Errors[0]);
         }
+
+        [Fact]
+        public void PreviewJson_WithInvalidJson_ReturnsValidationErrors()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            var preview = service.PreviewJson("invalid json");
+            Assert.False(preview.IsValid);
+            Assert.Contains("Invalid JSON content", preview.ValidationErrors[0]);
+        }
+
+        [Fact]
+        public void PreviewJson_WithValidPayload_ReturnsProfiles()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        { ""id"": 2, ""name"": ""NewDb"", ""technology"": ""postgres"", ""server"": ""localhost"", ""has_password"": false }
+                    ],
+                    ""company_profiles"": [
+                        { ""id"": 11, ""name"": ""NewComp"", ""db_profile_id"": 2, ""target_catalog"": ""catalog"" }
+                    ]
+                }
+            }";
+
+            var preview = service.PreviewJson(json);
+            Assert.True(preview.IsValid);
+            Assert.False(preview.HasConflicts);
+
+            var db = Assert.Single(preview.DatabaseProfiles);
+            Assert.Equal(2, db.SourceId);
+            Assert.Equal("NewDb", db.Name);
+            Assert.False(db.HasConflict);
+            Assert.False(db.HasPassword);
+
+            var comp = Assert.Single(preview.CompanyProfiles);
+            Assert.Equal(11, comp.SourceId);
+            Assert.Equal("NewComp", comp.Name);
+            Assert.False(comp.HasConflict);
+        }
+
+        [Fact]
+        public void PreviewJson_WithDbConflict_SetsHasConflicts()
+        {
+            var fake = new FakeConfigRepository();
+            fake.DatabaseProfiles.Add(new DatabaseProfile { Name = "ConflictingDb" });
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        { ""id"": 1, ""name"": ""ConflictingDb"", ""technology"": ""postgres"", ""server"": ""localhost"", ""has_password"": true }
+                    ],
+                    ""company_profiles"": []
+                }
+            }";
+
+            var preview = service.PreviewJson(json);
+            Assert.True(preview.IsValid);
+            Assert.True(preview.HasConflicts);
+            Assert.True(preview.DatabaseProfiles[0].HasConflict);
+        }
+
+        [Fact]
+        public void PreviewJson_WithCompanyConflict_SetsHasConflicts()
+        {
+            var fake = new FakeConfigRepository();
+            fake.CompanyProfiles.Add(new CompanyProfile { Name = "ConflictingComp" });
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        { ""id"": 1, ""name"": ""MyDB"", ""technology"": ""postgres"", ""server"": ""localhost"", ""has_password"": false }
+                    ],
+                    ""company_profiles"": [
+                        { ""id"": 10, ""name"": ""ConflictingComp"", ""db_profile_id"": 1, ""target_catalog"": ""catalog"" }
+                    ]
+                }
+            }";
+
+            var preview = service.PreviewJson(json);
+            Assert.True(preview.IsValid);
+            Assert.True(preview.HasConflicts);
+            Assert.True(preview.CompanyProfiles[0].HasConflict);
+        }
+
+        [Fact]
+        public void PreviewJson_WithMissingHasPassword_ReturnsValidationError()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        { ""id"": 1, ""name"": ""MyDB"", ""technology"": ""postgres"", ""server"": ""localhost"" }
+                    ],
+                    ""company_profiles"": []
+                }
+            }";
+
+            var preview = service.PreviewJson(json);
+            Assert.False(preview.IsValid);
+            Assert.Contains("missing has_password flag", preview.ValidationErrors[0]);
+        }
+
+        [Fact]
+        public void PreviewJson_WithBrokenDbProfileIdReference_ReturnsValidationError()
+        {
+            var fake = new FakeConfigRepository();
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [],
+                    ""company_profiles"": [
+                        { ""id"": 10, ""name"": ""OrphanComp"", ""db_profile_id"": 99, ""target_catalog"": ""catalog"" }
+                    ]
+                }
+            }";
+
+            var preview = service.PreviewJson(json);
+            Assert.False(preview.IsValid);
+            Assert.Contains("references database profile ID 99 which is not present in the import payload", preview.ValidationErrors[0]);
+        }
+
+        [Fact]
+        public void ImportAndPreview_HaveParity_ForConflicts()
+        {
+            var fake = new FakeConfigRepository();
+            fake.DatabaseProfiles.Add(new DatabaseProfile { Name = "ConflictingDb" });
+            fake.CompanyProfiles.Add(new CompanyProfile { Name = "ConflictingComp" });
+            var service = new ConfigImportService(fake);
+
+            string json = @"{
+                ""format"": ""tally-db-loader.config-export"",
+                ""schema_version"": 1,
+                ""application_version"": ""2.0.0"",
+                ""payload"": {
+                    ""database_profiles"": [
+                        { ""id"": 1, ""name"": ""ConflictingDb"", ""technology"": ""postgres"", ""server"": ""localhost"", ""has_password"": false }
+                    ],
+                    ""company_profiles"": [
+                        { ""id"": 10, ""name"": ""ConflictingComp"", ""db_profile_id"": 1, ""target_catalog"": ""catalog"" }
+                    ]
+                }
+            }";
+
+            // 1. Verify Preview detects conflict
+            var preview = service.PreviewJson(json);
+            Assert.True(preview.IsValid);
+            Assert.True(preview.HasConflicts);
+            Assert.True(preview.DatabaseProfiles[0].HasConflict);
+            Assert.True(preview.CompanyProfiles[0].HasConflict);
+
+            // 2. Verify ImportJson throws validation exception with matching error message
+            var decision = new ImportDecision(); // No strategy given
+            var importEx = Assert.Throws<ConfigImportValidationException>(() =>
+                service.ImportJson(json, decision, "system", "reason"));
+
+            Assert.Contains("Conflict detected for database profile 'ConflictingDb'", importEx.Errors[0]);
+        }
     }
 }
+

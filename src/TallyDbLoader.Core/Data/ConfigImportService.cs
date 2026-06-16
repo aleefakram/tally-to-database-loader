@@ -83,23 +83,7 @@ namespace TallyDbLoader.Core.Data
             }
 
             var errors = new List<string>();
-
-            if (envelope.Format != "tally-db-loader.config-export")
-            {
-                errors.Add("Unsupported or invalid format string.");
-            }
-            if (envelope.Schema_Version != 1)
-            {
-                errors.Add("Unsupported schema version. Only version 1 is supported.");
-            }
-            if (string.IsNullOrWhiteSpace(envelope.Application_Version))
-            {
-                errors.Add("Application version must be a non-empty string.");
-            }
-            if (envelope.Payload == null)
-            {
-                errors.Add("Configuration payload is missing or empty.");
-            }
+            ValidateEnvelopeAndPayload(envelope, errors);
 
             if (errors.Count > 0)
                 throw new ConfigImportValidationException(errors);
@@ -108,81 +92,6 @@ namespace TallyDbLoader.Core.Data
             var dbProfiles = payload.Database_Profiles ?? new List<ExportDatabaseProfile>();
             var companyProfiles = payload.Company_Profiles ?? new List<ExportCompanyProfile>();
 
-            // 1. Basic structural validation to prevent NullReferenceException on dereferences
-            foreach (var db in dbProfiles)
-            {
-                if (db == null)
-                {
-                    errors.Add("Database profile element is null.");
-                    continue;
-                }
-                if (db.Id <= 0)
-                {
-                    errors.Add("Database profile has an invalid or missing ID.");
-                }
-                if (string.IsNullOrWhiteSpace(db.Name))
-                {
-                    errors.Add($"Database profile ID {db.Id} is missing a name.");
-                }
-                if (string.IsNullOrWhiteSpace(db.Technology))
-                {
-                    errors.Add($"Database profile '{db.Name}' (ID {db.Id}) is missing technology.");
-                }
-                if (string.IsNullOrWhiteSpace(db.Server))
-                {
-                    errors.Add($"Database profile '{db.Name}' (ID {db.Id}) is missing server host.");
-                }
-                if (db.Has_Password == null)
-                {
-                    errors.Add($"Database profile '{db.Name}' (ID {db.Id}) is missing has_password flag.");
-                }
-            }
-
-            foreach (var comp in companyProfiles)
-            {
-                if (comp == null)
-                {
-                    errors.Add("Company profile element is null.");
-                    continue;
-                }
-                if (comp.Id <= 0)
-                {
-                    errors.Add("Company profile has an invalid or missing ID.");
-                }
-                if (string.IsNullOrWhiteSpace(comp.Name))
-                {
-                    errors.Add($"Company profile ID {comp.Id} is missing a name.");
-                }
-                if (comp.Db_Profile_Id <= 0)
-                {
-                    errors.Add($"Company profile '{comp.Name}' (ID {comp.Id}) is missing db_profile_id.");
-                }
-                if (string.IsNullOrWhiteSpace(comp.Target_Catalog))
-                {
-                    errors.Add($"Company profile '{comp.Name}' (ID {comp.Id}) is missing target_catalog.");
-                }
-            }
-
-            if (errors.Count > 0)
-                throw new ConfigImportValidationException(errors);
-
-            // 2. Duplicate source ID checks
-            var dbSourceIds = new HashSet<int>();
-            foreach (var db in dbProfiles)
-            {
-                if (!dbSourceIds.Add(db.Id))
-                    errors.Add($"Duplicate database profile source ID: {db.Id}");
-            }
-
-            var compSourceIds = new HashSet<int>();
-            foreach (var comp in companyProfiles)
-            {
-                if (!compSourceIds.Add(comp.Id))
-                    errors.Add($"Duplicate company profile source ID: {comp.Id}");
-            }
-
-            if (errors.Count > 0)
-                throw new ConfigImportValidationException(errors);
 
             // 3. Load existing models for conflict matching
             var existingDbs = _repository.GetAllDatabaseProfiles() ?? new List<DatabaseProfile>();
@@ -197,8 +106,7 @@ namespace TallyDbLoader.Core.Data
             // 4. Resolve Database Conflicts & Passwords
             foreach (var sourceDb in dbProfiles)
             {
-                var sourceNameNorm = sourceDb.Name.Trim().ToLowerInvariant();
-                var existingMatch = existingDbs.FirstOrDefault(e => e.Name.Trim().ToLowerInvariant() == sourceNameNorm);
+                var existingMatch = FindExistingDatabaseConflict(sourceDb, existingDbs);
 
                 if (existingMatch != null)
                 {
@@ -290,26 +198,7 @@ namespace TallyDbLoader.Core.Data
                 // If referenced DB profile is skipped, company MUST also be skipped
                 bool dbIsSkipped = skippedDbIds.Contains(sourceComp.Db_Profile_Id);
 
-                var sourceNameNorm = sourceComp.Name.Trim().ToLowerInvariant();
-                CompanyProfile? existingMatch = null;
-
-                if (!string.IsNullOrEmpty(sourceComp.Tally_Guid))
-                {
-                    var matchByGuid = existingComps.FirstOrDefault(e => e.TallyGuid == sourceComp.Tally_Guid);
-                    var matchByName = existingComps.FirstOrDefault(e => e.Name.Trim().ToLowerInvariant() == sourceNameNorm);
-
-                    if (matchByGuid != null && matchByName != null && matchByGuid.Id != matchByName.Id)
-                    {
-                        errors.Add($"Ambiguous conflict for company profile '{sourceComp.Name}': matches GUID with one profile and Name with another. Import blocked.");
-                        continue;
-                    }
-
-                    existingMatch = matchByGuid ?? matchByName;
-                }
-                else
-                {
-                    existingMatch = existingComps.FirstOrDefault(e => e.Name.Trim().ToLowerInvariant() == sourceNameNorm);
-                }
+                var existingMatch = FindExistingCompanyConflict(sourceComp, existingComps, errors);
 
                 // Parse dates safely with TryParse
                 DateTime? booksFromVal = null;
@@ -452,6 +341,217 @@ namespace TallyDbLoader.Core.Data
                 reason,
                 beforeJson,
                 afterJson);
+        }
+
+        public TallyDbLoader.Core.Models.ConfigImportPreview PreviewJson(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json))
+                throw new ArgumentException("JSON content cannot be null or empty.", nameof(json));
+
+            ExportEnvelope envelope;
+            try
+            {
+                envelope = JsonSerializer.Deserialize<ExportEnvelope>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                           ?? throw new InvalidOperationException("Failed to deserialize JSON.");
+            }
+            catch (Exception ex)
+            {
+                return new TallyDbLoader.Core.Models.ConfigImportPreview
+                {
+                    ValidationErrors = new[] { $"Invalid JSON content: {ex.Message}" }
+                };
+            }
+
+            var errors = new List<string>();
+            ValidateEnvelopeAndPayload(envelope, errors);
+
+            if (errors.Count > 0)
+            {
+                return new TallyDbLoader.Core.Models.ConfigImportPreview { ValidationErrors = errors };
+            }
+
+            var payload = envelope.Payload!;
+            var dbProfiles = payload.Database_Profiles ?? new List<ExportDatabaseProfile>();
+            var companyProfiles = payload.Company_Profiles ?? new List<ExportCompanyProfile>();
+
+            var existingDbs = _repository.GetAllDatabaseProfiles() ?? new List<DatabaseProfile>();
+            var existingComps = _repository.GetAllCompanyProfiles() ?? new List<CompanyProfile>();
+
+            var dbPreviews = new List<TallyDbLoader.Core.Models.ConfigImportPreviewDatabaseProfile>();
+            var compPreviews = new List<TallyDbLoader.Core.Models.ConfigImportPreviewCompanyProfile>();
+            bool hasConflicts = false;
+
+            foreach (var sourceDb in dbProfiles)
+            {
+                var existingMatch = FindExistingDatabaseConflict(sourceDb, existingDbs);
+                var isConflict = existingMatch != null;
+                if (isConflict) hasConflicts = true;
+
+                dbPreviews.Add(new TallyDbLoader.Core.Models.ConfigImportPreviewDatabaseProfile
+                {
+                    SourceId = sourceDb.Id,
+                    Name = sourceDb.Name,
+                    HasPassword = sourceDb.Has_Password.GetValueOrDefault(),
+                    HasConflict = isConflict
+                });
+            }
+
+            foreach (var sourceComp in companyProfiles)
+            {
+                var dbInPayload = dbProfiles.FirstOrDefault(d => d.Id == sourceComp.Db_Profile_Id);
+                if (dbInPayload == null)
+                {
+                    errors.Add($"Company profile '{sourceComp.Name}' references database profile ID {sourceComp.Db_Profile_Id} which is not present in the import payload.");
+                    continue;
+                }
+
+                var existingMatch = FindExistingCompanyConflict(sourceComp, existingComps, errors);
+                var isConflict = existingMatch != null;
+                if (isConflict) hasConflicts = true;
+
+                compPreviews.Add(new TallyDbLoader.Core.Models.ConfigImportPreviewCompanyProfile
+                {
+                    SourceId = sourceComp.Id,
+                    Name = sourceComp.Name,
+                    HasConflict = isConflict
+                });
+            }
+
+            if (errors.Count > 0)
+            {
+                return new TallyDbLoader.Core.Models.ConfigImportPreview { ValidationErrors = errors };
+            }
+
+            return new TallyDbLoader.Core.Models.ConfigImportPreview
+            {
+                DatabaseProfiles = dbPreviews,
+                CompanyProfiles = compPreviews,
+                HasConflicts = hasConflicts,
+                ValidationErrors = Array.Empty<string>()
+            };
+        }
+
+        private void ValidateEnvelopeAndPayload(ExportEnvelope envelope, List<string> errors)
+        {
+            if (envelope.Format != "tally-db-loader.config-export")
+            {
+                errors.Add("Unsupported or invalid format string.");
+            }
+            if (envelope.Schema_Version != 1)
+            {
+                errors.Add("Unsupported schema version. Only version 1 is supported.");
+            }
+            if (string.IsNullOrWhiteSpace(envelope.Application_Version))
+            {
+                errors.Add("Application version must be a non-empty string.");
+            }
+            if (envelope.Payload == null)
+            {
+                errors.Add("Configuration payload is missing or empty.");
+                return;
+            }
+
+            var payload = envelope.Payload;
+            var dbProfiles = payload.Database_Profiles ?? new List<ExportDatabaseProfile>();
+            var companyProfiles = payload.Company_Profiles ?? new List<ExportCompanyProfile>();
+
+            foreach (var db in dbProfiles)
+            {
+                if (db == null)
+                {
+                    errors.Add("Database profile element is null.");
+                    continue;
+                }
+                if (db.Id <= 0)
+                {
+                    errors.Add("Database profile has an invalid or missing ID.");
+                }
+                if (string.IsNullOrWhiteSpace(db.Name))
+                {
+                    errors.Add($"Database profile ID {db.Id} is missing a name.");
+                }
+                if (string.IsNullOrWhiteSpace(db.Technology))
+                {
+                    errors.Add($"Database profile '{db.Name}' (ID {db.Id}) is missing technology.");
+                }
+                if (string.IsNullOrWhiteSpace(db.Server))
+                {
+                    errors.Add($"Database profile '{db.Name}' (ID {db.Id}) is missing server host.");
+                }
+                if (db.Has_Password == null)
+                {
+                    errors.Add($"Database profile '{db.Name}' (ID {db.Id}) is missing has_password flag.");
+                }
+            }
+
+            foreach (var comp in companyProfiles)
+            {
+                if (comp == null)
+                {
+                    errors.Add("Company profile element is null.");
+                    continue;
+                }
+                if (comp.Id <= 0)
+                {
+                    errors.Add("Company profile has an invalid or missing ID.");
+                }
+                if (string.IsNullOrWhiteSpace(comp.Name))
+                {
+                    errors.Add($"Company profile ID {comp.Id} is missing a name.");
+                }
+                if (comp.Db_Profile_Id <= 0)
+                {
+                    errors.Add($"Company profile '{comp.Name}' (ID {comp.Id}) is missing db_profile_id.");
+                }
+                if (string.IsNullOrWhiteSpace(comp.Target_Catalog))
+                {
+                    errors.Add($"Company profile '{comp.Name}' (ID {comp.Id}) is missing target_catalog.");
+                }
+            }
+
+            if (errors.Count > 0) return;
+
+            var dbSourceIds = new HashSet<int>();
+            foreach (var db in dbProfiles)
+            {
+                if (!dbSourceIds.Add(db.Id))
+                    errors.Add($"Duplicate database profile source ID: {db.Id}");
+            }
+
+            var compSourceIds = new HashSet<int>();
+            foreach (var comp in companyProfiles)
+            {
+                if (!compSourceIds.Add(comp.Id))
+                    errors.Add($"Duplicate company profile source ID: {comp.Id}");
+            }
+        }
+
+        private DatabaseProfile? FindExistingDatabaseConflict(ExportDatabaseProfile sourceDb, List<DatabaseProfile> existingDbs)
+        {
+            var sourceNameNorm = sourceDb.Name.Trim().ToLowerInvariant();
+            return existingDbs.FirstOrDefault(e => e.Name.Trim().ToLowerInvariant() == sourceNameNorm);
+        }
+
+        private CompanyProfile? FindExistingCompanyConflict(ExportCompanyProfile sourceComp, List<CompanyProfile> existingComps, List<string> errors)
+        {
+            var sourceNameNorm = sourceComp.Name.Trim().ToLowerInvariant();
+            if (!string.IsNullOrEmpty(sourceComp.Tally_Guid))
+            {
+                var matchByGuid = existingComps.FirstOrDefault(e => e.TallyGuid == sourceComp.Tally_Guid);
+                var matchByName = existingComps.FirstOrDefault(e => e.Name.Trim().ToLowerInvariant() == sourceNameNorm);
+
+                if (matchByGuid != null && matchByName != null && matchByGuid.Id != matchByName.Id)
+                {
+                    errors.Add($"Ambiguous conflict for company profile '{sourceComp.Name}': matches GUID with one profile and Name with another. Import blocked.");
+                    return null;
+                }
+
+                return matchByGuid ?? matchByName;
+            }
+            else
+            {
+                return existingComps.FirstOrDefault(e => e.Name.Trim().ToLowerInvariant() == sourceNameNorm);
+            }
         }
     }
 }

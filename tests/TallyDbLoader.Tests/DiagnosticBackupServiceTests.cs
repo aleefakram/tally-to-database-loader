@@ -179,5 +179,25 @@ namespace TallyDbLoader.Tests
                 }
             }
         }
+
+        [Fact]
+        public void GatherSystemInfo_ReturnsExpectedProperties_WithoutLeakingSecrets()
+        {
+            var service = new DiagnosticBackupService(_repoFake);
+            var req = new DiagnosticBackupRequest
+            {
+                ApplicationVersion = "2.0.0-beta",
+                CreatedAt = DateTimeOffset.UtcNow
+            };
+
+            string info = service.GenerateSystemInfoText(req);
+
+            Assert.Contains("application_version=2.0.0-beta", info);
+            Assert.Contains("os_version=", info);
+            Assert.Contains("dotnet_version=", info);
+            Assert.Contains("is_64_bit_process=", info);
+            Assert.DoesNotContain("password", info);
+            Assert.DoesNotContain("dpapi", info);
+        }
     }
 }

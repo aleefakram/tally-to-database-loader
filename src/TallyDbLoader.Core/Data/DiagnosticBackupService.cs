@@ -84,5 +84,48 @@ namespace TallyDbLoader.Core.Data
                 source.BackupDatabase(destination);
             }
         }
+
+        internal string GenerateSystemInfoText(DiagnosticBackupRequest request)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"created_at={request.CreatedAt:o}");
+            sb.AppendLine($"application_version={request.ApplicationVersion}");
+            sb.AppendLine($"os_version={GetSafeEnvironment(() => Environment.OSVersion.ToString())}");
+            sb.AppendLine($"machine_name={GetSafeEnvironment(() => Environment.MachineName)}");
+            sb.AppendLine($"user_name={GetSafeEnvironment(() => Environment.UserName)}");
+            sb.AppendLine($"dotnet_version={GetSafeEnvironment(() => System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription)}");
+            sb.AppendLine($"process_name={GetSafeEnvironment(() => System.Diagnostics.Process.GetCurrentProcess().ProcessName)}");
+            sb.AppendLine($"processor_count={GetSafeEnvironment(() => Environment.ProcessorCount.ToString(), "0")}");
+            sb.AppendLine($"working_set_bytes={GetSafeEnvironment(() => System.Diagnostics.Process.GetCurrentProcess().WorkingSet64.ToString(), "0")}");
+            sb.AppendLine($"is_64_bit_process={GetSafeEnvironment(() => Environment.Is64BitProcess.ToString().ToLowerInvariant())}");
+            return sb.ToString();
+        }
+
+        private string GetSafeEnvironment(Func<string> propertySelector, string fallback = "Unknown")
+        {
+            try
+            {
+                return propertySelector() ?? fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        internal void CopyFileWithReadSharing(string sourcePath, string destinationPath)
+        {
+            var destDir = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+            {
+                Directory.CreateDirectory(destDir);
+            }
+
+            using (var sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            using (var destStream = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                sourceStream.CopyTo(destStream);
+            }
+        }
     }
 }

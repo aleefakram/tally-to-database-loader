@@ -489,7 +489,7 @@ We will create/modify the following files:
               try
               {
                   DatabaseHelper.InitializeDatabase(sourceDbPath);
-                  
+
                   using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sourceDbPath}"))
                   {
                       conn.Open();
@@ -667,7 +667,7 @@ We will create/modify the following files:
               string sourceDbPath = Path.Combine(tempDir, "source.db");
               string outputDir = Path.Combine(tempDir, "output");
               Directory.CreateDirectory(outputDir);
-              
+
               string logsDir = Path.Combine(tempDir, "logs");
               Directory.CreateDirectory(logsDir);
               string subLogsDir = Path.Combine(logsDir, "subfolder");
@@ -681,7 +681,7 @@ We will create/modify the following files:
               try
               {
                   DatabaseHelper.InitializeDatabase(sourceDbPath);
-                  
+
                   // Add dummy records to DB
                   using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sourceDbPath}"))
                   {
@@ -692,7 +692,7 @@ We will create/modify the following files:
                   // Create nested logs and raw XMLs
                   File.WriteAllText(Path.Combine(logsDir, "root.log"), "Root log content");
                   File.WriteAllText(Path.Combine(subLogsDir, "nested.log"), "Nested log content");
-                  
+
                   File.WriteAllText(Path.Combine(xmlDir, "root.xml"), "<ENVELOPE></ENVELOPE>");
                   File.WriteAllText(Path.Combine(subXmlDir, "nested.xml"), "<DATA></DATA>");
 
@@ -739,7 +739,7 @@ We will create/modify the following files:
                       Assert.Equal("2.0.0-beta", root.GetProperty("application_version").GetString());
                       Assert.Equal("2026-06-15T15:30:00.0000000+05:30", root.GetProperty("created_at").GetString());
                       Assert.True(root.GetProperty("include_raw_xml").GetBoolean());
-                      
+
                       var entries = root.GetProperty("entries");
                       Assert.True(entries.GetProperty("config_database").GetBoolean());
                       Assert.True(entries.GetProperty("system_info").GetBoolean());
@@ -845,7 +845,7 @@ We will create/modify the following files:
               try
               {
                   DatabaseHelper.InitializeDatabase(sourceDbPath);
-                  
+
                   string log1 = Path.Combine(logsDir, "app1.log");
                   string log2 = Path.Combine(logsDir, "app2.log");
                   File.WriteAllText(log1, "Log content 1");
@@ -891,7 +891,7 @@ We will create/modify the following files:
                           Assert.Single(skippedArray);
                           var item = skippedArray[0].GetString()!;
                           Assert.StartsWith("logs/app1.log: IOException", item);
-                          
+
                           // Ensure absolute paths do not leak through exception details
                           Assert.DoesNotContain("C:/", item);
                           Assert.DoesNotContain("C:\\", item);

@@ -152,7 +152,7 @@ namespace TallyDbLoader.Tests
             try
             {
                 DatabaseHelper.InitializeDatabase(sourceDbPath);
-                
+
                 using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sourceDbPath}"))
                 {
                     conn.Open();
@@ -208,7 +208,7 @@ namespace TallyDbLoader.Tests
             string sourceDbPath = Path.Combine(tempDir, "source.db");
             string outputDir = Path.Combine(tempDir, "output");
             Directory.CreateDirectory(outputDir);
-            
+
             string logsDir = Path.Combine(tempDir, "logs");
             Directory.CreateDirectory(logsDir);
             string subLogsDir = Path.Combine(logsDir, "subfolder");
@@ -222,7 +222,7 @@ namespace TallyDbLoader.Tests
             try
             {
                 DatabaseHelper.InitializeDatabase(sourceDbPath);
-                
+
                 // Add dummy records to DB
                 using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sourceDbPath};Pooling=False;"))
                 {
@@ -233,7 +233,7 @@ namespace TallyDbLoader.Tests
                 // Create nested logs and raw XMLs
                 File.WriteAllText(Path.Combine(logsDir, "root.log"), "Root log content");
                 File.WriteAllText(Path.Combine(subLogsDir, "nested.log"), "Nested log content");
-                
+
                 File.WriteAllText(Path.Combine(xmlDir, "root.xml"), "<ENVELOPE></ENVELOPE>");
                 File.WriteAllText(Path.Combine(subXmlDir, "nested.xml"), "<DATA></DATA>");
 
@@ -280,7 +280,7 @@ namespace TallyDbLoader.Tests
                     Assert.Equal("2.0.0-beta", root.GetProperty("application_version").GetString());
                     Assert.Equal("2026-06-15T15:30:00.0000000+05:30", root.GetProperty("created_at").GetString());
                     Assert.True(root.GetProperty("include_raw_xml").GetBoolean());
-                    
+
                     var entries = root.GetProperty("entries");
                     Assert.True(entries.GetProperty("config_database").GetBoolean());
                     Assert.True(entries.GetProperty("system_info").GetBoolean());
@@ -295,6 +295,8 @@ namespace TallyDbLoader.Tests
                     conn.Open();
                     int count = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM database_profiles WHERE name = 'TestProfile'");
                     Assert.Equal(1, count);
+                    string password = conn.ExecuteScalar<string>("SELECT password FROM database_profiles WHERE name = 'TestProfile'");
+                    Assert.Equal("dpapi:xyz123", password);
                 }
 
                 // Assert security requirements: no passwords, no raw XML file contents, or absolute path leaks
@@ -386,7 +388,7 @@ namespace TallyDbLoader.Tests
             try
             {
                 DatabaseHelper.InitializeDatabase(sourceDbPath);
-                
+
                 string log1 = Path.Combine(logsDir, "app1.log");
                 string log2 = Path.Combine(logsDir, "app2.log");
                 File.WriteAllText(log1, "Log content 1");
@@ -432,7 +434,7 @@ namespace TallyDbLoader.Tests
                         Assert.Single(skippedArray.EnumerateArray());
                         var item = skippedArray[0].GetString()!;
                         Assert.StartsWith("logs/app1.log: IOException", item);
-                        
+
                         // Ensure absolute paths do not leak through exception details
                         Assert.DoesNotContain("C:/", item);
                         Assert.DoesNotContain("C:\\", item);
@@ -462,7 +464,7 @@ namespace TallyDbLoader.Tests
             try
             {
                 DatabaseHelper.InitializeDatabase(sourceDbPath);
-                
+
                 var failingRepo = new FakeDiagnosticBackupRepository { ShouldThrowOnAudit = true };
                 var service = new DiagnosticBackupService(failingRepo);
                 var request = new DiagnosticBackupRequest
@@ -509,7 +511,7 @@ namespace TallyDbLoader.Tests
             try
             {
                 DatabaseHelper.InitializeDatabase(sourceDbPath);
-                
+
                 // Sensitive raw XML content
                 string xmlContent1 = "<ENVELOPE><HEADER><VERSION>1</VERSION></HEADER><BODY><DATA><TALLYMESSAGE>SecretCompanyData</TALLYMESSAGE></DATA></BODY></ENVELOPE>";
                 File.WriteAllText(Path.Combine(xmlDir, "tally_export.xml"), xmlContent1);
@@ -544,6 +546,86 @@ namespace TallyDbLoader.Tests
             }
             finally
             {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (Directory.Exists(tempDir))
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                }
+            }
+        }
+
+        [Fact]
+        public void CreateBackup_TracksSkippedDirectories_WhenAccessDenied()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"diag_access_{Guid.NewGuid()}");
+            Directory.CreateDirectory(tempDir);
+            string sourceDbPath = Path.Combine(tempDir, "source.db");
+            string outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+            string logsDir = Path.Combine(tempDir, "logs");
+            Directory.CreateDirectory(logsDir);
+            string inaccessibleDir = Path.Combine(logsDir, "locked_folder");
+            Directory.CreateDirectory(inaccessibleDir);
+
+            // Restrict read access to simulate access denied on Windows
+            var dInfo = new DirectoryInfo(inaccessibleDir);
+            var dSecurity = dInfo.GetAccessControl();
+            var currentUser = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
+            var accessRule = new System.Security.AccessControl.FileSystemAccessRule(
+                currentUser,
+                System.Security.AccessControl.FileSystemRights.ListDirectory,
+                System.Security.AccessControl.AccessControlType.Deny);
+            dSecurity.AddAccessRule(accessRule);
+            dInfo.SetAccessControl(dSecurity);
+
+            try
+            {
+                DatabaseHelper.InitializeDatabase(sourceDbPath);
+
+                var service = new DiagnosticBackupService(_repoFake);
+                var request = new DiagnosticBackupRequest
+                {
+                    ConfigDatabasePath = sourceDbPath,
+                    LogDirectoryPath = logsDir,
+                    OutputDirectoryPath = outputDir,
+                    ApplicationVersion = "1.0",
+                    Actor = "access_agent",
+                    Reason = "test access denied",
+                    IncludeRawXml = false,
+                    CreatedAt = DateTimeOffset.Now
+                };
+
+                var result = service.CreateBackup(request);
+
+                Assert.True(File.Exists(result.FilePath));
+
+                string extractDir = Path.Combine(tempDir, "extract");
+                Directory.CreateDirectory(extractDir);
+                System.IO.Compression.ZipFile.ExtractToDirectory(result.FilePath, extractDir);
+
+                string manifestJson = File.ReadAllText(Path.Combine(extractDir, "manifest.json"));
+                using (var doc = System.Text.Json.JsonDocument.Parse(manifestJson))
+                {
+                    var root = doc.RootElement;
+                    var entries = root.GetProperty("entries");
+                    Assert.Equal(1, entries.GetProperty("skipped_file_count").GetInt32());
+
+                    var skippedArray = root.GetProperty("skipped_files");
+                    Assert.Single(skippedArray.EnumerateArray());
+                    var item = skippedArray[0].GetString()!;
+                    Assert.StartsWith("logs/locked_folder: UnauthorizedAccessException", item);
+                }
+            }
+            finally
+            {
+                // Restore permissions so we can clean up
+                try
+                {
+                    dSecurity.RemoveAccessRule(accessRule);
+                    dInfo.SetAccessControl(dSecurity);
+                }
+                catch { }
+
                 Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
                 if (Directory.Exists(tempDir))
                 {

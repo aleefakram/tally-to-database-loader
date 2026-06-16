@@ -76,11 +76,10 @@ namespace TallyDbLoader.Core.Data
 
             try
             {
-                // config db backup & sanitization
+                // config db backup
                 string configStageDir = Path.Combine(stagingDir, "config");
                 string configDestDb = Path.Combine(configStageDir, "config.db");
                 PerformSQLiteBackup(request.ConfigDatabasePath, configDestDb);
-                SanitizeConfigDatabase(configDestDb);
 
                 // system info
                 string systemStageDir = Path.Combine(stagingDir, "system");
@@ -171,15 +170,6 @@ namespace TallyDbLoader.Core.Data
             }
         }
 
-        private void SanitizeConfigDatabase(string dbPath)
-        {
-            using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False;"))
-            {
-                conn.Open();
-                conn.Execute("UPDATE database_profiles SET password = '***masked***' WHERE password IS NOT NULL;");
-            }
-        }
-
         private void CopyDirectoryRecursively(
             string sourceDir,
             string targetDir,
@@ -188,20 +178,70 @@ namespace TallyDbLoader.Core.Data
             List<string> skippedFiles)
         {
             if (!Directory.Exists(sourceDir)) return;
+            SafeCopyDirectory(sourceDir, sourceDir, targetDir, logCategoryPrefix, ref copiedCount, skippedFiles);
+        }
 
-            foreach (var filePath in Directory.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
+        private void SafeCopyDirectory(
+            string rootDir,
+            string currentDir,
+            string targetDir,
+            string logCategoryPrefix,
+            ref int copiedCount,
+            List<string> skippedFiles)
+        {
+            bool accessFailed = false;
+            // Try enumerating files in current directory
+            string[] files = Array.Empty<string>();
+            try
             {
-                string relativeName = Path.GetRelativePath(sourceDir, filePath).Replace('\\', '/');
-                string destPath = Path.Combine(targetDir, relativeName);
+                files = Directory.GetFiles(currentDir);
+                Array.Sort(files, StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                string relativeName = Path.GetRelativePath(rootDir, currentDir).Replace('\\', '/');
+                skippedFiles.Add($"{logCategoryPrefix}/{relativeName}: {ex.GetType().Name}");
+                accessFailed = true;
+            }
 
+            if (!accessFailed)
+            {
+                foreach (var filePath in files)
+                {
+                    string relativeName = Path.GetRelativePath(rootDir, filePath).Replace('\\', '/');
+                    string destPath = Path.Combine(targetDir, relativeName);
+
+                    try
+                    {
+                        CopyFileWithReadSharing(filePath, destPath);
+                        copiedCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        skippedFiles.Add($"{logCategoryPrefix}/{relativeName}: {ex.GetType().Name}");
+                    }
+                }
+
+                // Try enumerating subdirectories in current directory
+                string[] subDirs = Array.Empty<string>();
                 try
                 {
-                    CopyFileWithReadSharing(filePath, destPath);
-                    copiedCount++;
+                    subDirs = Directory.GetDirectories(currentDir);
+                    Array.Sort(subDirs, StringComparer.OrdinalIgnoreCase);
                 }
                 catch (Exception ex)
                 {
+                    string relativeName = Path.GetRelativePath(rootDir, currentDir).Replace('\\', '/');
                     skippedFiles.Add($"{logCategoryPrefix}/{relativeName}: {ex.GetType().Name}");
+                    accessFailed = true;
+                }
+
+                if (!accessFailed)
+                {
+                    foreach (var subDir in subDirs)
+                    {
+                        SafeCopyDirectory(rootDir, subDir, targetDir, logCategoryPrefix, ref copiedCount, skippedFiles);
+                    }
                 }
             }
         }

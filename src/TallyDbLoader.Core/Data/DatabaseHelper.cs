@@ -156,6 +156,7 @@ namespace TallyDbLoader.Core.Data
                         if (version < 3)
                         {
                             conn.Execute("UPDATE company_profiles SET status = 'idle' WHERE status IS NULL OR TRIM(status) = '';", null, transaction);
+                            conn.Execute("UPDATE company_profiles SET status = 'idle' WHERE LOWER(TRIM(status)) = 'ok';", null, transaction);
 
                             // Migrate sync_runs to make ended_at nullable in existing user databases (v2 -> v3)
                             bool syncRunsExists = conn.ExecuteScalar<int>(
@@ -209,6 +210,8 @@ namespace TallyDbLoader.Core.Data
 
                         if (version < 4)
                         {
+                            conn.Execute("UPDATE company_profiles SET status = 'idle' WHERE LOWER(TRIM(status)) = 'ok';", null, transaction);
+
                             conn.Execute(@"
                                 CREATE TABLE IF NOT EXISTS config_audit_log (
                                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -228,6 +231,8 @@ namespace TallyDbLoader.Core.Data
 
                             conn.Execute("PRAGMA user_version = 4;", null, transaction);
                         }
+
+                        conn.Execute("UPDATE company_profiles SET status = 'idle' WHERE LOWER(TRIM(status)) = 'ok';", null, transaction);
 
                         transaction.Commit();
                     }

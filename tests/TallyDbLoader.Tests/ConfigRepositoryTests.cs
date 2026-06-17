@@ -84,6 +84,81 @@ namespace TallyDbLoader.Tests
         }
 
         [Fact]
+        public void SaveCompanyProfile_NormalizesLegacyOkStatus_ToIdle()
+        {
+            string testDbPath = "test_legacy_ok_status.db";
+            if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);
+
+            DatabaseHelper.InitializeDatabase(testDbPath);
+            var repo = new ConfigRepository(testDbPath);
+
+            var profile = new DatabaseProfile
+            {
+                Name = "LegacyStatusDb",
+                Technology = "sqlite",
+                Server = "localhost"
+            };
+            repo.SaveDatabaseProfile(profile);
+            var savedProfile = repo.GetAllDatabaseProfiles().First();
+
+            repo.SaveCompanyProfile(new CompanyProfile
+            {
+                Name = "Legacy OK Company",
+                DbProfileId = savedProfile.Id,
+                TargetCatalog = "legacy_ok",
+                Status = "ok"
+            });
+
+            var savedCompany = repo.GetAllCompanyProfiles().Single();
+            Assert.Equal("idle", savedCompany.Status);
+
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);
+        }
+
+        [Fact]
+        public void InitializeDatabase_NormalizesLegacyOkStatus_InExistingCurrentSchema()
+        {
+            string testDbPath = "test_legacy_ok_migration.db";
+            if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);
+
+            DatabaseHelper.InitializeDatabase(testDbPath);
+            var repo = new ConfigRepository(testDbPath);
+
+            var profile = new DatabaseProfile
+            {
+                Name = "LegacyMigrationDb",
+                Technology = "sqlite",
+                Server = "localhost"
+            };
+            repo.SaveDatabaseProfile(profile);
+            var savedProfile = repo.GetAllDatabaseProfiles().First();
+
+            repo.SaveCompanyProfile(new CompanyProfile
+            {
+                Name = "Legacy Migration Company",
+                DbProfileId = savedProfile.Id,
+                TargetCatalog = "legacy_migration",
+                Status = "idle"
+            });
+
+            using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={testDbPath}"))
+            {
+                conn.Open();
+                conn.Execute("UPDATE company_profiles SET status = 'ok' WHERE name = @Name;", new { Name = "Legacy Migration Company" });
+                conn.Execute("PRAGMA user_version = 4;");
+            }
+
+            DatabaseHelper.InitializeDatabase(testDbPath);
+
+            var savedCompany = repo.GetAllCompanyProfiles().Single();
+            Assert.Equal("idle", savedCompany.Status);
+
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (System.IO.File.Exists(testDbPath)) System.IO.File.Delete(testDbPath);
+        }
+
+        [Fact]
         public void Should_Save_And_Retrieve_SyncMode()
         {
             string testDbPath = "test_syncmode.db";

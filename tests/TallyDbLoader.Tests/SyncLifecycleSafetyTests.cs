@@ -155,6 +155,21 @@ namespace TallyDbLoader.Tests
         }
 
         [Fact]
+        public void TryRequestManualSync_Accepts_LegacyOkStatus_AsIdle()
+        {
+            var profile = SeedCompany("ok");
+            Assert.Equal("idle", profile.Status);
+
+            using (var worker = new BackgroundSyncWorker(_repo, "localhost", 9000))
+            {
+                worker.Start(startScheduler: false);
+                var result = worker.TryRequestManualSync(profile.Id);
+                Assert.True(result.Accepted);
+                Assert.Equal("PendingDispatch", result.ReasonCode);
+            }
+        }
+
+        [Fact]
         public void TryRequestManualSync_Rejects_DisabledJob()
         {
             var profile = SeedCompany("idle", enabled: false);

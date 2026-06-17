@@ -46,6 +46,14 @@ namespace TallyDbLoader.Core.Data
             }
         }
 
+        private static string NormalizeCompanyProfileStatus(string? status)
+        {
+            if (string.IsNullOrWhiteSpace(status)) return "idle";
+
+            var normalized = status.Trim().ToLowerInvariant();
+            return normalized == "ok" ? "idle" : normalized;
+        }
+
         public void SaveDatabaseProfile(DatabaseProfile profile)
         {
             var encryptedPassword = EncryptPassword(profile.Password);
@@ -224,7 +232,7 @@ namespace TallyDbLoader.Core.Data
                 {
                     try
                     {
-                        var status = string.IsNullOrWhiteSpace(company.Status) ? "idle" : company.Status.Trim().ToLowerInvariant();
+                        var status = NormalizeCompanyProfileStatus(company.Status);
                         var parameters = new
                         {
                             company.Id,

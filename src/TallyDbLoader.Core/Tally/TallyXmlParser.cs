@@ -14,6 +14,7 @@ namespace TallyDbLoader.Core.Tally
             
             try
             {
+                xml = XmlSanitizer.Sanitize(xml);
                 var doc = XDocument.Parse(xml);
                 var ledgers = doc.Descendants("LEDGER");
                 foreach (var element in ledgers)

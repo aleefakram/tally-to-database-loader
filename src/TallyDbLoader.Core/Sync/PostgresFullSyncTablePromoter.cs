@@ -5,6 +5,7 @@ using System.Data.Common;
 using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
+using Npgsql;
 using TallyDbLoader.Core.Tally;
 
 namespace TallyDbLoader.Core.Sync
@@ -48,45 +49,43 @@ namespace TallyDbLoader.Core.Sync
                     columns.Add(data.Columns[i].ColumnName);
                 }
 
-                // 2. Load data into staging table
+                // 2. Load data into staging table using PostgreSQL binary import for maximum performance and reliability
                 if (data.Rows.Count > 0)
                 {
-                    var sb = new StringBuilder();
-                    sb.Append($"INSERT INTO {Quote(stagingTableName)} (");
-                    for (int i = 0; i < data.Columns.Count; i++)
-                    {
-                        sb.Append(Quote(data.Columns[i].ColumnName));
-                        if (i < data.Columns.Count - 1) sb.Append(", ");
-                    }
-                    sb.Append(") VALUES (");
-                    for (int i = 0; i < data.Columns.Count; i++)
-                    {
-                        sb.Append($"@p{i}");
-                        if (i < data.Columns.Count - 1) sb.Append(", ");
-                    }
-                    sb.Append(")");
+                    var cols = new List<string>();
+                    foreach (DataColumn col in data.Columns) cols.Add(Quote(col.ColumnName));
+                    var colString = string.Join(",", cols);
 
-                    using (var insertCmd = conn.CreateCommand())
+                    var npgsqlConn = (NpgsqlConnection)conn;
+                    using (var writer = await npgsqlConn.BeginBinaryImportAsync($"COPY {Quote(stagingTableName)} ({colString}) FROM STDIN (FORMAT BINARY)"))
                     {
-                        insertCmd.CommandText = sb.ToString();
-                        for (int i = 0; i < data.Columns.Count; i++)
-                        {
-                            var param = insertCmd.CreateParameter();
-                            param.ParameterName = $"@p{i}";
-                            insertCmd.Parameters.Add(param);
-                        }
-
                         foreach (DataRow row in data.Rows)
                         {
-                            for (int i = 0; i < data.Columns.Count; i++)
+                            await writer.StartRowAsync();
+                            foreach (DataColumn col in data.Columns)
                             {
-                                var param = insertCmd.Parameters[i];
-                                var columnName = data.Columns[i].ColumnName;
-                                columnTypes.TryGetValue(columnName, out var targetType);
-                                param.Value = ConvertValueForPostgresParameter(row[i], targetType);
+                                var val = row[col.ColumnName];
+                                columnTypes.TryGetValue(col.ColumnName, out var targetType);
+                                
+                                if (val == null || val == DBNull.Value)
+                                {
+                                    await writer.WriteNullAsync();
+                                }
+                                else
+                                {
+                                    val = ConvertValueForPostgresBinaryImport(val, targetType);
+                                    if (val == null || val == DBNull.Value)
+                                    {
+                                        await writer.WriteNullAsync();
+                                    }
+                                    else
+                                    {
+                                        await writer.WriteAsync(val);
+                                    }
+                                }
                             }
-                            await insertCmd.ExecuteNonQueryAsync();
                         }
+                        await writer.CompleteAsync();
                     }
                 }
 
@@ -151,6 +150,69 @@ namespace TallyDbLoader.Core.Sync
 
             if ((normalizedType == "smallint" || normalizedType == "int2") && value is string smallIntString)
                 return short.Parse(smallIntString, CultureInfo.InvariantCulture);
+
+            return value;
+        }
+
+        internal static object? ConvertValueForPostgresBinaryImport(object? value, string? targetType)
+        {
+            if (value == null || value == DBNull.Value)
+                return DBNull.Value;
+
+            if (string.IsNullOrWhiteSpace(targetType))
+                return value;
+
+            var normalizedType = targetType.Trim().ToLowerInvariant();
+
+            try
+            {
+                if (normalizedType == "date" || normalizedType == "pg_catalog.date")
+                {
+                    if (value is DateTime dt)
+                    {
+                        return DateOnly.FromDateTime(dt);
+                    }
+                    else
+                    {
+                        return DateOnly.Parse(value.ToString()!, CultureInfo.InvariantCulture);
+                    }
+                }
+
+                if (normalizedType == "smallint" || normalizedType == "int2")
+                {
+                    if (value is bool boolValue)
+                        return boolValue ? (short)1 : (short)0;
+                    return Convert.ToInt16(value);
+                }
+
+                if (normalizedType == "integer" || normalizedType == "int4")
+                {
+                    if (value is bool boolValue)
+                        return boolValue ? 1 : 0;
+                    return Convert.ToInt32(value);
+                }
+
+                if (normalizedType == "bigint" || normalizedType == "int8")
+                {
+                    if (value is bool boolValue)
+                        return boolValue ? 1L : 0L;
+                    return Convert.ToInt64(value);
+                }
+
+                if (normalizedType == "numeric" || normalizedType == "decimal")
+                {
+                    return Convert.ToDecimal(value);
+                }
+
+                if (normalizedType == "boolean" || normalizedType == "bool")
+                {
+                    return Convert.ToBoolean(value);
+                }
+            }
+            catch
+            {
+                // Fallback to original value if conversion fails
+            }
 
             return value;
         }

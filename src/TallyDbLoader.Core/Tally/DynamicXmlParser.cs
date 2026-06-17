@@ -3,6 +3,8 @@ using System.Data;
 using System.Xml;
 using System.IO;
 using System.Globalization;
+using System.Text;
+using TallyDbLoader.Core.Logging;
 
 namespace TallyDbLoader.Core.Tally
 {
@@ -41,11 +43,13 @@ namespace TallyDbLoader.Core.Tally
             {
                 return dataTable;
             }
+
+            xmlContent = XmlSanitizer.Sanitize(xmlContent);
             
             using (var sr = new StringReader(xmlContent))
             using (var reader = XmlReader.Create(sr))
             {
-                string[] rowValues = new string[tableConfig.Fields.Count];
+                string?[] rowValues = new string?[tableConfig.Fields.Count];
                 bool inRow = false;
                 int activeFieldIdx = -1;
                 
@@ -130,7 +134,9 @@ namespace TallyDbLoader.Core.Tally
             return dataTable;
         }
 
-        private static void AddRowToTable(DataTable dataTable, string[] rowValues, TableConfig tableConfig)
+
+
+        private static void AddRowToTable(DataTable dataTable, string?[] rowValues, TableConfig tableConfig)
         {
             var row = dataTable.NewRow();
             bool hasData = false;

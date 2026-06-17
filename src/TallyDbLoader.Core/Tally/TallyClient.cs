@@ -111,6 +111,7 @@ namespace TallyDbLoader.Core.Tally
             try
             {
                 var responseXml = await PostXMLAsync(requestXml);
+                responseXml = XmlSanitizer.Sanitize(responseXml);
                 var doc = System.Xml.Linq.XDocument.Parse(responseXml);
                 var companies = new System.Collections.Generic.List<TallyCompanyInfo>();
                 

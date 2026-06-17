@@ -71,5 +71,64 @@ namespace TallyDbLoader.Tests
             Assert.Equal(false, row2["is_revenue"]);
             Assert.Equal(DBNull.Value, row2["created_date"]);
         }
+
+        [Fact]
+        public void ParseXml_RemovesInvalidXmlControlCharacters()
+        {
+            var tableConfig = new TableConfig
+            {
+                Name = "mst_ledger",
+                Collection = "Ledger",
+                Fields = new List<FieldConfig>
+                {
+                    new FieldConfig { Name = "guid", Field = "Guid", Type = "text" },
+                    new FieldConfig { Name = "name", Field = "Name", Type = "text" }
+                }
+            };
+
+            var xml = "<ENVELOPE><BODY><DATA><ROW><F01>guid-123</F01><F02>Cash\u0004Account</F02></ROW></DATA></BODY></ENVELOPE>";
+
+            var dataTable = DynamicXmlParser.ParseXml(xml, tableConfig);
+
+            Assert.Single(dataTable.Rows);
+            Assert.Equal("CashAccount", dataTable.Rows[0]["name"]);
+        }
+
+        [Theory]
+        [InlineData("Cash&#x04;Account", "CashAccount")]
+        [InlineData("Cash&#x4;Account", "CashAccount")]
+        [InlineData("Cash&#4;Account", "CashAccount")]
+        [InlineData("Cash&#04;Account", "CashAccount")]
+        [InlineData("Cash&#x1F;Account", "CashAccount")]
+        [InlineData("Cash&#31;Account", "CashAccount")]
+        [InlineData("Cash&#x20;Account", "Cash&#x20;Account")] // Valid character reference, keeps intact
+        [InlineData("Cash&#32;Account", "Cash&#32;Account")] // Valid character reference, keeps intact
+        public void XmlSanitizer_RemovesInvalidXmlCharacterEntities(string input, string expected)
+        {
+            var result = XmlSanitizer.Sanitize(input);
+            Assert.Equal(expected, result);
+        }
+
+        [Fact]
+        public void ParseXml_HandlesInvalidXmlEntitiesWithoutThrowing()
+        {
+            var tableConfig = new TableConfig
+            {
+                Name = "mst_ledger",
+                Collection = "Ledger",
+                Fields = new List<FieldConfig>
+                {
+                    new FieldConfig { Name = "guid", Field = "Guid", Type = "text" },
+                    new FieldConfig { Name = "name", Field = "Name", Type = "text" }
+                }
+            };
+
+            var xml = "<ENVELOPE><BODY><DATA><ROW><F01>guid-123</F01><F02>Cash&#x04;Account</F02></ROW></DATA></BODY></ENVELOPE>";
+
+            var dataTable = DynamicXmlParser.ParseXml(xml, tableConfig);
+
+            Assert.Single(dataTable.Rows);
+            Assert.Equal("CashAccount", dataTable.Rows[0]["name"]);
+        }
     }
 }

@@ -26,6 +26,8 @@ The output mirrors the top-level Tally Balance Sheet view:
   - Current Period
   - Less: Transferred
 - Grand totals on both sides
+- Indian digit grouping, for example `42,00,000.00`
+- zero-balance primary group rows hidden by default, matching Tally's top-level Balance Sheet behavior
 
 ## Non-Goals
 
@@ -50,7 +52,7 @@ The output mirrors the top-level Tally Balance Sheet view:
    - Assets on the right
    - grand totals at the bottom
 9. WPF shows report status:
-   - `balanced` when liabilities total equals assets total within decimal precision
+   - `balanced` when liabilities and assets differ by no more than the configured decimal tolerance
    - `out_of_balance` when totals differ
    - `failed` when required data could not be read or calculated
 
@@ -65,12 +67,16 @@ Add `BalanceSheetVerificationService`.
 Responsibilities:
 
 - Validate selected Sync Job and target database profile.
-- Open/read the target database connection.
+- Validate target schema and table prefix using the same identifier policy as sync writers before building SQL.
+- Open/read the target database connection asynchronously.
 - Run provider-specific Balance Sheet queries.
 - Convert query rows into a structured report model.
 - Calculate side totals and difference.
-- Save a lightweight local SQLite history row.
-- Return the report to WPF.
+- Save a lightweight local history row through `IConfigRepository`.
+- Return the report to WPF as `Task<BalanceSheetReport>`.
+- Accept a `CancellationToken`.
+
+The service must not open a separate local SQLite configuration connection for history writes. Local app persistence stays behind `IConfigRepository`.
 
 ### Query Adapter Boundary
 
@@ -90,6 +96,18 @@ Adapters keep provider-specific SQL details out of the service:
 - `COALESCE` and null handling
 - decimal casting
 - parameter marker conventions
+- schema-qualified and table-prefix-qualified table names
+
+Identifiers cannot be passed as SQL parameters. Before any adapter concatenates a schema, table prefix, or table name into SQL, it must validate:
+
+- schema is a valid provider identifier
+- table prefix is either empty or a valid identifier fragment
+- final physical table names pass `DbIdentifierPolicy.Validate`
+- reserved keyword and provider length rules are enforced
+
+Dynamic values such as dates, Sync Job IDs, and ledger names must remain parameterized.
+
+All query APIs must be async and must dispose connections, commands, and readers with `using` or `await using`.
 
 Default automation tests provider SQL generation and adapter selection. Live MSSQL/PostgreSQL/MySQL execution remains opt-in.
 
@@ -104,6 +122,11 @@ Add Core models:
 - `BalanceSheetVerificationRun`
 
 The report model stores numeric values as decimals. Formatting, alignment, and Indian number grouping belong to WPF or export formatting, not Core.
+
+Add `BalanceSheetVerificationOptions`:
+
+- `BalanceTolerance`, default `0.05m`
+- `ProfitAndLossLedgerName`, default `Profit & Loss A/c`
 
 ## Calculation Rules
 
@@ -124,6 +147,7 @@ For each ledger:
 
 - Opening balance comes from `mst_ledger.opening_balance`.
 - Accounting movement comes from `trn_accounting.amount`.
+- Database sign convention is Tally-oriented: credits are positive and debits are negative.
 - `trn_accounting` is joined to `trn_voucher` by `guid`.
 - Exclude vouchers where `trn_voucher.is_order_voucher = 1`.
 - Exclude vouchers where `trn_voucher.is_inventory_voucher = 1` for accounting Balance Sheet movement.
@@ -137,7 +161,7 @@ Version 1 report period uses:
 
 ### Balance Sheet Groups
 
-Use `mst_group.primary_group` and group flags to classify balances.
+Use `mst_group.primary_group` and group flags to classify balances. If `primary_group` is blank for a custom subgroup, recursively walk `mst_group.parent` until a known primary group is found. Detect cycles or unresolved primary groups and return `failed` with the affected group name.
 
 Liabilities:
 
@@ -149,13 +173,14 @@ Liabilities:
 Assets:
 
 - Fixed Assets
+- Investments
 - Current Assets
 - Branch / Divisions
 - Misc. Expenses (ASSET)
 - Suspense A/c
 - Profit & Loss A/c when net P&L is negative
 
-Version 1 groups rows by top-level primary group only. It does not render subgroup or ledger drilldown.
+Version 1 groups rows by top-level primary group only. It does not render subgroup or ledger drilldown. Primary groups with a zero balance are omitted from display, but recognized groups such as `Investments` must appear when their balance is nonzero.
 
 ### Profit & Loss A/c
 
@@ -163,9 +188,19 @@ Revenue ledgers are not listed directly under assets or liabilities. They feed P
 
 The service calculates:
 
-- Opening Balance: net revenue movement in synced rows dated before Financial Year Start. If the synced database does not contain pre-period accounting history, the value is `0.00` and the report includes a warning that P&L opening may not mirror Tally.
-- Current Period: net revenue movement from Financial Year Start through As At Date.
-- Less: Transferred: `0.00` in version 1. Detecting Tally's nonzero transfer line requires an explicit transfer-ledger policy and is outside this first slice.
+- Opening Balance: opening balance of the reserved Profit & Loss ledger plus direct Profit & Loss ledger movement before Financial Year Start plus any pre-period revenue movement available in synced rows.
+- Current Period: net revenue movement from Financial Year Start through As At Date, excluding the reserved Profit & Loss ledger itself, plus Stock-in-Hand adjustment.
+- Less: Transferred: direct debit postings to the reserved Profit & Loss ledger from Financial Year Start through As At Date, reported as a positive deduction.
+
+If the reserved Profit & Loss ledger is not found by `ProfitAndLossLedgerName`, use `0.00` for the reserved-ledger portion and add a warning. The default name is `Profit & Loss A/c`.
+
+Stock-in-Hand adjustment for Current Period:
+
+```text
+Closing Stock as at As At Date - Opening Stock at Financial Year Start
+```
+
+Closing Stock uses `trn_closingstock_ledger` when present. Opening Stock uses Stock-in-Hand ledger opening balances plus pre-period stock movement available in synced rows. If stock valuation inputs are missing, calculate from available ledger balances and add a warning.
 
 Profit & Loss A/c amount:
 
@@ -189,6 +224,7 @@ Store:
 - liability total
 - asset total
 - difference
+- balance tolerance used
 - status: `balanced`, `out_of_balance`, or `failed`
 - warning summary
 - optional error summary
@@ -216,6 +252,7 @@ Out-of-balance report:
 
 - Return a rendered report and status `out_of_balance`.
 - Do not block future syncs.
+- Use configured decimal tolerance when evaluating the difference.
 
 Partial calculation warning:
 
@@ -238,6 +275,8 @@ Controls:
 - As At Date date picker
 - Run button
 
+The Run command must be async from WPF through Core. While the report is running, disable the Run button and keep the UI responsive.
+
 Report layout:
 
 - Two-column Balance Sheet
@@ -247,12 +286,14 @@ Report layout:
 - Amounts right-aligned
 - Profit & Loss A/c breakdown indented below its line
 - Grand totals fixed at the bottom of each side
+- Amounts formatted with Indian grouping using `CultureInfo("en-IN")` or a dedicated converter with equivalent output
 
 Status display:
 
 - Balanced
 - Out of balance with difference amount
 - Failed with concise failure reason
+- Warnings for partial calculation assumptions, such as missing Stock-in-Hand closing values or missing reserved Profit & Loss ledger
 
 ## Tests
 
@@ -265,6 +306,16 @@ Required tests:
 - Negative Profit & Loss A/c appears on the asset side.
 - Date filtering respects Financial Year Start and As At Date.
 - Order/inventory vouchers are excluded from accounting movement.
+- Credits are treated as positive and debits as negative.
+- Investments primary group appears on the asset side.
+- Stock-in-Hand closing value contributes to both assets and current-period P&L.
+- Stock-in-Hand fallback emits a warning when `trn_closingstock_ledger` is absent.
+- Profit & Loss ledger opening balance contributes to P&L opening balance.
+- Direct debit postings to Profit & Loss ledger appear as `Less: Transferred`.
+- Custom subgroup with blank `primary_group` resolves through recursive parent traversal.
+- Recursive group cycle returns failed report.
+- Balance tolerance controls whether a small difference is `balanced` or `out_of_balance`.
+- Invalid schema or table prefix is rejected before SQL execution.
 - Missing required table returns failed report.
 - Missing required column returns failed report.
 - Local history row is saved with totals and status.
@@ -272,7 +323,14 @@ Required tests:
 Provider tests:
 
 - Adapter selection resolves SQLite, MSSQL, PostgreSQL, and MySQL.
-- Provider SQL generation includes expected date parameters and required table names.
+- Provider SQL generation includes expected date parameters, schema-qualified table names, table prefixes, and required table names.
+- Provider SQL generation keeps dynamic values parameterized.
+- Provider SQL generation uses valid parameter syntax for SQLite, MSSQL, PostgreSQL, and MySQL.
+- Async service path disposes target database connections after report generation.
+
+Presentation tests:
+
+- WPF amount formatting produces Indian grouped values such as `65,04,742.51`.
 
 Default test command:
 

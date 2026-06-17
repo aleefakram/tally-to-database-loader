@@ -1,6 +1,6 @@
 ## Release History
 
-**Version: 2.1.0-beta [16-Jun-2026]**<br>
+**Version: 2.1.0-beta [17-Jun-2026]**<br>
 Added:
 * WPF Sanitized Config Import UI, enabling import of sanitized JSON configuration files.
 * Create-new-only configuration imports: all profile conflicts with existing databases or companies are blocked.

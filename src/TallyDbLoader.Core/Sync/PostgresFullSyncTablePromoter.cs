@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
 using TallyDbLoader.Core.Tally;
@@ -38,6 +39,8 @@ namespace TallyDbLoader.Core.Sync
                     cmd.CommandText = $"CREATE TABLE {Quote(stagingTableName)} AS SELECT * FROM {Quote(tableName)} WHERE 1=0;";
                     await cmd.ExecuteNonQueryAsync();
                 }
+
+                var columnTypes = await GetColumnTypesAsync(conn, stagingTableName);
 
                 var columns = new List<string>();
                 for (int i = 0; i < data.Columns.Count; i++)
@@ -78,7 +81,9 @@ namespace TallyDbLoader.Core.Sync
                             for (int i = 0; i < data.Columns.Count; i++)
                             {
                                 var param = insertCmd.Parameters[i];
-                                param.Value = row[i] ?? DBNull.Value;
+                                var columnName = data.Columns[i].ColumnName;
+                                columnTypes.TryGetValue(columnName, out var targetType);
+                                param.Value = ConvertValueForPostgresParameter(row[i], targetType);
                             }
                             await insertCmd.ExecuteNonQueryAsync();
                         }
@@ -92,6 +97,62 @@ namespace TallyDbLoader.Core.Sync
                 try { await CleanupStagingAsync(table, conn); } catch { }
                 throw;
             }
+        }
+
+        private async Task<Dictionary<string, string>> GetColumnTypesAsync(DbConnection conn, string tableName)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = current_schema()
+                      AND table_name = @tableName;";
+
+                var param = cmd.CreateParameter();
+                param.ParameterName = "@tableName";
+                param.Value = tableName;
+                cmd.Parameters.Add(param);
+
+                using (var reader = await cmd.ExecuteReaderAsync())
+                {
+                    while (await reader.ReadAsync())
+                    {
+                        var columnName = reader.GetString(0);
+                        var dataType = reader.GetString(1);
+                        result[columnName] = dataType;
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        internal static object ConvertValueForPostgresParameter(object? value, string? targetType)
+        {
+            if (value == null || value == DBNull.Value)
+                return DBNull.Value;
+
+            if (string.IsNullOrWhiteSpace(targetType))
+                return value;
+
+            var normalizedType = targetType.Trim().ToLowerInvariant();
+
+            if ((normalizedType == "smallint" || normalizedType == "int2") && value is bool boolValue)
+                return boolValue ? (short)1 : (short)0;
+
+            if ((normalizedType == "integer" || normalizedType == "int4") && value is bool intBoolValue)
+                return intBoolValue ? 1 : 0;
+
+            if ((normalizedType == "bigint" || normalizedType == "int8") && value is bool longBoolValue)
+                return longBoolValue ? 1L : 0L;
+
+            if ((normalizedType == "smallint" || normalizedType == "int2") && value is string smallIntString)
+                return short.Parse(smallIntString, CultureInfo.InvariantCulture);
+
+            return value;
         }
 
         public async Task ValidateStagingAsync(TableConfig table, DbConnection conn)

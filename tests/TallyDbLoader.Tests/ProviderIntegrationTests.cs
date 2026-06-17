@@ -16,6 +16,24 @@ namespace TallyDbLoader.Tests
 {
     public class ProviderIntegrationTests
     {
+        [Fact]
+        public void PostgresPromoter_ConvertsBooleanValues_ForSmallintColumns()
+        {
+            var trueValue = PostgresFullSyncTablePromoter.ConvertValueForPostgresParameter(true, "smallint");
+            var falseValue = PostgresFullSyncTablePromoter.ConvertValueForPostgresParameter(false, "int2");
+
+            Assert.Equal((short)1, trueValue);
+            Assert.Equal((short)0, falseValue);
+        }
+
+        [Fact]
+        public void PostgresPromoter_LeavesBooleanValues_ForBooleanColumns()
+        {
+            var value = PostgresFullSyncTablePromoter.ConvertValueForPostgresParameter(true, "boolean");
+
+            Assert.Equal(true, value);
+        }
+
         [SkippableFact]
         public async Task Test_Postgres_SplitPhasePromotion_Atomicity()
         {

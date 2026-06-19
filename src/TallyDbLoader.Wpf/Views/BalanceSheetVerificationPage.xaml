@@ -1,0 +1,146 @@
+<Page x:Class="TallyDbLoader.Wpf.Views.BalanceSheetVerificationPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="clr-namespace:TallyDbLoader.Wpf"
+      DataContext="{Binding}"
+      Title="Balance Sheet Verification">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,16">
+            <TextBlock Text="Balance Sheet Verification" Style="{StaticResource DisplayTextStyle}"/>
+            <TextBlock Text="Compute a Tally-style Balance Sheet from the synced target database." Style="{StaticResource CaptionTextStyle}"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="{DynamicResource Layer2Brush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,16">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <ComboBox Grid.Column="0" ItemsSource="{Binding Companies}" SelectedItem="{Binding BalanceSheetSelectedCompany}" DisplayMemberPath="Name" MinWidth="260" Margin="0,0,12,0"/>
+                <DatePicker Grid.Column="1" SelectedDate="{Binding BalanceSheetFinancialYearStart}" Width="150" Margin="0,0,12,0"/>
+                <DatePicker Grid.Column="2" SelectedDate="{Binding BalanceSheetAsAtDate}" Width="150" Margin="0,0,12,0"/>
+                <Button Grid.Column="3" Content="Run" Command="{Binding RunBalanceSheetVerificationCommand}" Style="{StaticResource PrimaryButtonStyle}"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="2" Background="{DynamicResource Layer2Brush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,16">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="8" Height="8" CornerRadius="4" VerticalAlignment="Center" Margin="0,0,8,0" Background="{Binding BalanceSheetReport.Status, Converter={StaticResource StatusToToneConverter}}"/>
+                        <TextBlock Text="{Binding BalanceSheetReport.Status, TargetNullValue='Not Run'}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding BalanceSheetReport.Status}" Value="out_of_balance">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Difference: " Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding BalanceSheetReport.Difference, Converter={StaticResource IndianCurrencyConverter}}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="{Binding BalanceSheetReport.ErrorSummary}" Foreground="#dc2626" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding BalanceSheetReport.ErrorSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                <ItemsControl ItemsSource="{Binding BalanceSheetReport.Warnings}" Margin="0,8,0,0" Visibility="{Binding BalanceSheetReport.Warnings.Count, Converter={StaticResource CountToVisibilityConverter}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding StringFormat='Warning: {0}'}" Style="{StaticResource CaptionTextStyle}" Foreground="#d97706" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource FluentCardStyle}" Margin="0,0,8,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Liabilities" Style="{StaticResource SubtitleTextStyle}" FontSize="18" Margin="0,0,0,12"/>
+                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding BalanceSheetReport.LiabilityTotal, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" FontWeight="Bold" FontSize="16"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding BalanceSheetReport.LiabilitySide.Lines}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,2">
+                                        <Grid>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <ItemsControl ItemsSource="{Binding BreakdownLines}" Margin="16,4,0,4" Visibility="{Binding BreakdownLines.Count, Converter={StaticResource CountToVisibilityConverter}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,1">
+                                                        <TextBlock Text="{Binding Name}" Style="{StaticResource CaptionTextStyle}"/>
+                                                        <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" Style="{StaticResource CaptionTextStyle}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <Border Grid.Column="1" Style="{StaticResource FluentCardStyle}" Margin="8,0,0,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Assets" Style="{StaticResource SubtitleTextStyle}" FontSize="18" Margin="0,0,0,12"/>
+                    <TextBlock DockPanel.Dock="Bottom" Text="{Binding BalanceSheetReport.AssetTotal, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" FontWeight="Bold" FontSize="16"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <ItemsControl ItemsSource="{Binding BalanceSheetReport.AssetSide.Lines}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Margin="0,2">
+                                        <Grid>
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                                        </Grid>
+                                        <ItemsControl ItemsSource="{Binding BreakdownLines}" Margin="16,4,0,4" Visibility="{Binding BreakdownLines.Count, Converter={StaticResource CountToVisibilityConverter}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,1">
+                                                        <TextBlock Text="{Binding Name}" Style="{StaticResource CaptionTextStyle}"/>
+                                                        <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" Style="{StaticResource CaptionTextStyle}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

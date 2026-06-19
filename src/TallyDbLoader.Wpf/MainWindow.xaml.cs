@@ -191,6 +191,9 @@ namespace TallyDbLoader.Wpf
                 case RouteScreen.Wizard:
                     page = new SetupWizardPage();
                     break;
+                case RouteScreen.BalanceSheetVerification:
+                    page = new BalanceSheetVerificationPage();
+                    break;
             }
 
             if (page != null)

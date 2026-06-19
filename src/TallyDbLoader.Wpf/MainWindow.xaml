@@ -50,6 +50,7 @@
                     <Button Content="Database Profiles" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.Databases}"/>
                     <Button Content="Execution Log" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.Log}"/>
                     <Button Content="Run History" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.History}"/>
+                    <Button Content="Balance Sheet" Style="{StaticResource NavButtonStyle}" Command="{Binding NavigateCommand}" CommandParameter="{x:Static local:RouteScreen.BalanceSheetVerification}"/>
                 </StackPanel>
 
                 <!-- Engine Pulse Dot inside Drawer Footer -->

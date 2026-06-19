@@ -89,9 +89,13 @@ namespace TallyDbLoader.Core.Reports
             }
 
             decimal pnlOpening = reservedPnl?.OpeningBalance ?? 0m;
-            decimal pnlLessTransferred = (reservedPnl?.CurrentPeriodMovement ?? 0m) < 0m
-                ? Math.Abs(reservedPnl.CurrentPeriodMovement)
-                : 0m;
+            decimal pnlLessTransferred = 0m;
+            if (reservedPnl != null)
+            {
+                pnlLessTransferred = reservedPnl.CurrentPeriodMovement < 0m
+                    ? Math.Abs(reservedPnl.CurrentPeriodMovement)
+                    : 0m;
+            }
 
             decimal revenueCurrent = raw.Ledgers
                 .Where(l => l.IsRevenue && !l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
@@ -109,13 +113,13 @@ namespace TallyDbLoader.Core.Reports
                 .Where(l => l.PrimaryGroup.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            decimal stockClosing = stockLedgers.Any(l => l.HasClosingStockValue)
-                ? stockLedgers.Sum(l => l.ClosingStockValue)
-                : stockLedgers.Sum(l => l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);
+            decimal stockClosing = stockLedgers.Sum(l => l.HasClosingStockValue
+                ? -Math.Abs(l.ClosingStockValue)
+                : l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);
 
-            if (stockLedgers.Any() && !stockLedgers.Any(l => l.HasClosingStockValue))
+            if (stockLedgers.Any(l => !l.HasClosingStockValue))
             {
-                report.Warnings.Add("Stock-in-Hand closing values were not found; ledger balances were used.");
+                report.Warnings.Add("Some Stock-in-Hand closing values were not found; ledger balances were used as fallback.");
             }
 
             report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod;
@@ -133,7 +137,7 @@ namespace TallyDbLoader.Core.Reports
                 {
                     if (group.Key.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase) && l.HasClosingStockValue)
                     {
-                        return l.ClosingStockValue;
+                        return -Math.Abs(l.ClosingStockValue);
                     }
                     return l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement;
                 });

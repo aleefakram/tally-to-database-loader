@@ -31,7 +31,9 @@ namespace TallyDbLoader.Core.Reports
             var db = company.Db ?? _repo.GetDatabaseProfileById(company.DbProfileId);
             if (db == null)
             {
-                return Failed(request, company.Name, $"Database Profile with ID {company.DbProfileId} was not found.");
+                var report = Failed(request, company.Name, $"Database Profile with ID {company.DbProfileId} was not found.");
+                _repo.AddBalanceSheetVerificationRun(ToHistory(report, $"unknown:unknown:{company.Schema}:{company.TablePrefix}"));
+                return report;
             }
 
             string provider = GetProviderName(db.Technology);

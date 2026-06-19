@@ -109,7 +109,7 @@ namespace TallyDbLoader.Tests
                 {
                     new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1200m },
                     new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -1000m },
-                    new() { LedgerName = "Stock", PrimaryGroup = "Stock-in-hand", OpeningBalance = -200m, ClosingStockValue = -300m, HasClosingStockValue = true },
+                    new() { LedgerName = "Stock", PrimaryGroup = "Stock-in-hand", OpeningBalance = -200m, ClosingStockValue = 300m, HasClosingStockValue = true },
                     new() { LedgerName = "Sales", PrimaryGroup = "Sales Accounts", IsRevenue = true, CurrentPeriodMovement = 400m },
                     new() { LedgerName = "Purchase", PrimaryGroup = "Purchase Accounts", IsRevenue = true, CurrentPeriodMovement = -200m }
                 }
@@ -177,6 +177,32 @@ namespace TallyDbLoader.Tests
 
             Assert.Equal("balanced", report.Status);
             Assert.Equal(0.02m, report.Difference);
+        }
+
+        [Fact]
+        public void Calculate_PartialStockValuation_AppliesPerLedgerFallback()
+        {
+            var raw = new BalanceSheetRawData
+            {
+                Ledgers = new List<BalanceSheetLedgerRow>
+                {
+                    new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1300m },
+                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -1000m },
+                    // Stock A has closing stock value 150m (positive) which translates to -150m signed balance
+                    new() { LedgerName = "Stock A", PrimaryGroup = "Stock-in-hand", OpeningBalance = -100m, ClosingStockValue = 150m, HasClosingStockValue = true },
+                    // Stock B has no closing stock value, falls back to its ledger balance of -150m
+                    new() { LedgerName = "Stock B", PrimaryGroup = "Stock-in-hand", OpeningBalance = -100m, CurrentPeriodMovement = -50m, HasClosingStockValue = false },
+                    // Revenue to offset the stock increase of 100m (Stock A +50m, Stock B +50m)
+                    new() { LedgerName = "Sales", PrimaryGroup = "Sales Accounts", IsRevenue = true, CurrentPeriodMovement = 100m }
+                }
+            };
+
+            var report = BalanceSheetCalculator.Calculate("Demo Co", raw, Request());
+
+            // AssetTotal: Cash (1000) + Stock A (150) + Stock B (150) = 1300m
+            Assert.Equal(1300m, report.AssetTotal);
+            Assert.Equal("balanced", report.Status);
+            Assert.Contains(report.Warnings, w => w.Contains("Some Stock-in-Hand closing values were not found"));
         }
     }
 }

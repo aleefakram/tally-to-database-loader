@@ -10,12 +10,15 @@ namespace TallyDbLoader.Wpf.Converters
 
         public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
         {
-            if (value == null) return "0.00";
-            if (decimal.TryParse(value.ToString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var amount))
+            if (value is decimal amount)
             {
                 return amount.ToString("N2", IndianCulture);
             }
-            return value.ToString() ?? "0.00";
+            if (value != null && decimal.TryParse(value.ToString(), NumberStyles.Any, culture, out var parsedAmount))
+            {
+                return parsedAmount.ToString("N2", IndianCulture);
+            }
+            return value?.ToString() ?? "0.00";
         }
 
         public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)

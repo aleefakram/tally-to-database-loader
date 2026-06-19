@@ -296,7 +296,12 @@ namespace TallyDbLoader.Wpf
         public bool IsBalanceSheetVerificationRunning
         {
             get => _isBalanceSheetVerificationRunning;
-            set { _isBalanceSheetVerificationRunning = value; OnPropertyChanged(); }
+            set
+            {
+                _isBalanceSheetVerificationRunning = value;
+                OnPropertyChanged();
+                System.Windows.Input.CommandManager.InvalidateRequerySuggested();
+            }
         }
 
         public Func<BalanceSheetVerificationRequest, CancellationToken, Task<BalanceSheetReport>>? BalanceSheetVerificationRunner { get; set; }

@@ -205,5 +205,26 @@ namespace TallyDbLoader.Tests
             Assert.Equal("balanced", report.Status);
             Assert.Contains(report.Warnings, w => w.Contains("Some Stock-in-Hand closing values were not found"));
         }
+
+        [Fact]
+        public void Calculate_ReservedProfitAndLossLedgerWithEmptyPrimaryAndParent_Succeeds()
+        {
+            var raw = new BalanceSheetRawData
+            {
+                Ledgers = new List<BalanceSheetLedgerRow>
+                {
+                    new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 900m },
+                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -1000m },
+                    new() { LedgerName = "Profit & Loss A/c", PrimaryGroup = "", ParentGroupName = "", OpeningBalance = 100m }
+                }
+            };
+
+            var report = BalanceSheetCalculator.Calculate("Demo Co", raw, Request());
+
+            Assert.Equal("balanced", report.Status);
+            var plLine = report.LiabilitySide.Lines.FirstOrDefault(l => l.Name.Equals("Profit & Loss A/c", StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(plLine);
+            Assert.Equal(100m, plLine.Amount);
+        }
     }
 }

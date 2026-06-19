@@ -51,6 +51,12 @@ namespace TallyDbLoader.Core.Reports
             {
                 if (string.IsNullOrWhiteSpace(ledger.PrimaryGroup))
                 {
+                    if (ledger.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ledger.PrimaryGroup = request.Options.ProfitAndLossLedgerName;
+                        continue;
+                    }
+
                     bool hasCycle = false;
                     string resolvedPrimaryGroup = ResolvePrimaryGroup(
                         ledger.ParentGroupName,

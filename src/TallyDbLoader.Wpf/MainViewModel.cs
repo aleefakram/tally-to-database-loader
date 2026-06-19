@@ -13,6 +13,7 @@ using TallyDbLoader.Core.Models;
 using TallyDbLoader.Core.Data;
 using TallyDbLoader.Core.Sync;
 using TallyDbLoader.Core.Tally;
+using TallyDbLoader.Core.Reports;
 
 namespace TallyDbLoader.Wpf
 {
@@ -25,7 +26,8 @@ namespace TallyDbLoader.Wpf
         Log,
         History,
         Settings,
-        Wizard
+        Wizard,
+        BalanceSheetVerification
     }
 
     public class NavigationRoute
@@ -253,6 +255,52 @@ namespace TallyDbLoader.Wpf
             get => _dbSaveButtonText;
             set { _dbSaveButtonText = value; OnPropertyChanged(); }
         }
+
+        public ObservableCollection<BalanceSheetVerificationRun> BalanceSheetVerificationHistory { get; } = new ObservableCollection<BalanceSheetVerificationRun>();
+
+        private CompanyProfile? _balanceSheetSelectedCompany;
+        public CompanyProfile? BalanceSheetSelectedCompany
+        {
+            get => _balanceSheetSelectedCompany;
+            set
+            {
+                _balanceSheetSelectedCompany = value;
+                OnPropertyChanged();
+                if (value?.BooksFrom != null) BalanceSheetFinancialYearStart = value.BooksFrom.Value;
+                if (value?.BooksTo != null) BalanceSheetAsAtDate = value.BooksTo.Value;
+            }
+        }
+
+        private DateTime _balanceSheetFinancialYearStart = new DateTime(DateTime.Today.Month >= 4 ? DateTime.Today.Year : DateTime.Today.Year - 1, 4, 1);
+        public DateTime BalanceSheetFinancialYearStart
+        {
+            get => _balanceSheetFinancialYearStart;
+            set { _balanceSheetFinancialYearStart = value; OnPropertyChanged(); }
+        }
+
+        private DateTime _balanceSheetAsAtDate = DateTime.Today;
+        public DateTime BalanceSheetAsAtDate
+        {
+            get => _balanceSheetAsAtDate;
+            set { _balanceSheetAsAtDate = value; OnPropertyChanged(); }
+        }
+
+        private BalanceSheetReport? _balanceSheetReport;
+        public BalanceSheetReport? BalanceSheetReport
+        {
+            get => _balanceSheetReport;
+            set { _balanceSheetReport = value; OnPropertyChanged(); }
+        }
+
+        private bool _isBalanceSheetVerificationRunning;
+        public bool IsBalanceSheetVerificationRunning
+        {
+            get => _isBalanceSheetVerificationRunning;
+            set { _isBalanceSheetVerificationRunning = value; OnPropertyChanged(); }
+        }
+
+        public Func<BalanceSheetVerificationRequest, CancellationToken, Task<BalanceSheetReport>>? BalanceSheetVerificationRunner { get; set; }
+        public ICommand RunBalanceSheetVerificationCommand { get; }
 
         private bool _isEditingDbProfile = false;
         public bool IsEditingDbProfile
@@ -519,6 +567,7 @@ namespace TallyDbLoader.Wpf
             ExportSanitizedConfigCommand = new RelayCommand(ExportSanitizedConfig);
             CreateDiagnosticBackupCommand = new RelayCommand(CreateDiagnosticBackup);
             ImportSanitizedConfigCommand = new RelayCommand(ImportSanitizedConfig);
+            RunBalanceSheetVerificationCommand = new RelayCommand(() => _ = RunBalanceSheetVerificationAsync(), () => !IsBalanceSheetVerificationRunning);
 
             LoadConfiguration();
 
@@ -717,7 +766,7 @@ namespace TallyDbLoader.Wpf
         {
             if (parameter is RouteScreen screen)
             {
-                Navigate(screen, resetStack: (screen == RouteScreen.Dashboard || screen == RouteScreen.Companies || screen == RouteScreen.Databases || screen == RouteScreen.Log || screen == RouteScreen.History || screen == RouteScreen.Settings));
+                Navigate(screen, resetStack: (screen == RouteScreen.Dashboard || screen == RouteScreen.Companies || screen == RouteScreen.Databases || screen == RouteScreen.Log || screen == RouteScreen.History || screen == RouteScreen.Settings || screen == RouteScreen.BalanceSheetVerification));
             }
             else if (parameter is string actionStr)
             {
@@ -796,7 +845,7 @@ namespace TallyDbLoader.Wpf
                 }
                 else if (Enum.TryParse<RouteScreen>(actionStr, ignoreCase: true, out var parsedScreen))
                 {
-                    Navigate(parsedScreen, resetStack: (parsedScreen == RouteScreen.Dashboard || parsedScreen == RouteScreen.Companies || parsedScreen == RouteScreen.Databases || parsedScreen == RouteScreen.Log || parsedScreen == RouteScreen.History || parsedScreen == RouteScreen.Settings));
+                    Navigate(parsedScreen, resetStack: (parsedScreen == RouteScreen.Dashboard || parsedScreen == RouteScreen.Companies || parsedScreen == RouteScreen.Databases || parsedScreen == RouteScreen.Log || parsedScreen == RouteScreen.History || parsedScreen == RouteScreen.Settings || parsedScreen == RouteScreen.BalanceSheetVerification));
                 }
             }
         }
@@ -910,6 +959,10 @@ namespace TallyDbLoader.Wpf
             var runs = _repo.GetRecentSyncRuns(50);
             foreach (var run in runs) RunHistory.Add(run);
 
+            BalanceSheetVerificationHistory.Clear();
+            var bsRuns = _repo.GetRecentBalanceSheetVerificationRuns(50);
+            foreach (var run in bsRuns) BalanceSheetVerificationHistory.Add(run);
+
             // Re-select previously selected items to preserve bindings
             if (prevCompanyId.HasValue)
                 _selectedCompany = Companies.FirstOrDefault(c => c.Id == prevCompanyId.Value);
@@ -921,6 +974,56 @@ namespace TallyDbLoader.Wpf
             OnPropertyChanged(nameof(CanResolveSelectedCompanySafetyBlock));
             OnPropertyChanged(nameof(SelectedDatabaseProfile));
             OnPropertyChanged(nameof(JobSelectedProfile));
+        }
+
+        public async Task RunBalanceSheetVerificationAsync()
+        {
+            if (BalanceSheetSelectedCompany == null)
+            {
+                ShowToast("Select Sync Job", "Choose a Sync Job before running Balance Sheet Verification.", "warn");
+                return;
+            }
+
+            IsBalanceSheetVerificationRunning = true;
+            try
+            {
+                var request = new BalanceSheetVerificationRequest
+                {
+                    CompanyProfileId = BalanceSheetSelectedCompany.Id,
+                    FinancialYearStart = BalanceSheetFinancialYearStart.Date,
+                    AsAtDate = BalanceSheetAsAtDate.Date
+                };
+
+                var runner = BalanceSheetVerificationRunner;
+                BalanceSheetReport result;
+                if (runner != null)
+                {
+                    result = await runner(request, _asyncOpsCts.Token);
+                }
+                else
+                {
+                    var service = new BalanceSheetVerificationService(_repo);
+                    result = await service.GenerateAsync(request, _asyncOpsCts.Token);
+                }
+
+                InvokeOnDispatcher(() =>
+                {
+                    BalanceSheetReport = result;
+                    LoadConfiguration(); // To refresh history runs in the UI
+                    ShowToast("Balance Sheet Ready", result.Status, result.Status == "failed" ? "err" : result.Status == "out_of_balance" ? "warn" : "ok");
+                });
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                InvokeOnDispatcher(() => ShowToast("Balance Sheet Failed", ex.Message, "err"));
+            }
+            finally
+            {
+                InvokeOnDispatcher(() => IsBalanceSheetVerificationRunning = false);
+            }
         }
 
         private bool GuardEngineRunning(string operation)

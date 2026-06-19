@@ -883,5 +883,60 @@ namespace TallyDbLoader.Tests
                 if (File.Exists(importFile)) try { File.Delete(importFile); } catch { }
             }
         }
+
+        [Fact]
+        public async Task RunBalanceSheetVerificationAsync_UsesSelectedCompanyAndStoresReport()
+        {
+            string dbPath = $"vm_bs_{Guid.NewGuid():N}.db";
+            try
+            {
+                DatabaseHelper.InitializeDatabase(dbPath);
+                var repo = new ConfigRepository(dbPath);
+                repo.SaveDatabaseProfile(new DatabaseProfile { Name = "Target", Technology = "sqlite" });
+                var db = repo.GetDatabaseProfileByName("Target");
+                Assert.NotNull(db);
+                repo.SaveCompanyProfile(new CompanyProfile
+                {
+                    Name = "Demo Co",
+                    DbProfileId = db.Id,
+                    TargetCatalog = "target.db",
+                    BooksFrom = new DateTime(2025, 4, 1),
+                    BooksTo = new DateTime(2025, 6, 5)
+                });
+
+                var vm = new MainViewModel(dbPath);
+                vm.DisableDispatcher = true;
+                vm.BalanceSheetVerificationRunner = (request, token) => Task.FromResult(new BalanceSheetReport
+                {
+                    CompanyProfileId = request.CompanyProfileId,
+                    CompanyName = "Demo Co",
+                    FinancialYearStart = request.FinancialYearStart,
+                    AsAtDate = request.AsAtDate,
+                    Status = "balanced",
+                    LiabilitySide = new BalanceSheetSide
+                    {
+                        Title = "Liabilities",
+                        Lines = new List<BalanceSheetLine> { new BalanceSheetLine { Name = "Capital Account", Amount = 100m } }
+                    },
+                    AssetSide = new BalanceSheetSide
+                    {
+                        Title = "Assets",
+                        Lines = new List<BalanceSheetLine> { new BalanceSheetLine { Name = "Current Assets", Amount = 100m } }
+                    }
+                });
+
+                vm.BalanceSheetSelectedCompany = vm.Companies.Single();
+                await vm.RunBalanceSheetVerificationAsync();
+
+                Assert.NotNull(vm.BalanceSheetReport);
+                Assert.Equal("balanced", vm.BalanceSheetReport.Status);
+                Assert.False(vm.IsBalanceSheetVerificationRunning);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+            }
+        }
     }
 }

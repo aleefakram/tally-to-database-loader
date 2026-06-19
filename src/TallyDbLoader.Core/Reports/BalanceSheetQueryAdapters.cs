@@ -84,7 +84,9 @@ WITH pre_period AS (
     GROUP BY a.ledger
 ),
 current_period AS (
-    SELECT a.ledger AS ledger, SUM(a.amount) AS amount
+    SELECT a.ledger AS ledger,
+           SUM(a.amount) AS amount,
+           SUM(CASE WHEN a.amount < 0 THEN ABS(a.amount) ELSE 0 END) AS debit
     FROM {accounting} a
     JOIN {voucher} v ON v.guid = a.guid
     WHERE v.is_order_voucher = 0
@@ -101,6 +103,7 @@ SELECT
     COALESCE(l.opening_balance, 0) AS OpeningBalance,
     COALESCE(pre_period.amount, 0) AS PrePeriodMovement,
     COALESCE(current_period.amount, 0) AS CurrentPeriodMovement,
+    COALESCE(current_period.debit, 0) AS CurrentPeriodDebit,
     {closingStockSelect}
 FROM {ledger} l
 LEFT JOIN {group} g ON g.name = l.parent

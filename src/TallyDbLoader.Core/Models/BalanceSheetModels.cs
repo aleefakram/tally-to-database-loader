@@ -87,6 +87,7 @@ namespace TallyDbLoader.Core.Models
         public decimal OpeningBalance { get; set; }
         public decimal PrePeriodMovement { get; set; }
         public decimal CurrentPeriodMovement { get; set; }
+        public decimal CurrentPeriodDebit { get; set; }
         public decimal ClosingStockValue { get; set; }
         public bool HasClosingStockValue { get; set; }
     }

@@ -88,14 +88,8 @@ namespace TallyDbLoader.Core.Reports
                 report.Warnings.Add($"Reserved Profit & Loss ledger '{request.Options.ProfitAndLossLedgerName}' was not found.");
             }
 
-            decimal pnlOpening = reservedPnl?.OpeningBalance ?? 0m;
-            decimal pnlLessTransferred = 0m;
-            if (reservedPnl != null)
-            {
-                pnlLessTransferred = reservedPnl.CurrentPeriodMovement < 0m
-                    ? Math.Abs(reservedPnl.CurrentPeriodMovement)
-                    : 0m;
-            }
+            decimal pnlOpening = (reservedPnl?.OpeningBalance ?? 0m) + (reservedPnl?.PrePeriodMovement ?? 0m);
+            decimal pnlLessTransferred = reservedPnl?.CurrentPeriodDebit ?? 0m;
 
             decimal revenueCurrent = raw.Ledgers
                 .Where(l => l.IsRevenue && !l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
@@ -114,7 +108,7 @@ namespace TallyDbLoader.Core.Reports
                 .ToList();
 
             decimal stockClosing = stockLedgers.Sum(l => l.HasClosingStockValue
-                ? -Math.Abs(l.ClosingStockValue)
+                ? -l.ClosingStockValue
                 : l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);
 
             if (stockLedgers.Any(l => !l.HasClosingStockValue))
@@ -137,7 +131,7 @@ namespace TallyDbLoader.Core.Reports
                 {
                     if (group.Key.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase) && l.HasClosingStockValue)
                     {
-                        return -Math.Abs(l.ClosingStockValue);
+                        return -l.ClosingStockValue;
                     }
                     return l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement;
                 });

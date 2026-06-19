@@ -131,14 +131,14 @@ namespace TallyDbLoader.Tests
             {
                 Ledgers = new List<BalanceSheetLedgerRow>
                 {
-                    new() { LedgerName = "Profit & Loss A/c", PrimaryGroup = "Capital Account", OpeningBalance = 250m },
-                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -250m }
+                    new() { LedgerName = "Profit & Loss A/c", PrimaryGroup = "Capital Account", OpeningBalance = 250m, PrePeriodMovement = 50m },
+                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -300m }
                 }
             };
 
             var report = BalanceSheetCalculator.Calculate("Demo Co", raw, Request());
 
-            Assert.Equal(250m, report.ProfitAndLoss.OpeningBalance);
+            Assert.Equal(300m, report.ProfitAndLoss.OpeningBalance);
         }
 
         [Fact]
@@ -149,8 +149,9 @@ namespace TallyDbLoader.Tests
                 Ledgers = new List<BalanceSheetLedgerRow>
                 {
                     new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1000m },
-                    new() { LedgerName = "Profit & Loss A/c", PrimaryGroup = "Capital Account", CurrentPeriodMovement = -150m },
-                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -850m }
+                    // Even if net current movement is positive (credit adjustment), direct debits are still retrieved
+                    new() { LedgerName = "Profit & Loss A/c", PrimaryGroup = "Capital Account", CurrentPeriodMovement = 50m, CurrentPeriodDebit = 150m },
+                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -1050m }
                 }
             };
 

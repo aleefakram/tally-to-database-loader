@@ -93,5 +93,32 @@ namespace TallyDbLoader.Tests
                 "UPDATE trn_voucher AS t SET voucher_number = s.voucher_number FROM _vchnumber AS s WHERE s.guid = t.guid;",
                 new PostgreSqlLoader("Host=;").VoucherNumberUpdateSql());
         }
+
+        [Fact]
+        public async Task DatabaseWriter_GetConnectionAsync_ForSqlite_OpensDbConnection()
+        {
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"target_async_{Guid.NewGuid()}.db");
+            try
+            {
+                var profile = new TallyDbLoader.Core.Models.DatabaseProfile
+                {
+                    Name = "SqliteTarget",
+                    Technology = "sqlite"
+                };
+
+                await using var conn = await TallyDbLoader.Core.Data.DatabaseWriter.GetConnectionAsync(
+                    profile,
+                    path,
+                    System.Threading.CancellationToken.None);
+
+                Assert.Equal(System.Data.ConnectionState.Open, conn.State);
+                Assert.IsAssignableFrom<System.Data.Common.DbConnection>(conn);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (System.IO.File.Exists(path)) try { System.IO.File.Delete(path); } catch { }
+            }
+        }
     }
 }

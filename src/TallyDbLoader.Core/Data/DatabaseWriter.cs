@@ -49,6 +49,49 @@ namespace TallyDbLoader.Core.Data
             throw new NotSupportedException($"Database technology '{profile.Technology}' is not supported.");
         }
 
+        public static async System.Threading.Tasks.Task<System.Data.Common.DbConnection> GetConnectionAsync(
+            DatabaseProfile profile,
+            string catalog,
+            System.Threading.CancellationToken cancellationToken)
+        {
+            if (profile == null) throw new ArgumentNullException(nameof(profile));
+            System.Data.Common.DbConnection conn;
+
+            if (profile.Technology.Equals("postgres", StringComparison.OrdinalIgnoreCase))
+            {
+                string sslParam = "";
+                if (!profile.Server.Equals("localhost", StringComparison.OrdinalIgnoreCase) &&
+                    !profile.Server.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase))
+                {
+                    sslParam = "SslMode=Require;TrustServerCertificate=True;";
+                }
+                string connStr = $"Host={profile.Server};Port={profile.Port};Username={profile.Username};Password={profile.Password};Database={catalog};{sslParam}";
+                conn = new Npgsql.NpgsqlConnection(connStr);
+            }
+            else if (profile.Technology.Equals("mssql", StringComparison.OrdinalIgnoreCase))
+            {
+                string connStr = $"Server={profile.Server},{profile.Port};User Id={profile.Username};Password={profile.Password};Database={catalog};TrustServerCertificate=True;";
+                conn = new Microsoft.Data.SqlClient.SqlConnection(connStr);
+            }
+            else if (profile.Technology.Equals("mysql", StringComparison.OrdinalIgnoreCase))
+            {
+                string connStr = $"Server={profile.Server};Port={profile.Port};User Id={profile.Username};Password={profile.Password};Database={catalog};AllowLoadLocalInfile=True;";
+                conn = new MySqlConnector.MySqlConnection(connStr);
+            }
+            else if (profile.Technology.Equals("sqlite", StringComparison.OrdinalIgnoreCase))
+            {
+                string dbFile = catalog.EndsWith(".db", StringComparison.OrdinalIgnoreCase) ? catalog : $"{catalog}.db";
+                conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbFile}");
+            }
+            else
+            {
+                throw new NotSupportedException($"Database technology '{profile.Technology}' is not supported.");
+            }
+
+            await conn.OpenAsync(cancellationToken);
+            return conn;
+        }
+
         public static void InitializeTargetTableDynamic(DatabaseProfile profile, string catalog, Tally.TableConfig table)
         {
             var ddl = DynamicTableSchemaGenerator.GenerateCreateTableSql(table, profile.Technology);

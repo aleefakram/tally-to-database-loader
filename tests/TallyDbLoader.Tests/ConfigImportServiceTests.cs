@@ -22,6 +22,7 @@ namespace TallyDbLoader.Tests
 
             public List<DatabaseProfile> GetAllDatabaseProfiles() => DatabaseProfiles;
             public List<CompanyProfile> GetAllCompanyProfiles() => CompanyProfiles;
+            public CompanyProfile? GetCompanyProfileById(int id) => CompanyProfiles.FirstOrDefault(c => c.Id == id);
 
             public void ImportSanitizedConfig(
                 List<ResolvedDatabaseProfileImport> databaseProfiles,

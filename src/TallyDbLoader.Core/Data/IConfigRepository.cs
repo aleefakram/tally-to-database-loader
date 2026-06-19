@@ -55,6 +55,7 @@ namespace TallyDbLoader.Core.Data
             int skippedFileCount,
             System.DateTime createdAt);
 
+        CompanyProfile? GetCompanyProfileById(int id);
         void AddBalanceSheetVerificationRun(BalanceSheetVerificationRun run);
         List<BalanceSheetVerificationRun> GetRecentBalanceSheetVerificationRuns(int limit = 50);
     }

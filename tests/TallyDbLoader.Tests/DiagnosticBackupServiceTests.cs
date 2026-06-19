@@ -46,6 +46,7 @@ namespace TallyDbLoader.Tests
 
             public List<DatabaseProfile> GetAllDatabaseProfiles() => throw new NotImplementedException();
             public List<CompanyProfile> GetAllCompanyProfiles() => throw new NotImplementedException();
+            public CompanyProfile? GetCompanyProfileById(int id) => throw new NotImplementedException();
             public void SaveDatabaseProfile(DatabaseProfile profile) => throw new NotImplementedException();
             public DatabaseProfile? GetDatabaseProfileByName(string name) => throw new NotImplementedException();
             public DatabaseProfile? GetDatabaseProfileById(int id) => throw new NotImplementedException();

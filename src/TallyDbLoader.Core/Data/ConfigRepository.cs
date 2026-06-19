@@ -1460,5 +1460,36 @@ namespace TallyDbLoader.Core.Data
                 return runs;
             }
         }
+
+        public CompanyProfile? GetCompanyProfileById(int id)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                var profile = conn.QueryFirstOrDefault<CompanyProfile>(@"
+                    SELECT
+                        id AS Id, name AS Name, tally_guid AS TallyGuid,
+                        consolidated AS Consolidated, books_from AS BooksFrom,
+                        books_to AS BooksTo, db_profile_id AS DbProfileId,
+                        target_catalog AS TargetCatalog, schema AS Schema,
+                        table_prefix AS TablePrefix, mode AS Mode,
+                        interval_minutes AS IntervalMinutes, enabled AS Enabled,
+                        notify_on_error AS NotifyOnError, pause_on_tally_close AS PauseOnTallyClose,
+                        entity_flags AS EntityFlags, status AS Status,
+                        last_run_at AS LastRunAt, last_duration_ms AS LastDurationMs,
+                        last_rows_written AS LastRowsWritten, error_count_24h AS ErrorCount24h
+                    FROM company_profiles
+                    WHERE id = @Id;", new { Id = id });
+
+                if (profile != null)
+                {
+                    profile.Status = NormalizeCompanyProfileStatus(profile.Status);
+                    profile.Db = GetDatabaseProfileById(profile.DbProfileId);
+                }
+
+                return profile;
+            }
+        }
     }
 }

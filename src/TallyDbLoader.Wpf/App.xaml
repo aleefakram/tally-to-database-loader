@@ -29,6 +29,7 @@
             <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
             <converters:AddOneConverter x:Key="AddOneConverter"/>
             <converters:UppercaseConverter x:Key="UppercaseConverter"/>
+            <converters:IndianCurrencyConverter x:Key="IndianCurrencyConverter"/>
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         </ResourceDictionary>
     </Application.Resources>

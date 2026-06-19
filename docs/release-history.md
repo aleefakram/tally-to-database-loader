@@ -6,6 +6,7 @@ Added:
 * Create-new-only configuration imports: all profile conflicts with existing databases or companies are blocked.
 * Secure collection of required database passwords via a dedicated PasswordBox dialog.
 * Engine guard check: configuration imports are blocked if the sync engine is currently running.
+* Added manual Balance Sheet Verification for the WPF app. The report computes a Tally-style top-level Balance Sheet from synced target database data with adjustable Financial Year Start and As At Date.
 
 **Version: 2.0.0-beta [08-Jun-2026]**<br>
 Added:

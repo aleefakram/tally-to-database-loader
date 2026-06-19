@@ -111,6 +111,22 @@ namespace TallyDbLoader.Tests
             Assert.Equal(98m, report.AssetTotal);
             Assert.Equal(2m, report.Difference);
         }
+
+        [Fact]
+        public void BalanceSheetRawData_CarriesGroupHierarchyRows()
+        {
+            var raw = new BalanceSheetRawData
+            {
+                Groups =
+                {
+                    new BalanceSheetGroupRow { Name = "Regional Debtors", ParentName = "Sundry Debtors", PrimaryGroup = string.Empty },
+                    new BalanceSheetGroupRow { Name = "Sundry Debtors", ParentName = "Current Assets", PrimaryGroup = "Current Assets" }
+                }
+            };
+
+            Assert.Equal(2, raw.Groups.Count);
+            Assert.Contains(raw.Groups, g => g.Name == "Regional Debtors" && g.ParentName == "Sundry Debtors");
+        }
     }
 }
 ```
@@ -123,7 +139,7 @@ Run:
 dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter BalanceSheetModelsTests
 ```
 
-Expected: fail because `BalanceSheetVerificationOptions`, `BalanceSheetReport`, `BalanceSheetSide`, and `BalanceSheetLine` do not exist.
+Expected: fail because `BalanceSheetVerificationOptions`, `BalanceSheetReport`, `BalanceSheetSide`, `BalanceSheetLine`, and `BalanceSheetGroupRow` do not exist.
 
 - [ ] **Step 3: Add the Core model file**
 
@@ -192,6 +208,14 @@ namespace TallyDbLoader.Core.Models
         public string Name { get; set; } = string.Empty;
         public decimal Amount { get; set; }
         public bool IsEmphasis { get; set; }
+        public string Kind { get; set; } = string.Empty;
+        public List<BalanceSheetBreakdownLine> BreakdownLines { get; set; } = new List<BalanceSheetBreakdownLine>();
+    }
+
+    public class BalanceSheetBreakdownLine
+    {
+        public string Name { get; set; } = string.Empty;
+        public decimal Amount { get; set; }
     }
 
     public class ProfitAndLossBreakdown
@@ -215,9 +239,18 @@ namespace TallyDbLoader.Core.Models
         public bool HasClosingStockValue { get; set; }
     }
 
+    public class BalanceSheetGroupRow
+    {
+        public string Name { get; set; } = string.Empty;
+        public string ParentName { get; set; } = string.Empty;
+        public string PrimaryGroup { get; set; } = string.Empty;
+        public bool IsRevenue { get; set; }
+    }
+
     public class BalanceSheetRawData
     {
         public List<BalanceSheetLedgerRow> Ledgers { get; set; } = new List<BalanceSheetLedgerRow>();
+        public List<BalanceSheetGroupRow> Groups { get; set; } = new List<BalanceSheetGroupRow>();
         public bool HasClosingStockTable { get; set; }
         public List<string> Warnings { get; set; } = new List<string>();
     }
@@ -822,6 +855,21 @@ public void SqliteAdapter_BuildLedgerSql_WithoutClosingStock_DoesNotReferenceClo
     Assert.Contains("0 AS ClosingStockValue", sql);
     Assert.Contains("0 AS HasClosingStockValue", sql);
 }
+
+[Fact]
+public void SqliteAdapter_BuildGroupSql_SelectsGroupHierarchy()
+{
+    var adapter = new SqliteBalanceSheetQueryAdapter();
+    var names = BalanceSheetTableNames.Create("main", "tally_", "SqliteConnection");
+
+    string sql = adapter.BuildGroupSql(names);
+
+    Assert.Contains("\"tally_mst_group\"", sql);
+    Assert.Contains("COALESCE(parent", sql);
+    Assert.Contains("AS ParentName", sql);
+    Assert.Contains("COALESCE(primary_group", sql);
+    Assert.Contains("AS PrimaryGroup", sql);
+}
 ```
 
 - [ ] **Step 2: Run SQL generation tests to verify failure**
@@ -829,7 +877,7 @@ public void SqliteAdapter_BuildLedgerSql_WithoutClosingStock_DoesNotReferenceClo
 Run:
 
 ```powershell
-dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "SqliteAdapter_BuildLedgerSql|ProviderAdapters_BuildLedgerSql"
+dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "SqliteAdapter_BuildLedgerSql|ProviderAdapters_BuildLedgerSql|SqliteAdapter_BuildGroupSql"
 ```
 
 Expected: fail because adapters do not exist.
@@ -849,6 +897,7 @@ namespace TallyDbLoader.Core.Reports
     public interface IBalanceSheetQueryAdapter
     {
         string BuildLedgerSql(BalanceSheetTableNames names, bool includeClosingStock);
+        string BuildGroupSql(BalanceSheetTableNames names);
         Task<BalanceSheetRawData> QueryAsync(
             DbConnection connection,
             BalanceSheetTableNames names,
@@ -900,6 +949,18 @@ namespace TallyDbLoader.Core.Reports
                 cancellationToken: cancellationToken);
             var count = await connection.ExecuteScalarAsync<long>(command);
             return count > 0;
+        }
+
+        public string BuildGroupSql(BalanceSheetTableNames names)
+        {
+            string group = Qualify(names, names.MstGroup);
+            return $@"
+SELECT
+    name AS Name,
+    COALESCE(parent, '') AS ParentName,
+    COALESCE(primary_group, '') AS PrimaryGroup,
+    CASE WHEN COALESCE(is_revenue, 0) = 1 THEN 1 ELSE 0 END AS IsRevenue
+FROM {group};";
         }
 
         public string BuildLedgerSql(BalanceSheetTableNames names, bool includeClosingStock)
@@ -980,9 +1041,14 @@ LEFT JOIN current_period ON current_period.ledger = l.name
                 cancellationToken: cancellationToken);
 
             var rows = await connection.QueryAsync<BalanceSheetLedgerRow>(command);
+            var groups = await connection.QueryAsync<BalanceSheetGroupRow>(
+                new CommandDefinition(
+                    BuildGroupSql(names),
+                    cancellationToken: cancellationToken));
             var rawData = new BalanceSheetRawData
             {
                 Ledgers = rows.ToList(),
+                Groups = groups.ToList(),
                 HasClosingStockTable = hasClosingStockTable
             };
             if (!hasClosingStockTable)
@@ -1041,7 +1107,7 @@ LEFT JOIN current_period ON current_period.ledger = l.name
 Run:
 
 ```powershell
-dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "SqliteAdapter_BuildLedgerSql|ProviderAdapters_BuildLedgerSql"
+dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "SqliteAdapter_BuildLedgerSql|ProviderAdapters_BuildLedgerSql|SqliteAdapter_BuildGroupSql"
 ```
 
 Expected: pass.
@@ -1121,6 +1187,53 @@ namespace TallyDbLoader.Tests
         }
 
         [Fact]
+        public void Calculate_BlankPrimaryGroup_WalksParentRecursively()
+        {
+            var raw = new BalanceSheetRawData
+            {
+                Ledgers = new List<BalanceSheetLedgerRow>
+                {
+                    new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1000m },
+                    new() { LedgerName = "Regional Bank", ParentGroupName = "Regional Current Assets", PrimaryGroup = string.Empty, OpeningBalance = -1000m }
+                },
+                Groups = new List<BalanceSheetGroupRow>
+                {
+                    new() { Name = "Regional Current Assets", ParentName = "Current Assets", PrimaryGroup = string.Empty },
+                    new() { Name = "Current Assets", ParentName = string.Empty, PrimaryGroup = "Current Assets" }
+                }
+            };
+
+            var report = BalanceSheetCalculator.Calculate("Demo Co", raw, Request());
+
+            Assert.Equal("balanced", report.Status);
+            Assert.Contains(report.AssetSide.Lines, l => l.Name == "Current Assets" && l.Amount == 1000m);
+        }
+
+        [Fact]
+        public void Calculate_GroupCycle_ReturnsFailedStatus()
+        {
+            var raw = new BalanceSheetRawData
+            {
+                Ledgers = new List<BalanceSheetLedgerRow>
+                {
+                    new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1000m },
+                    new() { LedgerName = "Bad Ledger", ParentGroupName = "Cycle A", PrimaryGroup = string.Empty, OpeningBalance = -1000m }
+                },
+                Groups = new List<BalanceSheetGroupRow>
+                {
+                    new() { Name = "Cycle A", ParentName = "Cycle B", PrimaryGroup = string.Empty },
+                    new() { Name = "Cycle B", ParentName = "Cycle A", PrimaryGroup = string.Empty }
+                }
+            };
+
+            var report = BalanceSheetCalculator.Calculate("Demo Co", raw, Request());
+
+            Assert.Equal("failed", report.Status);
+            Assert.Contains("Circular group hierarchy", report.ErrorSummary ?? string.Empty);
+            Assert.Contains("Cycle A", report.ErrorSummary ?? string.Empty);
+        }
+
+        [Fact]
         public void Calculate_ProfitAndLoss_CurrentPeriod_IncludesStockDelta()
         {
             var raw = new BalanceSheetRawData
@@ -1140,6 +1253,9 @@ namespace TallyDbLoader.Tests
 
             Assert.Equal(100m, report.ProfitAndLoss.CurrentPeriod);
             Assert.Contains(report.LiabilitySide.Lines, l => l.Name == "Profit & Loss A/c" && l.Amount == 100m);
+            var pnlLine = report.LiabilitySide.Lines.Single(l => l.Kind == "profit_and_loss");
+            Assert.Equal(3, pnlLine.BreakdownLines.Count);
+            Assert.Contains(pnlLine.BreakdownLines, l => l.Name == "Less: Transferred");
         }
 
         [Fact]
@@ -1260,6 +1376,43 @@ namespace TallyDbLoader.Core.Reports
                 Warnings = new List<string>(raw.Warnings)
             };
 
+            var groupMap = raw.Groups
+                .GroupBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var ledger in raw.Ledgers)
+            {
+                if (string.IsNullOrWhiteSpace(ledger.PrimaryGroup))
+                {
+                    bool hasCycle = false;
+                    string resolvedPrimaryGroup = ResolvePrimaryGroup(
+                        ledger.ParentGroupName,
+                        groupMap,
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                        ref hasCycle);
+
+                    if (hasCycle)
+                    {
+                        return Fail(report, $"Circular group hierarchy detected while resolving '{ledger.ParentGroupName}'.");
+                    }
+
+                    if (string.IsNullOrWhiteSpace(resolvedPrimaryGroup))
+                    {
+                        return Fail(report, $"Unable to resolve primary group for ledger '{ledger.LedgerName}' with parent group '{ledger.ParentGroupName}'.");
+                    }
+
+                    ledger.PrimaryGroup = resolvedPrimaryGroup;
+                }
+
+                if (!ledger.IsRevenue)
+                {
+                    ledger.IsRevenue = ResolveRevenueFlag(
+                        ledger.ParentGroupName,
+                        groupMap,
+                        new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                }
+            }
+
             var reservedPnl = raw.Ledgers.FirstOrDefault(l =>
                 l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase));
 
@@ -1346,21 +1499,17 @@ namespace TallyDbLoader.Core.Reports
 
             if (report.ProfitAndLoss.NetAmount > 0m)
             {
-                report.LiabilitySide.Lines.Add(new BalanceSheetLine
-                {
-                    Name = request.Options.ProfitAndLossLedgerName,
-                    Amount = report.ProfitAndLoss.NetAmount,
-                    IsEmphasis = true
-                });
+                report.LiabilitySide.Lines.Add(CreateProfitAndLossLine(
+                    request.Options.ProfitAndLossLedgerName,
+                    report.ProfitAndLoss.NetAmount,
+                    report.ProfitAndLoss));
             }
             else if (report.ProfitAndLoss.NetAmount < 0m)
             {
-                report.AssetSide.Lines.Add(new BalanceSheetLine
-                {
-                    Name = request.Options.ProfitAndLossLedgerName,
-                    Amount = Math.Abs(report.ProfitAndLoss.NetAmount),
-                    IsEmphasis = true
-                });
+                report.AssetSide.Lines.Add(CreateProfitAndLossLine(
+                    request.Options.ProfitAndLossLedgerName,
+                    Math.Abs(report.ProfitAndLoss.NetAmount),
+                    report.ProfitAndLoss));
             }
 
             report.Status = report.Difference <= request.Options.BalanceTolerance
@@ -1373,6 +1522,62 @@ namespace TallyDbLoader.Core.Reports
         private static string NormalizeGroup(string value)
         {
             return string.IsNullOrWhiteSpace(value) ? "(unresolved)" : value.Trim();
+        }
+
+        private static string ResolvePrimaryGroup(
+            string groupName,
+            Dictionary<string, BalanceSheetGroupRow> groupMap,
+            HashSet<string> visited,
+            ref bool hasCycle)
+        {
+            if (string.IsNullOrWhiteSpace(groupName)) return string.Empty;
+            if (!visited.Add(groupName))
+            {
+                hasCycle = true;
+                return string.Empty;
+            }
+            if (!groupMap.TryGetValue(groupName, out var group)) return string.Empty;
+            if (!string.IsNullOrWhiteSpace(group.PrimaryGroup)) return group.PrimaryGroup.Trim();
+            return ResolvePrimaryGroup(group.ParentName, groupMap, visited, ref hasCycle);
+        }
+
+        private static bool ResolveRevenueFlag(
+            string groupName,
+            Dictionary<string, BalanceSheetGroupRow> groupMap,
+            HashSet<string> visited)
+        {
+            if (string.IsNullOrWhiteSpace(groupName)) return false;
+            if (!visited.Add(groupName)) return false;
+            if (!groupMap.TryGetValue(groupName, out var group)) return false;
+            if (group.IsRevenue) return true;
+            return ResolveRevenueFlag(group.ParentName, groupMap, visited);
+        }
+
+        private static BalanceSheetReport Fail(BalanceSheetReport report, string errorSummary)
+        {
+            report.Status = "failed";
+            report.ErrorSummary = errorSummary;
+            return report;
+        }
+
+        private static BalanceSheetLine CreateProfitAndLossLine(
+            string ledgerName,
+            decimal amount,
+            ProfitAndLossBreakdown breakdown)
+        {
+            return new BalanceSheetLine
+            {
+                Name = ledgerName,
+                Amount = Math.Abs(amount),
+                IsEmphasis = true,
+                Kind = "profit_and_loss",
+                BreakdownLines =
+                {
+                    new BalanceSheetBreakdownLine { Name = "Opening Balance", Amount = breakdown.OpeningBalance },
+                    new BalanceSheetBreakdownLine { Name = "Current Period", Amount = breakdown.CurrentPeriod },
+                    new BalanceSheetBreakdownLine { Name = "Less: Transferred", Amount = breakdown.LessTransferred }
+                }
+            };
         }
     }
 }
@@ -1476,13 +1681,13 @@ namespace TallyDbLoader.Tests
         {
             using var conn = new SqliteConnection($"Data Source={path}");
             conn.Open();
-            conn.Execute("CREATE TABLE mst_group (name TEXT, primary_group TEXT, is_revenue INTEGER);");
+            conn.Execute("CREATE TABLE mst_group (name TEXT, parent TEXT, primary_group TEXT, is_revenue INTEGER);");
             conn.Execute("CREATE TABLE mst_ledger (name TEXT, parent TEXT, opening_balance DECIMAL(17,2));");
             conn.Execute("CREATE TABLE trn_voucher (guid TEXT, date DATE, is_order_voucher INTEGER, is_inventory_voucher INTEGER);");
             conn.Execute("CREATE TABLE trn_accounting (guid TEXT, ledger TEXT, amount DECIMAL(17,2));");
             conn.Execute("CREATE TABLE trn_closingstock_ledger (ledger TEXT, stock_date DATE, stock_value DECIMAL(17,2));");
 
-            conn.Execute("INSERT INTO mst_group (name, primary_group, is_revenue) VALUES ('Capital Account', 'Capital Account', 0), ('Current Assets', 'Current Assets', 0);");
+            conn.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Capital Account', '', 'Capital Account', 0), ('Current Assets', '', 'Current Assets', 0);");
             conn.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Capital', 'Capital Account', 1000), ('Cash', 'Current Assets', -1000);");
         }
     }
@@ -1978,6 +2183,7 @@ Create `src/TallyDbLoader.Wpf/Views/BalanceSheetVerificationPage.xaml`:
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
@@ -2002,7 +2208,48 @@ Create `src/TallyDbLoader.Wpf/Views/BalanceSheetVerificationPage.xaml`:
             </Grid>
         </Border>
 
-        <Grid Grid.Row="2">
+        <Border Grid.Row="2" Background="{DynamicResource Layer2Brush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="12" Margin="0,0,0,16">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="8" Height="8" CornerRadius="4" VerticalAlignment="Center" Margin="0,0,8,0" Background="{Binding BalanceSheetReport.Status, Converter={StaticResource StatusToToneConverter}}"/>
+                        <TextBlock Text="{Binding BalanceSheetReport.Status, TargetNullValue='Not Run'}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding BalanceSheetReport.Status}" Value="out_of_balance">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                        <TextBlock Text="Difference: " Style="{StaticResource CaptionTextStyle}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding BalanceSheetReport.Difference, Converter={StaticResource IndianCurrencyConverter}}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock Text="{Binding BalanceSheetReport.ErrorSummary}" Foreground="#dc2626" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding BalanceSheetReport.ErrorSummary, Converter={StaticResource NullToVisibilityConverter}}"/>
+
+                <ItemsControl ItemsSource="{Binding BalanceSheetReport.Warnings}" Margin="0,8,0,0" Visibility="{Binding BalanceSheetReport.Warnings.Count, Converter={StaticResource CountToVisibilityConverter}}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding StringFormat='Warning: {0}'}" Style="{StaticResource CaptionTextStyle}" Foreground="#d97706" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="3">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="*"/>
@@ -2015,10 +2262,22 @@ Create `src/TallyDbLoader.Wpf/Views/BalanceSheetVerificationPage.xaml`:
                     <ItemsControl ItemsSource="{Binding BalanceSheetReport.LiabilitySide.Lines}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="0,2">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
-                                </Grid>
+                                <StackPanel Margin="0,2">
+                                    <Grid>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding BreakdownLines}" Margin="16,4,0,4" Visibility="{Binding BreakdownLines.Count, Converter={StaticResource CountToVisibilityConverter}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,1">
+                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource CaptionTextStyle}"/>
+                                                    <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" Style="{StaticResource CaptionTextStyle}"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -2032,10 +2291,22 @@ Create `src/TallyDbLoader.Wpf/Views/BalanceSheetVerificationPage.xaml`:
                     <ItemsControl ItemsSource="{Binding BalanceSheetReport.AssetSide.Lines}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid Margin="0,2">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
-                                    <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
-                                </Grid>
+                                <StackPanel Margin="0,2">
+                                    <Grid>
+                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" FontWeight="SemiBold"/>
+                                    </Grid>
+                                    <ItemsControl ItemsSource="{Binding BreakdownLines}" Margin="16,4,0,4" Visibility="{Binding BreakdownLines.Count, Converter={StaticResource CountToVisibilityConverter}}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid Margin="0,1">
+                                                    <TextBlock Text="{Binding Name}" Style="{StaticResource CaptionTextStyle}"/>
+                                                    <TextBlock Text="{Binding Amount, Converter={StaticResource IndianCurrencyConverter}}" HorizontalAlignment="Right" Style="{StaticResource CaptionTextStyle}"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -2087,6 +2358,8 @@ if (status == "ok" || status == "success" || status == "healthy" || status == "r
     return GetFrozenBrush("#16a34a");
 if (status == "warn" || status == "warning" || status == "paused" || status == "stale" || status == "attention_required" || status == "review_required" || status == "out_of_balance")
     return GetFrozenBrush("#d97706");
+if (status == "err" || status == "error" || status == "failed" || status == "unknown")
+    return GetFrozenBrush("#dc2626");
 ```
 
 - [ ] **Step 4: Build WPF project**
@@ -2173,7 +2446,10 @@ Spec coverage:
 - Async execution and cancellation: Task 3, Task 5, Task 7, Task 9.
 - Indian number formatting: Task 8 and Task 10.
 - Investments group: Task 6.
+- Recursive primary-group traversal and group-cycle failure: Task 5 and Task 6.
 - Stock-in-Hand and Profit & Loss rules: Task 6.
+- Profit & Loss indented breakdown display: Task 1, Task 6, and Task 10.
+- Status, difference, warning, and error display: Task 10.
 - Balance tolerance: Task 1 and Task 6.
 - Tests and final verification: Task 11.
 

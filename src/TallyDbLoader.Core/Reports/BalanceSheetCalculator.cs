@@ -107,11 +107,13 @@ namespace TallyDbLoader.Core.Reports
 
             decimal revenuePrePeriod = raw.Ledgers
                 .Where(l => l.IsRevenue && !l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
-                .Sum(l => l.PrePeriodMovement);
+                .Sum(l => l.OpeningBalance + l.PrePeriodMovement);
 
             decimal stockOpening = raw.Ledgers
                 .Where(l => l.PrimaryGroup.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase))
-                .Sum(l => l.OpeningBalance + l.PrePeriodMovement);
+                .Sum(l => l.HasOpeningStockValue
+                    ? -l.OpeningStockValue
+                    : l.OpeningBalance + l.PrePeriodMovement);
 
             var stockLedgers = raw.Ledgers
                 .Where(l => l.PrimaryGroup.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase))
@@ -126,8 +128,8 @@ namespace TallyDbLoader.Core.Reports
                 report.Warnings.Add("Some Stock-in-Hand closing values were not found; ledger balances were used as fallback.");
             }
 
-            report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod;
-            report.ProfitAndLoss.CurrentPeriod = revenueCurrent + (stockClosing - stockOpening);
+            report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod - stockOpening;
+            report.ProfitAndLoss.CurrentPeriod = revenueCurrent - (stockClosing - stockOpening);
             report.ProfitAndLoss.LessTransferred = pnlLessTransferred;
 
             var grouped = raw.Ledgers

@@ -56,7 +56,7 @@ FROM {group};";
             string accounting = Qualify(names, names.TrnAccounting);
             string voucher = Qualify(names, names.TrnVoucher);
             string closingStockCte = string.Empty;
-            string closingStockSelect = "0 AS ClosingStockValue,\n    0 AS HasClosingStockValue";
+            string closingStockSelect = "0 AS ClosingStockValue,\n    0 AS HasClosingStockValue,\n    0 AS OpeningStockValue,\n    0 AS HasOpeningStockValue";
             string closingStockJoin = string.Empty;
 
             if (includeClosingStock)
@@ -67,10 +67,18 @@ closing_stock_ranked AS (
     SELECT ledger, stock_value, ROW_NUMBER() OVER (PARTITION BY ledger ORDER BY stock_date DESC) AS rn
     FROM {closingStock}
     WHERE stock_date <= @AsAtDate
+),
+opening_stock_ranked AS (
+    SELECT ledger, stock_value, ROW_NUMBER() OVER (PARTITION BY ledger ORDER BY stock_date DESC) AS rn
+    FROM {closingStock}
+    WHERE stock_date < @FinancialYearStart
 )";
-                closingStockSelect = @"COALESCE(closing_stock_ranked.stock_value, 0) AS ClosingStockValue,
-    CASE WHEN closing_stock_ranked.ledger IS NULL THEN 0 ELSE 1 END AS HasClosingStockValue";
-                closingStockJoin = "LEFT JOIN closing_stock_ranked ON closing_stock_ranked.ledger = l.name AND closing_stock_ranked.rn = 1";
+                closingStockSelect = @"-COALESCE(closing_stock_ranked.stock_value, 0) AS ClosingStockValue,
+    CASE WHEN closing_stock_ranked.ledger IS NULL THEN 0 ELSE 1 END AS HasClosingStockValue,
+    -COALESCE(opening_stock_ranked.stock_value, 0) AS OpeningStockValue,
+    CASE WHEN opening_stock_ranked.ledger IS NULL THEN 0 ELSE 1 END AS HasOpeningStockValue";
+                closingStockJoin = @"LEFT JOIN closing_stock_ranked ON closing_stock_ranked.ledger = l.name AND closing_stock_ranked.rn = 1
+LEFT JOIN opening_stock_ranked ON opening_stock_ranked.ledger = l.name AND opening_stock_ranked.rn = 1";
             }
 
             return $@"

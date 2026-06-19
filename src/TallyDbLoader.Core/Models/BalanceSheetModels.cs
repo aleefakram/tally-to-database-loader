@@ -90,6 +90,8 @@ namespace TallyDbLoader.Core.Models
         public decimal CurrentPeriodDebit { get; set; }
         public decimal ClosingStockValue { get; set; }
         public bool HasClosingStockValue { get; set; }
+        public decimal OpeningStockValue { get; set; }
+        public bool HasOpeningStockValue { get; set; }
     }
 
     public class BalanceSheetGroupRow

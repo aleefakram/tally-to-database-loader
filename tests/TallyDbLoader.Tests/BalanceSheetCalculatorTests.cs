@@ -107,8 +107,8 @@ namespace TallyDbLoader.Tests
                 HasClosingStockTable = true,
                 Ledgers = new List<BalanceSheetLedgerRow>
                 {
-                    new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1200m },
-                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -1000m },
+                    new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1000m },
+                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -1200m },
                     new() { LedgerName = "Stock", PrimaryGroup = "Stock-in-hand", OpeningBalance = -200m, ClosingStockValue = 300m, HasClosingStockValue = true },
                     new() { LedgerName = "Sales", PrimaryGroup = "Sales Accounts", IsRevenue = true, CurrentPeriodMovement = 400m },
                     new() { LedgerName = "Purchase", PrimaryGroup = "Purchase Accounts", IsRevenue = true, CurrentPeriodMovement = -200m }
@@ -117,8 +117,8 @@ namespace TallyDbLoader.Tests
 
             var report = BalanceSheetCalculator.Calculate("Demo Co", raw, Request());
 
-            Assert.Equal(100m, report.ProfitAndLoss.CurrentPeriod);
-            Assert.Contains(report.LiabilitySide.Lines, l => l.Name == "Profit & Loss A/c" && l.Amount == 100m);
+            Assert.Equal(300m, report.ProfitAndLoss.CurrentPeriod);
+            Assert.Contains(report.LiabilitySide.Lines, l => l.Name == "Profit & Loss A/c" && l.Amount == 500m);
             var pnlLine = report.LiabilitySide.Lines.Single(l => l.Kind == "profit_and_loss");
             Assert.Equal(3, pnlLine.BreakdownLines.Count);
             Assert.Contains(pnlLine.BreakdownLines, l => l.Name == "Less: Transferred");
@@ -187,8 +187,8 @@ namespace TallyDbLoader.Tests
             {
                 Ledgers = new List<BalanceSheetLedgerRow>
                 {
-                    new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1300m },
-                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -1000m },
+                    new() { LedgerName = "Capital", PrimaryGroup = "Capital Account", OpeningBalance = 1000m },
+                    new() { LedgerName = "Cash", PrimaryGroup = "Current Assets", OpeningBalance = -1100m },
                     // Stock A has closing stock value 150m (positive) which translates to -150m signed balance
                     new() { LedgerName = "Stock A", PrimaryGroup = "Stock-in-hand", OpeningBalance = -100m, ClosingStockValue = 150m, HasClosingStockValue = true },
                     // Stock B has no closing stock value, falls back to its ledger balance of -150m
@@ -200,8 +200,8 @@ namespace TallyDbLoader.Tests
 
             var report = BalanceSheetCalculator.Calculate("Demo Co", raw, Request());
 
-            // AssetTotal: Cash (1000) + Stock A (150) + Stock B (150) = 1300m
-            Assert.Equal(1300m, report.AssetTotal);
+            // AssetTotal: Cash (1100) + Stock A (150) + Stock B (150) = 1400m
+            Assert.Equal(1400m, report.AssetTotal);
             Assert.Equal("balanced", report.Status);
             Assert.Contains(report.Warnings, w => w.Contains("Some Stock-in-Hand closing values were not found"));
         }

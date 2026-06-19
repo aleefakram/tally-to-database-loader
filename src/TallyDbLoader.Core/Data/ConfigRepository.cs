@@ -1349,5 +1349,116 @@ namespace TallyDbLoader.Core.Data
                 }
             }
         }
+
+        public void AddBalanceSheetVerificationRun(BalanceSheetVerificationRun run)
+        {
+            if (run == null) throw new ArgumentNullException(nameof(run));
+
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                conn.Execute("PRAGMA foreign_keys = ON;");
+                using (var transaction = conn.BeginTransaction())
+                {
+                    try
+                    {
+                        var parameters = new
+                        {
+                            run.CompanyProfileId,
+                            run.TargetIdentity,
+                            FinancialYearStart = run.FinancialYearStart.ToString("o"),
+                            AsAtDate = run.AsAtDate.ToString("o"),
+                            GeneratedAt = run.GeneratedAt.ToString("o"),
+                            LiabilityTotal = run.LiabilityTotal.ToString("F4"),
+                            AssetTotal = run.AssetTotal.ToString("F4"),
+                            Difference = run.Difference.ToString("F4"),
+                            BalanceTolerance = run.BalanceTolerance.ToString("F4"),
+                            run.Status,
+                            run.WarningSummary,
+                            run.ErrorSummary
+                        };
+
+                        conn.Execute(@"
+                            INSERT INTO balance_sheet_runs (
+                                company_id, target_identity, financial_year_start, as_at_date, generated_at,
+                                liability_total, asset_total, difference, balance_tolerance, status, warning_summary, error_summary
+                            ) VALUES (
+                                @CompanyProfileId, @TargetIdentity, @FinancialYearStart, @AsAtDate, @GeneratedAt,
+                                @LiabilityTotal, @AssetTotal, @Difference, @BalanceTolerance, @Status, @WarningSummary, @ErrorSummary
+                            )", parameters, transaction);
+
+                        run.Id = conn.QuerySingle<long>("SELECT last_insert_rowid();", null, transaction);
+
+                        string afterJson = JsonSerializer.Serialize(new
+                        {
+                            id = run.Id,
+                            company_profile_id = run.CompanyProfileId,
+                            target_identity = run.TargetIdentity,
+                            status = run.Status,
+                            difference = run.Difference
+                        });
+
+                        InsertConfigAuditLog(
+                            conn,
+                            transaction,
+                            run.GeneratedAt,
+                            "system",
+                            "create_balance_sheet_run",
+                            "balance_sheet_run",
+                            (int)run.Id,
+                            run.TargetIdentity,
+                            "{}",
+                            afterJson,
+                            "Balance sheet verification run completed"
+                        );
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public List<BalanceSheetVerificationRun> GetRecentBalanceSheetVerificationRuns(int limit = 50)
+        {
+            using (var conn = new SqliteConnection(_connectionString))
+            {
+                conn.Open();
+                var rows = conn.Query<dynamic>(@"
+                    SELECT id, company_id AS CompanyProfileId, target_identity AS TargetIdentity,
+                           financial_year_start AS FinancialYearStart, as_at_date AS AsAtDate, generated_at AS GeneratedAt,
+                           liability_total AS LiabilityTotalText, asset_total AS AssetTotalText, difference AS DifferenceText,
+                           balance_tolerance AS BalanceToleranceText, status AS Status, warning_summary AS WarningSummary, error_summary AS ErrorSummary
+                    FROM balance_sheet_runs
+                    ORDER BY generated_at DESC
+                    LIMIT @Limit", new { Limit = limit }).ToList();
+
+                var runs = new List<BalanceSheetVerificationRun>();
+                foreach (var row in rows)
+                {
+                    runs.Add(new BalanceSheetVerificationRun
+                    {
+                        Id = (long)row.id,
+                        CompanyProfileId = (int)row.CompanyProfileId,
+                        TargetIdentity = (string)row.TargetIdentity,
+                        FinancialYearStart = DateTime.Parse((string)row.FinancialYearStart),
+                        AsAtDate = DateTime.Parse((string)row.AsAtDate),
+                        GeneratedAt = DateTime.Parse((string)row.GeneratedAt),
+                        LiabilityTotal = decimal.Parse((string)row.LiabilityTotalText),
+                        AssetTotal = decimal.Parse((string)row.AssetTotalText),
+                        Difference = decimal.Parse((string)row.DifferenceText),
+                        BalanceTolerance = decimal.Parse((string)row.BalanceToleranceText),
+                        Status = (string)row.Status,
+                        WarningSummary = (string)row.WarningSummary,
+                        ErrorSummary = (string)row.ErrorSummary
+                    });
+                }
+                return runs;
+            }
+        }
     }
 }

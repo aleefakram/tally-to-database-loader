@@ -1925,5 +1925,75 @@ namespace TallyDbLoader.Tests
                 if (File.Exists(testDbPath)) try { File.Delete(testDbPath); } catch { }
             }
         }
+
+        [Fact]
+        public void AddBalanceSheetVerificationRun_InsertsAndAudits()
+        {
+            string path = Path.Combine(Path.GetTempPath(), $"bs_add_run_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(path);
+                var repo = new ConfigRepository(path);
+
+                var dbProfile = new DatabaseProfile
+                {
+                    Name = "PostgresDev",
+                    Technology = "postgres",
+                    Server = "localhost",
+                    Port = 5432
+                };
+                repo.SaveDatabaseProfile(dbProfile);
+                var savedDb = repo.GetDatabaseProfileByName("PostgresDev");
+                Assert.NotNull(savedDb);
+
+                var company = new CompanyProfile
+                {
+                    Name = "TestCompany",
+                    DbProfileId = savedDb.Id,
+                    TargetCatalog = "dbo",
+                    Enabled = true
+                };
+                repo.SaveCompanyProfile(company);
+                var savedCompany = repo.GetAllCompanyProfiles().Single(c => c.Name == "TestCompany");
+
+                var run = new BalanceSheetVerificationRun
+                {
+                    CompanyProfileId = savedCompany.Id,
+                    TargetIdentity = "PostgresDev/dbo",
+                    FinancialYearStart = new DateTime(2025, 4, 1),
+                    AsAtDate = new DateTime(2026, 3, 31),
+                    GeneratedAt = DateTime.UtcNow,
+                    LiabilityTotal = 1500.50m,
+                    AssetTotal = 1500.50m,
+                    Difference = 0.0m,
+                    BalanceTolerance = 0.05m,
+                    Status = "balanced",
+                    WarningSummary = "None",
+                    ErrorSummary = null
+                };
+
+                repo.AddBalanceSheetVerificationRun(run);
+
+                Assert.True(run.Id > 0);
+
+                var history = repo.GetRecentBalanceSheetVerificationRuns(10);
+                Assert.Single(history);
+                var saved = history[0];
+                Assert.Equal(savedCompany.Id, saved.CompanyProfileId);
+                Assert.Equal("balanced", saved.Status);
+                Assert.Equal(1500.50m, saved.LiabilityTotal);
+                Assert.Equal(0.0m, saved.Difference);
+
+                // Verify audit row was also written
+                using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}");
+                int auditCount = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM config_audit_log WHERE action = 'create_balance_sheet_run'");
+                Assert.Equal(1, auditCount);
+            }
+            finally
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (File.Exists(path)) try { File.Delete(path); } catch { }
+            }
+        }
     }
 }

@@ -48,6 +48,9 @@ namespace TallyDbLoader.Tests
                 int rawXmlFileCount,
                 int skippedFileCount,
                 DateTime createdAt) => throw new NotImplementedException();
+
+            public void AddBalanceSheetVerificationRun(BalanceSheetVerificationRun run) => throw new NotImplementedException();
+            public List<BalanceSheetVerificationRun> GetRecentBalanceSheetVerificationRuns(int limit = 50) => throw new NotImplementedException();
         }
 
         [Fact]

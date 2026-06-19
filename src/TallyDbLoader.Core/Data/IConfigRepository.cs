@@ -54,5 +54,8 @@ namespace TallyDbLoader.Core.Data
             int rawXmlFileCount,
             int skippedFileCount,
             System.DateTime createdAt);
+
+        void AddBalanceSheetVerificationRun(BalanceSheetVerificationRun run);
+        List<BalanceSheetVerificationRun> GetRecentBalanceSheetVerificationRuns(int limit = 50);
     }
 }

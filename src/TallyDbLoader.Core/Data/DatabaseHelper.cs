@@ -232,6 +232,30 @@ namespace TallyDbLoader.Core.Data
                             conn.Execute("PRAGMA user_version = 4;", null, transaction);
                         }
 
+                        if (version < 5)
+                        {
+                            conn.Execute(@"
+                                CREATE TABLE IF NOT EXISTS balance_sheet_runs (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    company_id INTEGER NOT NULL REFERENCES company_profiles(id) ON DELETE CASCADE,
+                                    target_identity TEXT NOT NULL,
+                                    financial_year_start TEXT NOT NULL,
+                                    as_at_date TEXT NOT NULL,
+                                    generated_at TEXT NOT NULL,
+                                    liability_total TEXT NOT NULL,
+                                    asset_total TEXT NOT NULL,
+                                    difference TEXT NOT NULL,
+                                    balance_tolerance TEXT NOT NULL,
+                                    status TEXT NOT NULL,
+                                    warning_summary TEXT,
+                                    error_summary TEXT
+                                );", null, transaction);
+
+                            conn.Execute("CREATE INDEX IF NOT EXISTS ix_balance_sheet_runs_company_id_generated_at ON balance_sheet_runs(company_id, generated_at DESC);", null, transaction);
+
+                            conn.Execute("PRAGMA user_version = 5;", null, transaction);
+                        }
+
                         conn.Execute("UPDATE company_profiles SET status = 'idle' WHERE LOWER(TRIM(status)) = 'ok';", null, transaction);
 
                         transaction.Commit();

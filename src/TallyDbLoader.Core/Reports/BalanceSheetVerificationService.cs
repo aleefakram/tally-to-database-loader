@@ -22,17 +22,36 @@ namespace TallyDbLoader.Core.Reports
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
 
+            // Validate date range early
+            if (request.AsAtDate < request.FinancialYearStart)
+            {
+                var comp = _repo.GetCompanyProfileById(request.CompanyProfileId);
+                var report = Failed(request, comp?.Name ?? string.Empty, "As At Date cannot be before Financial Year Start.");
+                string targetId = "unknown:unknown:unknown:unknown";
+                if (comp != null)
+                {
+                    var dbProfile = comp.Db ?? _repo.GetDatabaseProfileById(comp.DbProfileId);
+                    string tech = dbProfile?.Technology ?? "unknown";
+                    string cat = comp.TargetCatalog ?? "unknown";
+                    targetId = $"{tech}:{cat}:{comp.Schema}:{comp.TablePrefix}";
+                }
+                _repo.AddBalanceSheetVerificationRun(ToHistory(report, targetId, comp != null));
+                return report;
+            }
+
             var company = _repo.GetCompanyProfileById(request.CompanyProfileId);
             if (company == null)
             {
-                return Failed(request, string.Empty, $"Sync Job with ID {request.CompanyProfileId} was not found.");
+                var report = Failed(request, string.Empty, $"Sync Job with ID {request.CompanyProfileId} was not found.");
+                _repo.AddBalanceSheetVerificationRun(ToHistory(report, "unknown:unknown:unknown:unknown", false));
+                return report;
             }
 
             var db = company.Db ?? _repo.GetDatabaseProfileById(company.DbProfileId);
             if (db == null)
             {
                 var report = Failed(request, company.Name, $"Database Profile with ID {company.DbProfileId} was not found.");
-                _repo.AddBalanceSheetVerificationRun(ToHistory(report, $"unknown:unknown:{company.Schema}:{company.TablePrefix}"));
+                _repo.AddBalanceSheetVerificationRun(ToHistory(report, $"unknown:unknown:{company.Schema}:{company.TablePrefix}", true));
                 return report;
             }
 
@@ -48,13 +67,13 @@ namespace TallyDbLoader.Core.Reports
                 var report = BalanceSheetCalculator.Calculate(company.Name, raw, request);
                 report.GeneratedAt = DateTime.UtcNow;
 
-                _repo.AddBalanceSheetVerificationRun(ToHistory(report, targetIdentity));
+                _repo.AddBalanceSheetVerificationRun(ToHistory(report, targetIdentity, true));
                 return report;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 var report = Failed(request, company.Name, ex.Message);
-                _repo.AddBalanceSheetVerificationRun(ToHistory(report, targetIdentity));
+                _repo.AddBalanceSheetVerificationRun(ToHistory(report, targetIdentity, true));
                 return report;
             }
         }
@@ -74,11 +93,11 @@ namespace TallyDbLoader.Core.Reports
             };
         }
 
-        private static BalanceSheetVerificationRun ToHistory(BalanceSheetReport report, string targetIdentity)
+        private static BalanceSheetVerificationRun ToHistory(BalanceSheetReport report, string targetIdentity, bool companyExists)
         {
             return new BalanceSheetVerificationRun
             {
-                CompanyProfileId = report.CompanyProfileId,
+                CompanyProfileId = companyExists ? report.CompanyProfileId : (int?)null,
                 TargetIdentity = targetIdentity,
                 FinancialYearStart = report.FinancialYearStart,
                 AsAtDate = report.AsAtDate,

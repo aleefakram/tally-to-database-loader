@@ -1443,7 +1443,7 @@ namespace TallyDbLoader.Core.Data
                     runs.Add(new BalanceSheetVerificationRun
                     {
                         Id = (long)row.id,
-                        CompanyProfileId = (int)row.CompanyProfileId,
+                        CompanyProfileId = row.CompanyProfileId == null ? (int?)null : (int)row.CompanyProfileId,
                         TargetIdentity = (string)row.TargetIdentity,
                         FinancialYearStart = DateTime.Parse((string)row.FinancialYearStart),
                         AsAtDate = DateTime.Parse((string)row.AsAtDate),

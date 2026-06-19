@@ -20,4 +20,5 @@ adls-config.json
 [Oo]bj/
 *.user
 *.suo
-config.db
+config.db
+*_wpftmp.csproj

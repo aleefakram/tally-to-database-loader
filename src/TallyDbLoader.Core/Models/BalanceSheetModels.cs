@@ -111,7 +111,7 @@ namespace TallyDbLoader.Core.Models
     public class BalanceSheetVerificationRun
     {
         public long Id { get; set; }
-        public int CompanyProfileId { get; set; }
+        public int? CompanyProfileId { get; set; }
         public string TargetIdentity { get; set; } = string.Empty;
         public DateTime FinancialYearStart { get; set; }
         public DateTime AsAtDate { get; set; }

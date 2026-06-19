@@ -256,6 +256,47 @@ namespace TallyDbLoader.Core.Data
                             conn.Execute("PRAGMA user_version = 5;", null, transaction);
                         }
 
+                        if (version < 6)
+                        {
+                            conn.Execute(@"
+                                CREATE TABLE IF NOT EXISTS balance_sheet_runs_new (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    company_id INTEGER REFERENCES company_profiles(id) ON DELETE SET NULL,
+                                    target_identity TEXT NOT NULL,
+                                    financial_year_start TEXT NOT NULL,
+                                    as_at_date TEXT NOT NULL,
+                                    generated_at TEXT NOT NULL,
+                                    liability_total TEXT NOT NULL,
+                                    asset_total TEXT NOT NULL,
+                                    difference TEXT NOT NULL,
+                                    balance_tolerance TEXT NOT NULL,
+                                    status TEXT NOT NULL,
+                                    warning_summary TEXT,
+                                    error_summary TEXT
+                                );", null, transaction);
+
+                            var tableExists = conn.ExecuteScalar<int>(
+                                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='balance_sheet_runs';",
+                                null, transaction);
+                            if (tableExists > 0)
+                            {
+                                conn.Execute(@"
+                                    INSERT INTO balance_sheet_runs_new (
+                                        id, company_id, target_identity, financial_year_start, as_at_date, generated_at,
+                                        liability_total, asset_total, difference, balance_tolerance, status, warning_summary, error_summary
+                                    ) SELECT 
+                                        id, company_id, target_identity, financial_year_start, as_at_date, generated_at,
+                                        liability_total, asset_total, difference, balance_tolerance, status, warning_summary, error_summary
+                                    FROM balance_sheet_runs;", null, transaction);
+
+                                conn.Execute("DROP TABLE balance_sheet_runs;", null, transaction);
+                            }
+
+                            conn.Execute("ALTER TABLE balance_sheet_runs_new RENAME TO balance_sheet_runs;", null, transaction);
+                            conn.Execute("CREATE INDEX IF NOT EXISTS ix_balance_sheet_runs_company_id_generated_at ON balance_sheet_runs(company_id, generated_at DESC);", null, transaction);
+                            conn.Execute("PRAGMA user_version = 6;", null, transaction);
+                        }
+
                         conn.Execute("UPDATE company_profiles SET status = 'idle' WHERE LOWER(TRIM(status)) = 'ok';", null, transaction);
 
                         transaction.Commit();

@@ -55,13 +55,14 @@ namespace TallyDbLoader.Core.Reports
                 return report;
             }
 
-            string provider = GetProviderName(db.Technology);
-            var names = BalanceSheetTableNames.Create(company.Schema, company.TablePrefix, provider);
-            var adapter = CreateAdapter(db.Technology);
             var targetIdentity = $"{db.Technology}:{company.TargetCatalog}:{company.Schema}:{company.TablePrefix}";
 
             try
             {
+                string provider = GetProviderName(db.Technology);
+                var names = BalanceSheetTableNames.Create(company.Schema, company.TablePrefix, provider);
+                var adapter = CreateAdapter(db.Technology);
+
                 await using var conn = await DatabaseWriter.GetConnectionAsync(db, company.TargetCatalog, cancellationToken);
                 var raw = await adapter.QueryAsync(conn, names, request, cancellationToken);
                 var report = BalanceSheetCalculator.Calculate(company.Name, raw, request);

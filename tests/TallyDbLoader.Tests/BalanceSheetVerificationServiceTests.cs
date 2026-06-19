@@ -199,6 +199,123 @@ namespace TallyDbLoader.Tests
             }
         }
 
+        [Fact]
+        public async Task GenerateAsync_InvalidSchemaOrTablePrefix_ReturnsFailedAndLogsHistory()
+        {
+            string configPath = Path.Combine(Path.GetTempPath(), $"bs_config_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(configPath);
+                var repo = new ConfigRepository(configPath);
+                repo.SaveDatabaseProfile(new DatabaseProfile { Name = "SQLite Target", Technology = "sqlite" });
+                var db = repo.GetDatabaseProfileByName("SQLite Target");
+                repo.SaveCompanyProfile(new CompanyProfile
+                {
+                    Name = "Demo Co",
+                    DbProfileId = db!.Id,
+                    TargetCatalog = "dummy",
+                    Schema = "main",
+                    TablePrefix = "123-invalid-prefix",
+                    BooksFrom = new DateTime(2025, 4, 1),
+                    BooksTo = new DateTime(2025, 6, 5),
+                    Status = "idle"
+                });
+                var company = repo.GetAllCompanyProfiles()[0];
+
+                var service = new BalanceSheetVerificationService(repo);
+                var report = await service.GenerateAsync(new BalanceSheetVerificationRequest
+                {
+                    CompanyProfileId = company.Id,
+                    FinancialYearStart = new DateTime(2025, 4, 1),
+                    AsAtDate = new DateTime(2025, 6, 5)
+                }, CancellationToken.None);
+
+                Assert.Equal("failed", report.Status);
+                Assert.Contains("invalid", report.ErrorSummary);
+                Assert.Single(repo.GetRecentBalanceSheetVerificationRuns(10));
+            }
+            finally
+            {
+                SqliteConnection.ClearAllPools();
+                if (File.Exists(configPath)) try { File.Delete(configPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public void InitializeDatabase_UpgradesV5ToV6AndPreservesData()
+        {
+            string dbPath = Path.Combine(Path.GetTempPath(), $"bs_migration_{Guid.NewGuid()}.db");
+            try
+            {
+                using (var conn = new SqliteConnection($"Data Source={dbPath}"))
+                {
+                    conn.Open();
+                    conn.Execute("CREATE TABLE database_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, technology TEXT);");
+                    conn.Execute("CREATE TABLE company_profiles (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, db_profile_id INTEGER, status TEXT);");
+                    conn.Execute(@"
+                        CREATE TABLE balance_sheet_runs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            company_id INTEGER NOT NULL REFERENCES company_profiles(id) ON DELETE CASCADE,
+                            target_identity TEXT NOT NULL,
+                            financial_year_start TEXT NOT NULL,
+                            as_at_date TEXT NOT NULL,
+                            generated_at TEXT NOT NULL,
+                            liability_total TEXT NOT NULL,
+                            asset_total TEXT NOT NULL,
+                            difference TEXT NOT NULL,
+                            balance_tolerance TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            warning_summary TEXT,
+                            error_summary TEXT
+                        );");
+
+                    conn.Execute("INSERT INTO company_profiles (id, name, db_profile_id, status) VALUES (1, 'Test Co', 1, 'idle');");
+                    conn.Execute(@"
+                        INSERT INTO balance_sheet_runs (
+                            id, company_id, target_identity, financial_year_start, as_at_date, generated_at,
+                            liability_total, asset_total, difference, balance_tolerance, status, warning_summary, error_summary
+                        ) VALUES (
+                            101, 1, 'sqlite:dummy:main:', '2025-04-01T00:00:00.0000000', '2025-06-05T00:00:00.0000000', '2025-06-19T00:00:00.0000000',
+                            '1000.0000', '1000.0000', '0.0000', '0.0000', 'balanced', NULL, NULL
+                        );");
+
+                    conn.Execute("PRAGMA user_version = 5;");
+                }
+
+                DatabaseHelper.InitializeDatabase(dbPath);
+
+                using (var conn = new SqliteConnection($"Data Source={dbPath}"))
+                {
+                    conn.Open();
+                    var version = conn.ExecuteScalar<int>("PRAGMA user_version;");
+                    Assert.Equal(6, version);
+
+                    var count = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM balance_sheet_runs WHERE id = 101;");
+                    Assert.Equal(1, count);
+
+                    var companyId = conn.ExecuteScalar<int>("SELECT company_id FROM balance_sheet_runs WHERE id = 101;");
+                    Assert.Equal(1, companyId);
+
+                    conn.Execute(@"
+                        INSERT INTO balance_sheet_runs (
+                            company_id, target_identity, financial_year_start, as_at_date, generated_at,
+                            liability_total, asset_total, difference, balance_tolerance, status, warning_summary, error_summary
+                        ) VALUES (
+                            NULL, 'unknown:unknown:unknown:unknown', '2025-04-01T00:00:00.0000000', '2025-06-05T00:00:00.0000000', '2025-06-19T00:00:00.0000000',
+                            '0.0000', '0.0000', '0.0000', '0.0000', 'failed', NULL, 'Sync Job not found.'
+                        );");
+
+                    var nullCount = conn.ExecuteScalar<int>("SELECT COUNT(*) FROM balance_sheet_runs WHERE company_id IS NULL;");
+                    Assert.Equal(1, nullCount);
+                }
+            }
+            finally
+            {
+                SqliteConnection.ClearAllPools();
+                if (File.Exists(dbPath)) try { File.Delete(dbPath); } catch { }
+            }
+        }
+
         private static void SeedTarget(string path)
         {
             using var conn = new SqliteConnection($"Data Source={path}");

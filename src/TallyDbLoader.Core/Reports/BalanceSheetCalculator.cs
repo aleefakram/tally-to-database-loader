@@ -49,32 +49,10 @@ namespace TallyDbLoader.Core.Reports
 
             foreach (var ledger in raw.Ledgers)
             {
-                if (string.IsNullOrWhiteSpace(ledger.PrimaryGroup))
+                if (ledger.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (ledger.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        ledger.PrimaryGroup = request.Options.ProfitAndLossLedgerName;
-                        continue;
-                    }
-
-                    bool hasCycle = false;
-                    string resolvedPrimaryGroup = ResolvePrimaryGroup(
-                        ledger.ParentGroupName,
-                        groupMap,
-                        new HashSet<string>(StringComparer.OrdinalIgnoreCase),
-                        ref hasCycle);
-
-                    if (hasCycle)
-                    {
-                        return Fail(report, $"Circular group hierarchy detected while resolving '{ledger.ParentGroupName}'.");
-                    }
-
-                    if (string.IsNullOrWhiteSpace(resolvedPrimaryGroup))
-                    {
-                        return Fail(report, $"Unable to resolve primary group for ledger '{ledger.LedgerName}' with parent group '{ledger.ParentGroupName}'.");
-                    }
-
-                    ledger.PrimaryGroup = resolvedPrimaryGroup;
+                    ledger.PrimaryGroup = request.Options.ProfitAndLossLedgerName;
+                    continue;
                 }
 
                 if (!ledger.IsRevenue)
@@ -83,6 +61,32 @@ namespace TallyDbLoader.Core.Reports
                         ledger.ParentGroupName,
                         groupMap,
                         new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                }
+
+                if (!ledger.IsRevenue)
+                {
+                    if (string.IsNullOrWhiteSpace(ledger.PrimaryGroup) ||
+                        (!LiabilityGroups.Contains(ledger.PrimaryGroup) && !AssetGroups.Contains(ledger.PrimaryGroup)))
+                    {
+                        bool hasCycle = false;
+                        string resolvedPrimaryGroup = ResolvePrimaryGroup(
+                            ledger.ParentGroupName,
+                            groupMap,
+                            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                            ref hasCycle);
+
+                        if (hasCycle)
+                        {
+                            return Fail(report, $"Circular group hierarchy detected while resolving '{ledger.ParentGroupName}'.");
+                        }
+
+                        if (string.IsNullOrWhiteSpace(resolvedPrimaryGroup))
+                        {
+                            return Fail(report, $"Unable to resolve primary group for ledger '{ledger.LedgerName}' with parent group '{ledger.ParentGroupName}'.");
+                        }
+
+                        ledger.PrimaryGroup = resolvedPrimaryGroup;
+                    }
                 }
             }
 
@@ -207,8 +211,28 @@ namespace TallyDbLoader.Core.Reports
                 hasCycle = true;
                 return string.Empty;
             }
-            if (!groupMap.TryGetValue(groupName, out var group)) return string.Empty;
-            if (!string.IsNullOrWhiteSpace(group.PrimaryGroup)) return group.PrimaryGroup.Trim();
+
+            if (LiabilityGroups.Contains(groupName) || AssetGroups.Contains(groupName))
+            {
+                return groupName;
+            }
+
+            if (!groupMap.TryGetValue(groupName, out var group))
+            {
+                return groupName;
+            }
+
+            if (!string.IsNullOrWhiteSpace(group.PrimaryGroup) &&
+                (LiabilityGroups.Contains(group.PrimaryGroup) || AssetGroups.Contains(group.PrimaryGroup)))
+            {
+                return group.PrimaryGroup.Trim();
+            }
+
+            if (string.IsNullOrWhiteSpace(group.ParentName))
+            {
+                return group.Name;
+            }
+
             return ResolvePrimaryGroup(group.ParentName, groupMap, visited, ref hasCycle);
         }
 

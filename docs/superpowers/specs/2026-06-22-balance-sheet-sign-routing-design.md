@@ -15,11 +15,17 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
 ## Proposed Changes
 
 ### 1. `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs`
-- Compute `totalOpening` by summing the opening balances of all ledgers. For the `"Stock-in-hand"` group, check if `HasOpeningStockValue` is true and use `-OpeningStockValue`, otherwise fall back to `OpeningBalance`.
-- Update the loop over the non-revenue, non-P&L grouped ledgers to route them dynamically to `LiabilitySide.Lines` (if the signed balance is positive) or `AssetSide.Lines` (if the signed balance is negative).
-- Inject the `"Difference in opening balances"` line:
-  - If `totalOpening > 0`, add to `AssetSide.Lines` with `Amount = totalOpening`.
-  - If `totalOpening < 0`, add to `LiabilitySide.Lines` with `Amount = -totalOpening`.
+- **Opening Balance Difference Computation**:
+  Compute `totalOpening` by summing the opening balances of all processed ledgers. For the `"Stock-in-hand"` group, check if `HasOpeningStockValue` is true and use `OpeningStockValue` (since it is already normalized to a signed negative/debit value by the query adapter, do not negate it). Otherwise, use `OpeningBalance`.
+  - **Inclusion Rules**: Include the reserved P&L ledger, revenue ledgers, and all recognized group ledgers.
+  - **Exclusion Rules**: Exclude any ledgers whose primary groups fail to resolve or are unrecognized (unrecognized groups are excluded from the report).
+- **Group Recognition & Routing**:
+  Verify that the group is recognized by checking `LiabilityGroups.Contains(group.Key)` or `AssetGroups.Contains(group.Key)`.
+  - If unrecognized, log a warning/fail as before.
+  - If recognized, route to `LiabilitySide.Lines` if `signedBalance > 0` (Credit) or `AssetSide.Lines` if `signedBalance < 0` (Debit).
+- **Inject the `"Difference in opening balances"` Line**:
+  - If `totalOpening > 0` (Credit surplus), add to `AssetSide.Lines` with `Amount = totalOpening` and `Name = "Difference in opening balances"`.
+  - If `totalOpening < 0` (Debit surplus), add to `LiabilitySide.Lines` with `Amount = -totalOpening` and `Name = "Difference in opening balances"`.
 
 ### 2. `tests/TallyDbLoader.Tests/BalanceSheetCalculatorTests.cs`
 - Add unit tests validating:
@@ -27,6 +33,31 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   - Inverted/credit asset group routing.
   - Correct computation and routing of the opening balance difference on both sides.
 
+### 3. `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs`
+- Add integration test covering the database query and calculation pipeline:
+  - Seeds a company with a debit-balanced liability, an opening stock value, and a trial balance difference.
+  - Runs `BalanceSheetVerificationService.VerifyAsync` and asserts the generated report contains the expected `"Difference in opening balances"` and dynamic routing.
+
 ## Verification Plan
-1. Run `dotnet test` to verify the new dynamic routing logic and test suite correctness.
-2. Re-run verification in the WPF app UI to ensure the balance sheet of the new company balances perfectly (Difference = 0.00).
+
+### 1. Automated Verification
+Run the dotnet test suite:
+```powershell
+dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore
+```
+
+### 2. Manual Verification in WPF UI
+Run the WPF application and run the verification for the new company. Verify the report matches these expected values exactly:
+
+| Report Section / Group | Expected Side | Expected Amount |
+| :--- | :--- | :--- |
+| **Capital Account** | Liabilities | `1,00,000.00` |
+| **Profit & Loss A/c (Net)** | Liabilities | `1,61,56,220.53` |
+| **Current Liabilities** | Assets | `9,10,983.13` |
+| **Fixed Assets** | Assets | `69,070.00` |
+| **Current Assets** | Assets | `45,92,779.85` |
+| **Branch / Divisions** | Assets | `23,16,595.49` |
+| **Suspense A/c** | Assets | `81,71,402.06` |
+| **Difference in opening balances** | Assets | `1,95,390.00` |
+| **Total Assets / Liabilities** | Both Sides | `1,62,56,220.53` |
+| **Difference** | balanced / 0.00 | `0.00` |

@@ -15,31 +15,46 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
 ## Proposed Changes
 
 ### 1. `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs`
+- **Resolution and Validation Step**:
+  Keep the existing ledger loop that resolves `PrimaryGroup` and `IsRevenue` for all ledgers.
 - **Opening Balance Difference Computation**:
-  Compute `totalOpening` directly from `raw.Ledgers` as the very first step in the `Calculate` method (before any filtering or grouping of ledgers).
-  - For the `"Stock-in-hand"` group, check if `HasOpeningStockValue` is true and use `OpeningStockValue` directly (since it is already returned as a normalized negative/debit value by the query adapter, do not negate it). Otherwise, use `OpeningBalance`.
-  - For all other ledgers, use `OpeningBalance`.
-  - **Inclusion Rules**: Include the reserved P&L ledger, revenue ledgers, and recognized group ledgers.
-  - **Exclusion Rules**: Exclude any ledgers whose primary groups fail to resolve or are unrecognized (which will cause a validation failure anyway).
+  Compute `totalOpening` immediately after the ledger resolution loop has completed (so that `PrimaryGroup` is fully populated for all ledgers).
+  - Calculate `totalOpening` using the **Tally report-period opening basis** (i.e. using `OpeningStockValue` directly without negation for `Stock-in-hand` if `HasOpeningStockValue` is true; otherwise `OpeningBalance`).
+  - **Inclusion Rules**: Include the reserved P&L ledger, revenue ledgers, and all recognized group ledgers.
+  - **Exclusion Rules**: Exclude any ledgers whose primary groups fail to resolve or are unrecognized (which will fail the report anyway).
 - **Group Recognition & Routing**:
   For each non-revenue group:
-  - First verify that the group is recognized by checking `LiabilityGroups.Contains(group.Key)` or `AssetGroups.Contains(group.Key)`. If the group is unrecognized, the report status must be set to `"failed"` and a warning added.
+  - First verify that the group is recognized by checking `LiabilityGroups.Contains(group.Key)` or `AssetGroups.Contains(group.Key)`. If unrecognized, call `Fail(report, $"Unrecognized primary group '{group.Key}' was detected.")` to fail the report verification and populate `ErrorSummary`.
   - If recognized, calculate `signedBalance`.
   - Route to `LiabilitySide.Lines` if `signedBalance > 0` (Credit) or `AssetSide.Lines` if `signedBalance < 0` (Debit).
 - **Inject the `"Difference in opening balances"` Line**:
   - If `totalOpening > 0` (Credit surplus), add to `AssetSide.Lines` with `Amount = totalOpening` and `Name = "Difference in opening balances"`.
   - If `totalOpening < 0` (Debit surplus), add to `LiabilitySide.Lines` with `Amount = -totalOpening` and `Name = "Difference in opening balances"`.
-- **Deterministic Group Ordering**:
-  Sort the final report lines on each side deterministically using these predefined ordering lists, with `"Difference in opening balances"` always placed at the end:
-  - **Liabilities Order**: `"Capital Account"`, `"Loans (Liability)"`, `"Current Liabilities"`, `"Profit & Loss A/c"`, `"Difference in opening balances"`
-  - **Assets Order**: `"Fixed Assets"`, `"Investments"`, `"Current Assets"`, `"Branch / Divisions"`, `"Misc. Expenses (ASSET)"`, `"Suspense A/c"`, `"Profit & Loss A/c"`, `"Difference in opening balances"`
+- **Deterministic Unified Sorting**:
+  Sort the final report lines on both sides using a single, unified group display order, with `"Difference in opening balances"` placed at the end:
+  ```csharp
+  var unifiedOrder = new List<string>
+  {
+      "Capital Account",
+      "Loans (Liability)",
+      "Current Liabilities",
+      "Fixed Assets",
+      "Investments",
+      "Current Assets",
+      "Branch / Divisions",
+      "Misc. Expenses (ASSET)",
+      "Suspense A/c",
+      request.Options.ProfitAndLossLedgerName,
+      "Difference in opening balances"
+  };
+  ```
 
 ### 2. `tests/TallyDbLoader.Tests/BalanceSheetCalculatorTests.cs`
 - Add unit tests validating:
-  - Inverted/debit liability group routing.
-  - Inverted/credit asset group routing.
-  - Correct computation and routing of the opening balance difference on both sides.
-  - Unrecognized group validation failure behavior.
+  - Unrecognized group validation failure (asserting `Status == "failed"` and `ErrorSummary` is populated).
+  - Debit-balanced liabilities correctly routed to Assets side.
+  - Difference in opening balances computed and routed correctly on both sides.
+  - Deterministic sorting order of report lines on both sides when dynamic routing occurs.
 
 ### 3. `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs`
 - Add integration test covering the database query and calculation pipeline:

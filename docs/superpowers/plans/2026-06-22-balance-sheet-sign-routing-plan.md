@@ -4,7 +4,7 @@
 
 **Goal:** Correct the WPF app's Balance Sheet display by implementing sign-based group routing and computing the report-period opening balance difference, achieving perfect parity with Tally.
 
-**Architecture:** Calculate the opening balance difference at the start of the report calculation, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail on unrecognized groups, and sort the sides deterministically.
+**Architecture:** Calculate the opening balance difference on report-period opening basis after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail with `ErrorSummary` on unrecognized groups, and sort both sides deterministically using a unified order.
 
 **Tech Stack:** C# 10, .NET 6, xUnit, SQLite, Dapper
 
@@ -13,14 +13,16 @@
 ### Task 1: Update BalanceSheetCalculator Logic
 
 **Files:**
-- Modify: `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs:100-200`
+- Modify: `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs`
 
 - [ ] **Step 1: Compute totalOpening and dynamic routing**
-  Replace lines 135 to 190 in `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs` with the updated sign-based routing, validation failure on unrecognized groups, and deterministic line sorting.
+  In `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs`, keep the ledger resolving loop (lines 50-91). Compute `totalOpening` immediately after the loop, perform group validation, dynamic routing, and unified sorting.
 
   Code changes:
   ```csharp
-              // 1. Calculate report-period opening balance difference
+              // ... Existing loop for ledger group resolution (lines 50-91) ...
+
+              // 1. Calculate report-period opening balance difference (Tally report-period opening basis)
               decimal totalOpening = raw.Ledgers.Sum(l =>
               {
                   bool hasCycle = false;
@@ -41,6 +43,8 @@
                   }
                   return l.OpeningBalance;
               });
+
+              // ... Existing P&L and Stock calculation block (lines 93-134) ...
 
               var grouped = raw.Ledgers
                   .Where(l => !l.IsRevenue)
@@ -124,14 +128,26 @@
                   });
               }
 
-              // Sort lines deterministically
-              var liabilityOrder = new List<string> { "Capital Account", "Loans (Liability)", "Current Liabilities", request.Options.ProfitAndLossLedgerName, "Difference in opening balances" };
-              var assetOrder = new List<string> { "Fixed Assets", "Investments", "Current Assets", "Branch / Divisions", "Misc. Expenses (ASSET)", "Suspense A/c", request.Options.ProfitAndLossLedgerName, "Difference in opening balances" };
+              // Unified primary group display order for sorting
+              var unifiedOrder = new List<string>
+              {
+                  "Capital Account",
+                  "Loans (Liability)",
+                  "Current Liabilities",
+                  "Fixed Assets",
+                  "Investments",
+                  "Current Assets",
+                  "Branch / Divisions",
+                  "Misc. Expenses (ASSET)",
+                  "Suspense A/c",
+                  request.Options.ProfitAndLossLedgerName,
+                  "Difference in opening balances"
+              };
 
               report.LiabilitySide.Lines = report.LiabilitySide.Lines
                   .OrderBy(l =>
                   {
-                      int index = liabilityOrder.FindIndex(x => x.Equals(l.Name, StringComparison.OrdinalIgnoreCase));
+                      int index = unifiedOrder.FindIndex(x => x.Equals(l.Name, StringComparison.OrdinalIgnoreCase));
                       return index >= 0 ? index : int.MaxValue;
                   })
                   .ToList();
@@ -139,7 +155,7 @@
               report.AssetSide.Lines = report.AssetSide.Lines
                   .OrderBy(l =>
                   {
-                      int index = assetOrder.FindIndex(x => x.Equals(l.Name, StringComparison.OrdinalIgnoreCase));
+                      int index = unifiedOrder.FindIndex(x => x.Equals(l.Name, StringComparison.OrdinalIgnoreCase));
                       return index >= 0 ? index : int.MaxValue;
                   })
                   .ToList();
@@ -158,14 +174,15 @@
 
 - [ ] **Step 1: Implement test cases in `BalanceSheetCalculatorTests.cs`**
   Add unit tests validating:
-  1. Unrecognized group validation failure.
+  1. Unrecognized group validation failure with `ErrorSummary`.
   2. Debit-balanced liabilities correctly routed to Assets side.
   3. Difference in opening balances computed and routed correctly on both sides.
+  4. Unified display sorting matches the `unifiedOrder` list on both sides.
 
   Code changes:
   ```csharp
           [Fact]
-          public void Calculate_UnrecognizedGroup_FailsVerification()
+          public void Calculate_UnrecognizedGroup_FailsVerificationAndPopulatesErrorSummary()
           {
               var request = new BalanceSheetVerificationRequest
               {
@@ -192,6 +209,7 @@
               var report = BalanceSheetCalculator.Calculate("Test Company", raw, request);
 
               Assert.Equal("failed", report.Status);
+              Assert.NotNull(report.ErrorSummary);
               Assert.Contains("Unrecognized primary group", report.ErrorSummary);
           }
 
@@ -262,6 +280,37 @@
               Assert.NotNull(diffAssetLine);
               Assert.Equal(1000m, diffAssetLine.Amount);
           }
+
+          [Fact]
+          public void Calculate_UnifiedOrdering_SortsDeterministically()
+          {
+              var request = new BalanceSheetVerificationRequest
+              {
+                  CompanyProfileId = 1,
+                  FinancialYearStart = new DateTime(2025, 4, 1),
+                  AsAtDate = new DateTime(2025, 6, 1)
+              };
+
+              var raw = new BalanceSheetRawData
+              {
+                  Groups = new List<BalanceSheetGroupRow>(),
+                  Ledgers = new List<BalanceSheetLedgerRow>
+                  {
+                      // Mix groups to test sorting
+                      new BalanceSheetLedgerRow { LedgerName = "Suspense", ParentGroupName = "Suspense A/c", PrimaryGroup = "Suspense A/c", OpeningBalance = -100m },
+                      new BalanceSheetLedgerRow { LedgerName = "Capital", ParentGroupName = "Capital Account", PrimaryGroup = "Capital Account", OpeningBalance = 200m },
+                      new BalanceSheetLedgerRow { LedgerName = "Asset", ParentGroupName = "Current Assets", PrimaryGroup = "Current Assets", OpeningBalance = -300m }
+                  }
+              };
+
+              var report = BalanceSheetCalculator.Calculate("Test Company", raw, request);
+
+              // Assets Side Order should be: Current Assets, then Suspense A/c, then Difference in opening balances
+              var assetNames = report.AssetSide.Lines.Select(l => l.Name).ToList();
+              Assert.Equal("Current Assets", assetNames[0]);
+              Assert.Equal("Suspense A/c", assetNames[1]);
+              Assert.Equal("Difference in opening balances", assetNames[2]);
+          }
   ```
 
 - [ ] **Step 2: Run tests to verify they pass**
@@ -277,7 +326,7 @@
 
 - [ ] **Step 1: Write integration tests**
   Add a service integration test to `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs` validating:
-  1. Query adapter correctly parses positive stock_value to signed negative OpeningStockValue.
+  1. Query adapter correctly parses raw positive `stock_value` from `trn_closingstock_ledger` to signed negative `OpeningStockValue`.
   2. Integration flow computes opening difference and routes inverted groups dynamically.
 
   Code changes:
@@ -293,7 +342,6 @@
               using (var connection = dbConnectionFactory.CreateConnection())
               {
                   connection.Open();
-                  // Seed tables: company_profiles, database_profiles, trn_closingstock_ledger, mst_ledger, trn_accounting, etc.
                   connection.Execute("CREATE TABLE IF NOT EXISTS company_profiles (id INTEGER PRIMARY KEY, name TEXT, db_profile_id INTEGER, is_active INTEGER);");
                   connection.Execute("CREATE TABLE IF NOT EXISTS database_profiles (id INTEGER PRIMARY KEY, name TEXT, technology TEXT, server TEXT, port INTEGER, username TEXT, password TEXT, last_test_result TEXT, last_tested_at TEXT);");
                   connection.Execute("CREATE TABLE IF NOT EXISTS mst_ledger (name TEXT PRIMARY KEY, parent TEXT, opening_balance REAL);");

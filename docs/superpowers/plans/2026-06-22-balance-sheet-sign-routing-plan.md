@@ -4,7 +4,7 @@
 
 **Goal:** Correct the WPF app's Balance Sheet display by implementing sign-based group routing and computing the report-period opening balance difference, achieving perfect parity with Tally.
 
-**Architecture:** Calculate the opening balance difference on report-period opening basis after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail with `ErrorSummary` on unrecognized groups, and sort both sides deterministically using a unified order.
+**Architecture:** Calculate the opening balance difference on Tally report-period opening basis (including `PrePeriodMovement`) after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail immediately with `ErrorSummary` on unrecognized groups, and sort both sides deterministically using a unified order.
 
 **Tech Stack:** C# 10, .NET 6, xUnit, SQLite, Dapper
 
@@ -39,9 +39,9 @@
 
                   if (NormalizeGroup(primaryGroup).Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase))
                   {
-                      return l.HasOpeningStockValue ? l.OpeningStockValue : l.OpeningBalance;
+                      return l.HasOpeningStockValue ? l.OpeningStockValue : l.OpeningBalance + l.PrePeriodMovement;
                   }
-                  return l.OpeningBalance;
+                  return l.OpeningBalance + l.PrePeriodMovement;
               });
 
               // ... Existing P&L and Stock calculation block (lines 93-134) ...
@@ -137,6 +137,7 @@
                   "Fixed Assets",
                   "Investments",
                   "Current Assets",
+                  "Stock-in-hand",
                   "Branch / Divisions",
                   "Misc. Expenses (ASSET)",
                   "Suspense A/c",
@@ -176,7 +177,7 @@
   Add unit tests validating:
   1. Unrecognized group validation failure with `ErrorSummary`.
   2. Debit-balanced liabilities correctly routed to Assets side.
-  3. Difference in opening balances computed and routed correctly on both sides.
+  3. Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly on both sides.
   4. Unified display sorting matches the `unifiedOrder` list on both sides.
 
   Code changes:
@@ -249,7 +250,7 @@
           }
 
           [Fact]
-          public void Calculate_OpeningBalanceDifference_InjectsCorrectSide()
+          public void Calculate_OpeningBalanceDifference_WithPrePeriod_InjectsCorrectSide()
           {
               var request = new BalanceSheetVerificationRequest
               {
@@ -258,7 +259,8 @@
                   AsAtDate = new DateTime(2025, 6, 1)
               };
 
-              // Trial balance difference of credit 1000m
+              // Trial balance difference with pre-period movements:
+              // Capital Ledger: Opening = 1000m, PrePeriod = 200m -> Total Opening credit = 1200m.
               var raw = new BalanceSheetRawData
               {
                   Groups = new List<BalanceSheetGroupRow>(),
@@ -269,7 +271,8 @@
                           LedgerName = "Capital Ledger",
                           ParentGroupName = "Capital Account",
                           PrimaryGroup = "Capital Account",
-                          OpeningBalance = 1000m // Credit
+                          OpeningBalance = 1000m,
+                          PrePeriodMovement = 200m
                       }
                   }
               };
@@ -278,7 +281,7 @@
 
               var diffAssetLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
               Assert.NotNull(diffAssetLine);
-              Assert.Equal(1000m, diffAssetLine.Amount);
+              Assert.Equal(1200m, diffAssetLine.Amount);
           }
 
           [Fact]
@@ -328,6 +331,7 @@
   Add a service integration test to `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs` validating:
   1. Query adapter correctly parses raw positive `stock_value` from `trn_closingstock_ledger` to signed negative `OpeningStockValue`.
   2. Integration flow computes opening difference and routes inverted groups dynamically.
+  3. Pre-period stock movement with a balancing counterparty results in `totalOpening == 0` (no difference line).
 
   Code changes:
   ```csharp
@@ -381,6 +385,62 @@
               var diffLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
               Assert.NotNull(diffLine);
               Assert.Equal(3000m, diffLine.Amount);
+          }
+
+          [Fact]
+          public async Task GenerateAsync_SeededDb_BalancedPrePeriodStock_NoOpeningDifference()
+          {
+              // Arrange
+              var (repo, dbConnectionFactory) = CreateTestRepositories();
+              var service = new BalanceSheetVerificationService(repo, dbConnectionFactory);
+
+              using (var connection = dbConnectionFactory.CreateConnection())
+              {
+                  connection.Open();
+                  connection.Execute("CREATE TABLE IF NOT EXISTS company_profiles (id INTEGER PRIMARY KEY, name TEXT, db_profile_id INTEGER, is_active INTEGER);");
+                  connection.Execute("CREATE TABLE IF NOT EXISTS database_profiles (id INTEGER PRIMARY KEY, name TEXT, technology TEXT, server TEXT, port INTEGER, username TEXT, password TEXT, last_test_result TEXT, last_tested_at TEXT);");
+                  connection.Execute("CREATE TABLE IF NOT EXISTS mst_ledger (name TEXT PRIMARY KEY, parent TEXT, opening_balance REAL);");
+                  connection.Execute("CREATE TABLE IF NOT EXISTS mst_group (name TEXT PRIMARY KEY, parent TEXT, primary_group TEXT, is_revenue INTEGER);");
+                  connection.Execute("CREATE TABLE IF NOT EXISTS trn_accounting (guid TEXT, ledger TEXT, amount REAL);");
+                  connection.Execute("CREATE TABLE IF NOT EXISTS trn_voucher (guid TEXT PRIMARY KEY, date TEXT, is_order_voucher INTEGER, is_inventory_voucher INTEGER);");
+                  connection.Execute("CREATE TABLE IF NOT EXISTS trn_closingstock_ledger (ledger TEXT, stock_date TEXT, stock_value REAL);");
+
+                  connection.Execute("INSERT INTO company_profiles (id, name, db_profile_id, is_active) VALUES (1, 'Test Company', 1, 1);");
+                  connection.Execute("INSERT INTO database_profiles (id, name, technology, server, port, username, password) VALUES (1, 'LocalDb', 'sqlite', '', 0, '', '');");
+
+                  connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Capital', '', 'Capital Account', 0);");
+                  connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Stock', '', 'Stock-in-hand', 0);");
+                  
+                  // Seed balanced opening state
+                  connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Equity', 'Capital', 5000.00);"); // Credit 5000
+                  connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Inventory', 'Stock', 0.00);");
+
+                  // Seed raw positive closing stock (Debit 2000)
+                  connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-04-30', 2000.00);");
+
+                  // Seed balancing pre-period transaction (Debit 3000 to Assets to balance the 5000 Credit)
+                  connection.Execute("CREATE TABLE IF NOT EXISTS mst_ledger_assets (name TEXT PRIMARY KEY, parent TEXT, opening_balance REAL);");
+                  connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Assets', '', 'Current Assets', 0);");
+                  connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Bank', 'Assets', -3000.00);"); // Debit 3000
+              }
+
+              var request = new BalanceSheetVerificationRequest
+              {
+                  CompanyProfileId = 1,
+                  FinancialYearStart = new DateTime(2025, 5, 1),
+                  AsAtDate = new DateTime(2025, 6, 1)
+              };
+
+              // Act
+              var report = await service.GenerateAsync(request, CancellationToken.None);
+
+              // Assert
+              Assert.NotNull(report);
+              Assert.Equal("balanced", report.Status);
+
+              // Total Opening: Credit 5000 (Equity) - Debit 2000 (Stock) - Debit 3000 (Bank) = 0. No difference line should exist.
+              var diffLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+              Assert.Null(diffLine);
           }
   ```
 

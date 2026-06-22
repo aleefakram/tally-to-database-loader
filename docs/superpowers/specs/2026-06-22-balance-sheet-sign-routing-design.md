@@ -18,13 +18,15 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
 - **Resolution and Validation Step**:
   Keep the existing ledger loop that resolves `PrimaryGroup` and `IsRevenue` for all ledgers.
 - **Opening Balance Difference Computation**:
-  Compute `totalOpening` immediately after the ledger resolution loop has completed (so that `PrimaryGroup` is fully populated for all ledgers).
-  - Calculate `totalOpening` using the **Tally report-period opening basis** (i.e. using `OpeningStockValue` directly without negation for `Stock-in-hand` if `HasOpeningStockValue` is true; otherwise `OpeningBalance`).
+  Compute `totalOpening` immediately after the ledger resolution loop has completed (so that `PrimaryGroup` is fully resolved for all ledgers).
+  - Calculate `totalOpening` using the **Tally report-period opening basis** (to match the P&L stock opening value at `FinancialYearStart`):
+    - For `"Stock-in-hand"` group ledgers: use `OpeningStockValue` directly without negation if `HasOpeningStockValue` is true; otherwise use `OpeningBalance + PrePeriodMovement`.
+    - For all other ledgers: use `OpeningBalance + PrePeriodMovement`.
   - **Inclusion Rules**: Include the reserved P&L ledger, revenue ledgers, and all recognized group ledgers.
-  - **Exclusion Rules**: Exclude any ledgers whose primary groups fail to resolve or are unrecognized (which will fail the report anyway).
+  - **Exclusion Rules**: Exclude any ledgers whose primary groups fail to resolve or are unrecognized (which will cause a validation failure anyway).
 - **Group Recognition & Routing**:
   For each non-revenue group:
-  - First verify that the group is recognized by checking `LiabilityGroups.Contains(group.Key)` or `AssetGroups.Contains(group.Key)`. If unrecognized, call `Fail(report, $"Unrecognized primary group '{group.Key}' was detected.")` to fail the report verification and populate `ErrorSummary`.
+  - First verify that the group is recognized by checking `LiabilityGroups.Contains(group.Key)` or `AssetGroups.Contains(group.Key)`. If unrecognized, call `Fail(report, $"Unrecognized primary group '{group.Key}' was detected.")` to set `Status = "failed"`, populate `ErrorSummary`, and **return immediately** without generating any further report lines or history totals.
   - If recognized, calculate `signedBalance`.
   - Route to `LiabilitySide.Lines` if `signedBalance > 0` (Credit) or `AssetSide.Lines` if `signedBalance < 0` (Debit).
 - **Inject the `"Difference in opening balances"` Line**:
@@ -41,6 +43,7 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
       "Fixed Assets",
       "Investments",
       "Current Assets",
+      "Stock-in-hand",
       "Branch / Divisions",
       "Misc. Expenses (ASSET)",
       "Suspense A/c",
@@ -53,13 +56,15 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
 - Add unit tests validating:
   - Unrecognized group validation failure (asserting `Status == "failed"` and `ErrorSummary` is populated).
   - Debit-balanced liabilities correctly routed to Assets side.
-  - Difference in opening balances computed and routed correctly on both sides.
+  - Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly on both sides.
   - Deterministic sorting order of report lines on both sides when dynamic routing occurs.
 
 ### 3. `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs`
-- Add integration test covering the database query and calculation pipeline:
-  - Seeds a company with a positive raw `stock_value` in the `trn_closingstock_ledger` table, and verifies the query adapter correctly normalizes it to a negative `OpeningStockValue`.
-  - Runs `BalanceSheetVerificationService.GenerateAsync` and asserts the generated report contains the expected `"Difference in opening balances"` and dynamic routing.
+- Add integration tests covering the database query and calculation pipeline:
+  - Proves that raw positive `stock_value` from `trn_closingstock_ledger` is correctly mapped to a negative `OpeningStockValue`.
+  - Proves that a balanced trial balance (with pre-period stock movements and a balancing counterparty movement) results in `totalOpening == 0` (no difference line).
+  - Proves that an unbalanced trial balance correctly computes and includes the `"Difference in opening balances"`.
+  - Uses `BalanceSheetVerificationService.GenerateAsync`.
 
 ## Verification Plan
 

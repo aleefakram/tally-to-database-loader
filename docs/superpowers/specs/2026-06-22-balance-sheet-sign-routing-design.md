@@ -18,7 +18,7 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
 - **Resolution and Validation Step**:
   Keep the existing ledger loop that resolves `PrimaryGroup` and `IsRevenue` for all ledgers.
 - **Fail Method Update**:
-  Modify `Fail` to clear both sides to prevent partial/invalid lines from being returned:
+  Modify `Fail` to clear both sides so failed history totals are zero:
   ```csharp
   private static BalanceSheetReport Fail(BalanceSheetReport report, string error)
   {
@@ -39,12 +39,12 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   Align `stockOpening` and `stockClosing` to use the signed DB basis:
   - `stockOpening = raw.Ledgers.Where(...).Sum(l => l.HasOpeningStockValue ? l.OpeningStockValue : l.OpeningBalance + l.PrePeriodMovement);`
   - `stockClosing = raw.Ledgers.Where(...).Sum(l => l.HasClosingStockValue ? l.ClosingStockValue : l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);`
-  Adjust P&L formulas to consume these signed (negative) values:
-  - `report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod + stockOpening;`
+  Adjust P&L formulas to consume these signed (negative) values correctly:
+  - `report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod - stockOpening;` (subtracting negative stockOpening adds its absolute value, increasing prior-period P&L by the closing stock of that period)
   - `report.ProfitAndLoss.CurrentPeriod = revenueCurrent - (stockClosing - stockOpening);`
 - **Group Recognition & Routing**:
   For each non-revenue group:
-  - First verify that the group is recognized by checking `LiabilityGroups.Contains(group.Key)` or `AssetGroups.Contains(group.Key)`. If unrecognized, call `Fail(report, ...)` to set `Status = "failed"`, populate `ErrorSummary`, clear lines, and **return immediately**.
+  - First verify that the group is recognized by checking `LiabilityGroups.Contains(group.Key)` or `AssetGroups.Contains(group.Key)`. If unrecognized, call `Fail(report, ...)` to set `Status = "failed"`, populate `ErrorSummary`, clear both sides so failed history totals are zero, and **return immediately**.
   - If recognized, calculate `signedBalance`. Do not negate `ClosingStockValue` in the sum:
     ```csharp
     decimal signedBalance = group.Sum(l =>
@@ -86,6 +86,7 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   - Debit-balanced liabilities correctly routed to Assets side.
   - Credit-balanced assets (e.g. Bank Overdraft) correctly routed to Liabilities side.
   - Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly on both sides.
+  - P&L stock formulas and sign alignment (validating correct opening balance and current period calculation with negative stock values).
   - Deterministic sorting order of report lines on both sides when dynamic routing occurs.
 
 ### 3. `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs`

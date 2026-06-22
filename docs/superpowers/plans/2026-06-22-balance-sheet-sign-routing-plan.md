@@ -4,7 +4,7 @@
 
 **Goal:** Correct the WPF app's Balance Sheet display by implementing sign-based group routing and computing the report-period opening balance difference, achieving perfect parity with Tally.
 
-**Architecture:** Calculate the opening balance difference on Tally report-period opening basis (including `PrePeriodMovement`) after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail immediately with `ErrorSummary` on unrecognized groups (clearing all lines), and sort both sides deterministically using a unified order.
+**Architecture:** Calculate the opening balance difference on Tally report-period opening basis (including `PrePeriodMovement`) after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail immediately with `ErrorSummary` on unrecognized groups (clearing all lines so failed history totals are zero), and sort both sides deterministically using a unified order.
 
 **Tech Stack:** C# 10, .NET 6, xUnit, SQLite, Dapper
 
@@ -73,7 +73,7 @@
                   : l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);
 
               // 3. Compute Profit & Loss Breakdown using consistent signs
-              report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod + stockOpening;
+              report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod - stockOpening;
               report.ProfitAndLoss.CurrentPeriod = revenueCurrent - (stockClosing - stockOpening);
               report.ProfitAndLoss.LessTransferred = pnlLessTransferred;
 
@@ -210,7 +210,8 @@
   2. Debit-balanced liabilities correctly routed to Assets side.
   3. Credit-balanced assets correctly routed to Liabilities side.
   4. Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly on both sides.
-  5. Unified display sorting matches the `unifiedOrder` list on both sides.
+  5. P&L stock formulas and sign alignment (validating correct opening balance and current period calculation with negative stock values).
+  6. Unified display sorting matches the `unifiedOrder` list on both sides.
 
   Code changes:
   ```csharp
@@ -351,6 +352,58 @@
               var diffAssetLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
               Assert.NotNull(diffAssetLine);
               Assert.Equal(1200m, diffAssetLine.Amount);
+          }
+
+          [Fact]
+          public void Calculate_PnLBreakdownWithStock_ComputesCorrectly()
+          {
+              var request = new BalanceSheetVerificationRequest
+              {
+                  CompanyProfileId = 1,
+                  FinancialYearStart = new DateTime(2025, 5, 1),
+                  AsAtDate = new DateTime(2025, 6, 1)
+              };
+
+              var raw = new BalanceSheetRawData
+              {
+                  Groups = new List<BalanceSheetGroupRow>(),
+                  Ledgers = new List<BalanceSheetLedgerRow>
+                  {
+                      new BalanceSheetLedgerRow
+                      {
+                          LedgerName = "Profit & Loss A/c",
+                          ParentGroupName = "",
+                          PrimaryGroup = "",
+                          OpeningBalance = 5000m // Credit
+                      },
+                      new BalanceSheetLedgerRow
+                      {
+                          LedgerName = "Inventory Ledger",
+                          ParentGroupName = "Stock-in-hand",
+                          PrimaryGroup = "Stock-in-hand",
+                          HasOpeningStockValue = true,
+                          OpeningStockValue = -2000m, // Debit (Opening Stock)
+                          HasClosingStockValue = true,
+                          ClosingStockValue = -3000m // Debit (Closing Stock)
+                      },
+                      new BalanceSheetLedgerRow
+                      {
+                          LedgerName = "Sales",
+                          ParentGroupName = "Sales Accounts",
+                          PrimaryGroup = "Sales Accounts",
+                          IsRevenue = true,
+                          CurrentPeriodMovement = 10000m // Credit (Revenue)
+                      }
+                  }
+              };
+
+              var report = BalanceSheetCalculator.Calculate("Test Company", raw, request);
+
+              // Opening P&L: 5000 (pnlOpening) - (-2000 stockOpening) = 7000 (credit)
+              Assert.Equal(7000m, report.ProfitAndLoss.OpeningBalance);
+
+              // Current P&L: 10000 (revenueCurrent) - (-3000 stockClosing - (-2000 stockOpening)) = 10000 - (-1000) = 11000 (credit)
+              Assert.Equal(11000m, report.ProfitAndLoss.CurrentPeriod);
           }
 
           [Fact]

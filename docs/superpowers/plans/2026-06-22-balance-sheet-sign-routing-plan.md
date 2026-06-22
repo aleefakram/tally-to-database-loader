@@ -4,7 +4,7 @@
 
 **Goal:** Correct the WPF app's Balance Sheet display by implementing sign-based group routing and computing the report-period opening balance difference, achieving perfect parity with Tally.
 
-**Architecture:** Calculate the opening balance difference on Tally report-period opening basis (including `PrePeriodMovement`) after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail immediately with `ErrorSummary` on unrecognized groups, and sort both sides deterministically using a unified order.
+**Architecture:** Calculate the opening balance difference on Tally report-period opening basis (including `PrePeriodMovement`) after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail immediately with `ErrorSummary` on unrecognized groups (clearing all lines), and sort both sides deterministically using a unified order.
 
 **Tech Stack:** C# 10, .NET 6, xUnit, SQLite, Dapper
 
@@ -15,8 +15,21 @@
 **Files:**
 - Modify: `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs`
 
-- [ ] **Step 1: Compute totalOpening and dynamic routing**
-  In `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs`, keep the ledger resolving loop (lines 50-91). Compute `totalOpening` immediately after the loop, perform group validation, dynamic routing, and unified sorting.
+- [ ] **Step 1: Update Fail method**
+  Update the private static `Fail` method in `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs` to clear lines on failure.
+  ```csharp
+          private static BalanceSheetReport Fail(BalanceSheetReport report, string error)
+          {
+              report.Status = "failed";
+              report.ErrorSummary = error;
+              report.LiabilitySide.Lines.Clear();
+              report.AssetSide.Lines.Clear();
+              return report;
+          }
+  ```
+
+- [ ] **Step 2: Update stock logic, dynamic routing, and sorting**
+  Update the rest of `Calculate` method in `src/TallyDbLoader.Core/Reports/BalanceSheetCalculator.cs` (from where totalOpening is calculated onwards).
 
   Code changes:
   ```csharp
@@ -44,7 +57,25 @@
                   return l.OpeningBalance + l.PrePeriodMovement;
               });
 
-              // ... Existing P&L and Stock calculation block (lines 93-134) ...
+              // 2. Compute stockOpening and stockClosing (signed DB basis)
+              decimal stockOpening = raw.Ledgers
+                  .Where(l => l.PrimaryGroup.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase))
+                  .Sum(l => l.HasOpeningStockValue
+                      ? l.OpeningStockValue
+                      : l.OpeningBalance + l.PrePeriodMovement);
+
+              var stockLedgers = raw.Ledgers
+                  .Where(l => l.PrimaryGroup.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase))
+                  .ToList();
+
+              decimal stockClosing = stockLedgers.Sum(l => l.HasClosingStockValue
+                  ? l.ClosingStockValue
+                  : l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);
+
+              // 3. Compute Profit & Loss Breakdown using consistent signs
+              report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod + stockOpening;
+              report.ProfitAndLoss.CurrentPeriod = revenueCurrent - (stockClosing - stockOpening);
+              report.ProfitAndLoss.LessTransferred = pnlLessTransferred;
 
               var grouped = raw.Ledgers
                   .Where(l => !l.IsRevenue)
@@ -65,7 +96,7 @@
                   {
                       if (NormalizeGroup(group.Key).Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase) && l.HasClosingStockValue)
                       {
-                          return -l.ClosingStockValue;
+                          return l.ClosingStockValue; // already negative/debit
                       }
                       return l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement;
                   });
@@ -162,7 +193,7 @@
                   .ToList();
   ```
 
-- [ ] **Step 2: Compile to verify syntax**
+- [ ] **Step 3: Compile to verify syntax**
   Run: `dotnet build src/TallyDbLoader.sln`
   Expected: Build succeeds with 0 errors.
 
@@ -175,10 +206,11 @@
 
 - [ ] **Step 1: Implement test cases in `BalanceSheetCalculatorTests.cs`**
   Add unit tests validating:
-  1. Unrecognized group validation failure with `ErrorSummary`.
+  1. Unrecognized group validation failure with `ErrorSummary` and cleared lines.
   2. Debit-balanced liabilities correctly routed to Assets side.
-  3. Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly on both sides.
-  4. Unified display sorting matches the `unifiedOrder` list on both sides.
+  3. Credit-balanced assets correctly routed to Liabilities side.
+  4. Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly on both sides.
+  5. Unified display sorting matches the `unifiedOrder` list on both sides.
 
   Code changes:
   ```csharp
@@ -212,6 +244,8 @@
               Assert.Equal("failed", report.Status);
               Assert.NotNull(report.ErrorSummary);
               Assert.Contains("Unrecognized primary group", report.ErrorSummary);
+              Assert.Empty(report.AssetSide.Lines);
+              Assert.Empty(report.LiabilitySide.Lines);
           }
 
           [Fact]
@@ -247,6 +281,41 @@
               Assert.NotNull(assetLine);
               Assert.Null(liabilityLine);
               Assert.Equal(5000m, assetLine.Amount);
+          }
+
+          [Fact]
+          public void Calculate_CreditBalancedAsset_RoutesToLiabilities()
+          {
+              var request = new BalanceSheetVerificationRequest
+              {
+                  CompanyProfileId = 1,
+                  FinancialYearStart = new DateTime(2025, 4, 1),
+                  AsAtDate = new DateTime(2025, 6, 1)
+              };
+
+              var raw = new BalanceSheetRawData
+              {
+                  Groups = new List<BalanceSheetGroupRow>(),
+                  Ledgers = new List<BalanceSheetLedgerRow>
+                  {
+                      new BalanceSheetLedgerRow
+                      {
+                          LedgerName = "Bank Overdraft",
+                          ParentGroupName = "Current Assets",
+                          PrimaryGroup = "Current Assets",
+                          OpeningBalance = 3000m // Credit (Liability-like)
+                      }
+                  }
+              };
+
+              var report = BalanceSheetCalculator.Calculate("Test Company", raw, request);
+
+              var assetLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Current Assets");
+              var liabilityLine = report.LiabilitySide.Lines.FirstOrDefault(l => l.Name == "Current Assets");
+
+              Assert.Null(assetLine);
+              Assert.NotNull(liabilityLine);
+              Assert.Equal(3000m, liabilityLine.Amount);
           }
 
           [Fact]
@@ -330,7 +399,7 @@
 - [ ] **Step 1: Write integration tests**
   Add a service integration test to `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs` validating:
   1. Query adapter correctly parses raw positive `stock_value` from `trn_closingstock_ledger` to signed negative `OpeningStockValue`.
-  2. Integration flow computes opening difference and routes inverted groups dynamically.
+  2. Integration flow computes opening difference and routes inverted groups dynamically (including stock routing to Assets).
   3. Pre-period stock movement with a balancing counterparty results in `totalOpening == 0` (no difference line).
 
   Code changes:
@@ -385,6 +454,19 @@
               var diffLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
               Assert.NotNull(diffLine);
               Assert.Equal(3000m, diffLine.Amount);
+
+              // Verify Stock-in-hand routes to Assets side (since it has positive closing stock of 2000m in C#, but in DB it's stored as debit negative)
+              // Wait, we need to seed closing stock at 2025-06-01 to see it in Closing
+              using (var connection = dbConnectionFactory.CreateConnection())
+              {
+                  connection.Open();
+                  connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-06-01', 2500.00);");
+              }
+              
+              report = await service.GenerateAsync(request, CancellationToken.None);
+              var stockLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Stock-in-hand");
+              Assert.NotNull(stockLine);
+              Assert.Equal(2500m, stockLine.Amount);
           }
 
           [Fact]
@@ -419,7 +501,6 @@
                   connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-04-30', 2000.00);");
 
                   // Seed balancing pre-period transaction (Debit 3000 to Assets to balance the 5000 Credit)
-                  connection.Execute("CREATE TABLE IF NOT EXISTS mst_ledger_assets (name TEXT PRIMARY KEY, parent TEXT, opening_balance REAL);");
                   connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Assets', '', 'Current Assets', 0);");
                   connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Bank', 'Assets', -3000.00);"); // Debit 3000
               }

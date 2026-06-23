@@ -199,6 +199,12 @@
                       return index >= 0 ? index : int.MaxValue;
                   })
                   .ToList();
+
+              report.Status = report.Difference <= request.Options.BalanceTolerance
+                  ? "balanced"
+                  : "out_of_balance";
+
+              return report;
   ```
 
 - [ ] **Step 3: Compile to verify syntax**
@@ -719,9 +725,11 @@
                   Assert.NotNull(report);
                   Assert.Equal("balanced", report.Status);
 
-                  // Total Opening = 0. No difference line should exist.
-                  var diffLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
-                  Assert.Null(diffLine);
+                  // Total Opening = 0. No difference line should exist on either Assets or Liabilities side.
+                  var diffLineAsset = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+                  var diffLineLiab = report.LiabilitySide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+                  Assert.Null(diffLineAsset);
+                  Assert.Null(diffLineLiab);
               }
               finally
               {

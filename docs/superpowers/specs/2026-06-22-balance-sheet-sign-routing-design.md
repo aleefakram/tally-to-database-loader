@@ -102,7 +102,7 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
 ### 3. `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs`
 - Add integration tests covering the database query and calculation pipeline (using temporary target and config database files):
   - Proves that raw positive `stock_value` from `trn_closingstock_ledger` is correctly mapped by the adapter to a negative `OpeningStockValue`.
-  - Proves that a balanced trial balance (with pre-period stock movements and a balancing counterparty movement) results in `totalOpening == 0` (no difference line).
+  - Proves that a balanced trial balance (with pre-period stock movements and a balancing counterparty movement) results in `totalOpening == 0` (asserting no difference line exists on both Assets and Liabilities sides).
   - Proves that an unbalanced trial balance correctly computes and includes the `"Difference in opening balances"`.
 
 ## Verification Plan

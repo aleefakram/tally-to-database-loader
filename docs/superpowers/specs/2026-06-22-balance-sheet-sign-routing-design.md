@@ -81,6 +81,8 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   ```
 
 ### 2. `tests/TallyDbLoader.Tests/BalanceSheetCalculatorTests.cs`
+- Modify existing calculator tests that use `ClosingStockValue` to supply negative values (matching the signed model boundary).
+- Update the tolerance test `Calculate_SmallDifferenceWithinTolerance_IsBalanced` to exercise tolerance through a current period movement mismatch, not an opening imbalance (since opening imbalances now get balanced by the injected difference line).
 - Add unit tests validating:
   - Unrecognized group validation failure (asserting `Status == "failed"`, `ErrorSummary` populated, and sides cleared).
   - Debit-balanced liabilities correctly routed to Assets side.
@@ -90,8 +92,8 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   - Deterministic sorting order of report lines on both sides when dynamic routing occurs.
 
 ### 3. `tests/TallyDbLoader.Tests/BalanceSheetVerificationServiceTests.cs`
-- Add integration tests covering the database query and calculation pipeline:
-  - Proves that raw positive `stock_value` from `trn_closingstock_ledger` is correctly mapped to a negative `OpeningStockValue`.
+- Add integration tests covering the database query and calculation pipeline (using temporary target and config database files):
+  - Proves that raw positive `stock_value` from `trn_closingstock_ledger` is correctly mapped by the adapter to a negative `OpeningStockValue`.
   - Proves that a balanced trial balance (with pre-period stock movements and a balancing counterparty movement) results in `totalOpening == 0` (no difference line).
   - Proves that an unbalanced trial balance correctly computes and includes the `"Difference in opening balances"`.
 

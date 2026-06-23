@@ -296,6 +296,13 @@ namespace TallyDbLoader.Tests
                         ParentGroupName = "Current Liabilities",
                         PrimaryGroup = "Current Liabilities",
                         OpeningBalance = -5000m // Debit (Asset-like)
+                    },
+                    new BalanceSheetLedgerRow
+                    {
+                        LedgerName = "Capital",
+                        ParentGroupName = "Capital Account",
+                        PrimaryGroup = "Capital Account",
+                        OpeningBalance = 5000m // Credit (Liability-like)
                     }
                 }
             };
@@ -308,6 +315,9 @@ namespace TallyDbLoader.Tests
             Assert.NotNull(assetLine);
             Assert.Null(liabilityLine);
             Assert.Equal(5000m, assetLine.Amount);
+            Assert.Equal("balanced", report.Status);
+            Assert.Equal(5000m, report.AssetTotal);
+            Assert.Equal(5000m, report.LiabilityTotal);
         }
 
         [Fact]
@@ -331,6 +341,13 @@ namespace TallyDbLoader.Tests
                         ParentGroupName = "Current Assets",
                         PrimaryGroup = "Current Assets",
                         OpeningBalance = 3000m // Credit (Liability-like)
+                    },
+                    new BalanceSheetLedgerRow
+                    {
+                        LedgerName = "Cash",
+                        ParentGroupName = "Fixed Assets",
+                        PrimaryGroup = "Fixed Assets",
+                        OpeningBalance = -3000m // Debit (Asset-like)
                     }
                 }
             };
@@ -343,6 +360,9 @@ namespace TallyDbLoader.Tests
             Assert.Null(assetLine);
             Assert.NotNull(liabilityLine);
             Assert.Equal(3000m, liabilityLine.Amount);
+            Assert.Equal("balanced", report.Status);
+            Assert.Equal(3000m, report.AssetTotal);
+            Assert.Equal(3000m, report.LiabilityTotal);
         }
 
         [Fact]

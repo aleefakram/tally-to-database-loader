@@ -487,7 +487,9 @@ namespace TallyDbLoader.Tests
 
                     // Seed balancing pre-period transaction (Debit 5000 to Assets to balance Capital + P&L)
                     connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Assets', '', 'Current Assets', 0);");
-                    connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Bank', 'Assets', -5000.00);");
+                    connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Bank', 'Assets', 0.00);");
+                    connection.Execute("INSERT INTO trn_voucher (guid, date, is_order_voucher, is_inventory_voucher) VALUES ('v_pre', '2025-04-15', 0, 0);");
+                    connection.Execute("INSERT INTO trn_accounting (guid, ledger, amount) VALUES ('v_pre', 'Bank', -5000.00);");
                 }
 
                 var repo = new ConfigRepository(configPath);

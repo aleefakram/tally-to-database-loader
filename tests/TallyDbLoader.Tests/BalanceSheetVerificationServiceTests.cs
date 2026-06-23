@@ -318,6 +318,223 @@ namespace TallyDbLoader.Tests
             }
         }
 
+        [Fact]
+        public async Task GenerateAsync_Adapter_ParsesPositiveStockValueToSignedNegative()
+        {
+            string targetPath = Path.Combine(Path.GetTempPath(), $"bs_target_{Guid.NewGuid()}.db");
+            try
+            {
+                using (var connection = new SqliteConnection($"Data Source={targetPath}"))
+                {
+                    connection.Open();
+                    connection.Execute("CREATE TABLE IF NOT EXISTS mst_ledger (name TEXT PRIMARY KEY, parent TEXT, opening_balance DECIMAL(17,2));");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS mst_group (name TEXT PRIMARY KEY, parent TEXT, primary_group TEXT, is_revenue INTEGER);");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_accounting (guid TEXT, ledger TEXT, amount DECIMAL(17,2));");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_voucher (guid TEXT PRIMARY KEY, date TEXT, is_order_voucher INTEGER, is_inventory_voucher INTEGER);");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_closingstock_ledger (ledger TEXT, stock_date TEXT, stock_value DECIMAL(17,2));");
+
+                    connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Stock', '', 'Stock-in-hand', 0);");
+                    connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Inventory', 'Stock', 0.00);");
+
+                    // Seed raw positive closing stock (which becomes opening stock for period starting 2025-05-01)
+                    connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-04-30', 2000.00);");
+                }
+
+                var request = new BalanceSheetVerificationRequest
+                {
+                    CompanyProfileId = 1,
+                    FinancialYearStart = new DateTime(2025, 5, 1),
+                    AsAtDate = new DateTime(2025, 6, 1)
+                };
+
+                var adapter = new SqliteBalanceSheetQueryAdapter();
+                using (var connection = new SqliteConnection($"Data Source={targetPath}"))
+                {
+                    connection.Open();
+                    var raw = await adapter.QueryAsync(connection, BalanceSheetTableNames.Create("main", "", "sqlite"), request, CancellationToken.None);
+                    var stockLedger = raw.Ledgers.Single(l => l.LedgerName == "Inventory");
+
+                    // Assert positive database stock_value 2000.00 became signed negative -2000.00 in C# OpeningStockValue
+                    Assert.Equal(-2000m, stockLedger.OpeningStockValue);
+                }
+            }
+            finally
+            {
+                SqliteConnection.ClearAllPools();
+                if (File.Exists(targetPath)) try { File.Delete(targetPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_SeededDb_ComputesOpeningDifferenceAndStockClosing()
+        {
+            string configPath = Path.Combine(Path.GetTempPath(), $"bs_config_{Guid.NewGuid()}.db");
+            string targetPath = Path.Combine(Path.GetTempPath(), $"bs_target_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(configPath);
+
+                using (var connection = new SqliteConnection($"Data Source={targetPath}"))
+                {
+                    connection.Open();
+                    connection.Execute("CREATE TABLE IF NOT EXISTS mst_ledger (name TEXT PRIMARY KEY, parent TEXT, opening_balance DECIMAL(17,2));");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS mst_group (name TEXT PRIMARY KEY, parent TEXT, primary_group TEXT, is_revenue INTEGER);");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_accounting (guid TEXT, ledger TEXT, amount DECIMAL(17,2));");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_voucher (guid TEXT PRIMARY KEY, date TEXT, is_order_voucher INTEGER, is_inventory_voucher INTEGER);");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_closingstock_ledger (ledger TEXT, stock_date TEXT, stock_value DECIMAL(17,2));");
+
+                    connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Capital', '', 'Capital Account', 0);");
+                    connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Stock', '', 'Stock-in-hand', 0);");
+                    
+                    connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Equity', 'Capital', 5000.00);"); // Credit
+                    connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Inventory', 'Stock', 0.00);");
+
+                    // Seed raw positive closing stock (which becomes opening stock for period starting 2025-05-01)
+                    connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-04-30', 2000.00);");
+                }
+
+                var repo = new ConfigRepository(configPath);
+                repo.SaveDatabaseProfile(new DatabaseProfile { Name = "SQLite Target", Technology = "sqlite" });
+                var db = repo.GetDatabaseProfileByName("SQLite Target");
+                Assert.NotNull(db);
+
+                repo.SaveCompanyProfile(new CompanyProfile
+                {
+                    Name = "Test Company",
+                    DbProfileId = db.Id,
+                    TargetCatalog = targetPath,
+                    Schema = "main",
+                    TablePrefix = string.Empty,
+                    BooksFrom = new DateTime(2025, 4, 1),
+                    BooksTo = new DateTime(2025, 6, 5),
+                    Status = "idle"
+                });
+                var company = repo.GetAllCompanyProfiles()[0];
+
+                var request = new BalanceSheetVerificationRequest
+                {
+                    CompanyProfileId = company.Id,
+                    FinancialYearStart = new DateTime(2025, 5, 1),
+                    AsAtDate = new DateTime(2025, 6, 1)
+                };
+
+                var service = new BalanceSheetVerificationService(repo);
+                var report = await service.GenerateAsync(request, CancellationToken.None);
+
+                Assert.NotNull(report);
+                Assert.True(report.Status == "balanced", report.ErrorSummary ?? "No error summary");
+
+                // Opening Difference (including P&L opening 2000 credit): Credit 5000 + Credit 2000 (P&L) - Debit 2000 (stock_value) = 5000 Credit surplus. Should show as 5000 Debit Difference on Assets.
+                var diffLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+                Assert.NotNull(diffLine);
+                Assert.Equal(5000m, diffLine.Amount);
+
+                // Verify Stock-in-hand routes to Assets side
+                using (var connection = new SqliteConnection($"Data Source={targetPath}"))
+                {
+                    connection.Open();
+                    connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-06-01', 2500.00);");
+                }
+                
+                report = await service.GenerateAsync(request, CancellationToken.None);
+                var stockLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Stock-in-hand");
+                Assert.NotNull(stockLine);
+                Assert.Equal(2500m, stockLine.Amount);
+
+                // Assert report remains balanced and difference line is correct after closing stock change
+                Assert.True(report.Status == "balanced", report.ErrorSummary ?? "No error summary");
+                var diffLineAfter = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+                Assert.NotNull(diffLineAfter);
+                Assert.Equal(5000m, diffLineAfter.Amount);
+            }
+            finally
+            {
+                SqliteConnection.ClearAllPools();
+                if (File.Exists(configPath)) try { File.Delete(configPath); } catch { }
+                if (File.Exists(targetPath)) try { File.Delete(targetPath); } catch { }
+            }
+        }
+
+        [Fact]
+        public async Task GenerateAsync_SeededDb_BalancedPrePeriodStock_NoOpeningDifference()
+        {
+            string configPath = Path.Combine(Path.GetTempPath(), $"bs_config_{Guid.NewGuid()}.db");
+            string targetPath = Path.Combine(Path.GetTempPath(), $"bs_target_{Guid.NewGuid()}.db");
+            try
+            {
+                DatabaseHelper.InitializeDatabase(configPath);
+
+                using (var connection = new SqliteConnection($"Data Source={targetPath}"))
+                {
+                    connection.Open();
+                    connection.Execute("CREATE TABLE IF NOT EXISTS mst_ledger (name TEXT PRIMARY KEY, parent TEXT, opening_balance DECIMAL(17,2));");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS mst_group (name TEXT PRIMARY KEY, parent TEXT, primary_group TEXT, is_revenue INTEGER);");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_accounting (guid TEXT, ledger TEXT, amount DECIMAL(17,2));");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_voucher (guid TEXT PRIMARY KEY, date TEXT, is_order_voucher INTEGER, is_inventory_voucher INTEGER);");
+                    connection.Execute("CREATE TABLE IF NOT EXISTS trn_closingstock_ledger (ledger TEXT, stock_date TEXT, stock_value DECIMAL(17,2));");
+
+                    connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Capital', '', 'Capital Account', 0);");
+                    connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Stock', '', 'Stock-in-hand', 0);");
+                    
+                    // Seed balanced opening state: Capital 5000 (credit) + Stock 2000 (debit) + Bank 5000 (debit)
+                    // P&L Opening (credit) derived from stock opening is 2000.
+                    // Total Opening = 5000 (Capital) + 2000 (P&L) - 2000 (Stock) - 5000 (Bank) = 0.
+                    connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Equity', 'Capital', 5000.00);");
+                    connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Inventory', 'Stock', 0.00);");
+
+                    // Seed raw positive closing stock (Debit 2000)
+                    connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-04-30', 2000.00);");
+
+                    // Seed balancing pre-period transaction (Debit 5000 to Assets to balance Capital + P&L)
+                    connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Assets', '', 'Current Assets', 0);");
+                    connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Bank', 'Assets', -5000.00);");
+                }
+
+                var repo = new ConfigRepository(configPath);
+                repo.SaveDatabaseProfile(new DatabaseProfile { Name = "SQLite Target", Technology = "sqlite" });
+                var db = repo.GetDatabaseProfileByName("SQLite Target");
+                Assert.NotNull(db);
+
+                repo.SaveCompanyProfile(new CompanyProfile
+                {
+                    Name = "Test Company",
+                    DbProfileId = db.Id,
+                    TargetCatalog = targetPath,
+                    Schema = "main",
+                    TablePrefix = string.Empty,
+                    BooksFrom = new DateTime(2025, 4, 1),
+                    BooksTo = new DateTime(2025, 6, 5),
+                    Status = "idle"
+                });
+                var company = repo.GetAllCompanyProfiles()[0];
+
+                var request = new BalanceSheetVerificationRequest
+                {
+                    CompanyProfileId = company.Id,
+                    FinancialYearStart = new DateTime(2025, 5, 1),
+                    AsAtDate = new DateTime(2025, 6, 1)
+                };
+
+                var service = new BalanceSheetVerificationService(repo);
+                var report = await service.GenerateAsync(request, CancellationToken.None);
+
+                Assert.NotNull(report);
+                Assert.True(report.Status == "balanced", report.ErrorSummary ?? "No error summary");
+
+                // Total Opening = 0. No difference line should exist on either Assets or Liabilities side.
+                var diffLineAsset = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+                var diffLineLiab = report.LiabilitySide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+                Assert.Null(diffLineAsset);
+                Assert.Null(diffLineLiab);
+            }
+            finally
+            {
+                SqliteConnection.ClearAllPools();
+                if (File.Exists(configPath)) try { File.Delete(configPath); } catch { }
+                if (File.Exists(targetPath)) try { File.Delete(targetPath); } catch { }
+            }
+        }
+
         private static void SeedTarget(string path)
         {
             using var conn = new SqliteConnection($"Data Source={path}");

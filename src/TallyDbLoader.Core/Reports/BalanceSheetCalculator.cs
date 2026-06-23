@@ -109,10 +109,38 @@ namespace TallyDbLoader.Core.Reports
                 .Where(l => l.IsRevenue && !l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
                 .Sum(l => l.OpeningBalance + l.PrePeriodMovement);
 
+            // 1. Calculate resolved ledgers opening sum (excluding revenue and P&L)
+            decimal resolvedOpening = raw.Ledgers.Sum(l =>
+            {
+                if (l.IsRevenue || l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return 0m;
+                }
+
+                bool hasCycle = false;
+                string primaryGroup = l.PrimaryGroup;
+                if (string.IsNullOrWhiteSpace(primaryGroup))
+                {
+                    primaryGroup = ResolvePrimaryGroup(l.ParentGroupName, groupMap, new HashSet<string>(StringComparer.OrdinalIgnoreCase), ref hasCycle);
+                }
+                if (hasCycle || string.IsNullOrWhiteSpace(primaryGroup) || 
+                    (!LiabilityGroups.Contains(primaryGroup) && !AssetGroups.Contains(primaryGroup)))
+                {
+                    return 0m;
+                }
+
+                if (NormalizeGroup(primaryGroup).Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase))
+                {
+                    return l.HasOpeningStockValue ? l.OpeningStockValue : l.OpeningBalance + l.PrePeriodMovement;
+                }
+                return l.OpeningBalance + l.PrePeriodMovement;
+            });
+
+            // 2. Compute stockOpening and stockClosing (signed DB basis)
             decimal stockOpening = raw.Ledgers
                 .Where(l => l.PrimaryGroup.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase))
                 .Sum(l => l.HasOpeningStockValue
-                    ? -l.OpeningStockValue
+                    ? l.OpeningStockValue
                     : l.OpeningBalance + l.PrePeriodMovement);
 
             var stockLedgers = raw.Ledgers
@@ -120,7 +148,7 @@ namespace TallyDbLoader.Core.Reports
                 .ToList();
 
             decimal stockClosing = stockLedgers.Sum(l => l.HasClosingStockValue
-                ? -l.ClosingStockValue
+                ? l.ClosingStockValue
                 : l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);
 
             if (stockLedgers.Any(l => !l.HasClosingStockValue))
@@ -128,9 +156,13 @@ namespace TallyDbLoader.Core.Reports
                 report.Warnings.Add("Some Stock-in-Hand closing values were not found; ledger balances were used as fallback.");
             }
 
+            // 3. Compute Profit & Loss Breakdown using consistent signs
             report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod - stockOpening;
             report.ProfitAndLoss.CurrentPeriod = revenueCurrent - (stockClosing - stockOpening);
             report.ProfitAndLoss.LessTransferred = pnlLessTransferred;
+
+            // 4. Calculate total opening (including P&L opening)
+            decimal totalOpening = resolvedOpening + report.ProfitAndLoss.OpeningBalance;
 
             var grouped = raw.Ledgers
                 .Where(l => !l.IsRevenue)
@@ -139,38 +171,43 @@ namespace TallyDbLoader.Core.Reports
 
             foreach (var group in grouped)
             {
+                bool isLiability = LiabilityGroups.Contains(group.Key);
+                bool isAsset = AssetGroups.Contains(group.Key);
+
+                if (!isLiability && !isAsset)
+                {
+                    return Fail(report, $"Unrecognized primary group '{group.Key}' was detected.");
+                }
+
                 decimal signedBalance = group.Sum(l =>
                 {
-                    if (group.Key.Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase) && l.HasClosingStockValue)
+                    if (NormalizeGroup(group.Key).Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase) && l.HasClosingStockValue)
                     {
-                        return -l.ClosingStockValue;
+                        return l.ClosingStockValue; // already negative/debit
                     }
                     return l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement;
                 });
 
                 if (signedBalance == 0m) continue;
 
-                if (LiabilityGroups.Contains(group.Key))
+                // Credit balance (> 0) goes to Liabilities, Debit balance (< 0) goes to Assets
+                if (signedBalance > 0m)
                 {
                     report.LiabilitySide.Lines.Add(new BalanceSheetLine
                     {
                         Name = group.Key,
-                        Amount = Math.Abs(signedBalance),
-                        IsEmphasis = true
-                    });
-                }
-                else if (AssetGroups.Contains(group.Key))
-                {
-                    report.AssetSide.Lines.Add(new BalanceSheetLine
-                    {
-                        Name = group.Key,
-                        Amount = Math.Abs(signedBalance),
+                        Amount = signedBalance,
                         IsEmphasis = true
                     });
                 }
                 else
                 {
-                    report.Warnings.Add($"Unrecognized primary group '{group.Key}' was excluded.");
+                    report.AssetSide.Lines.Add(new BalanceSheetLine
+                    {
+                        Name = group.Key,
+                        Amount = -signedBalance,
+                        IsEmphasis = true
+                    });
                 }
             }
 
@@ -188,6 +225,59 @@ namespace TallyDbLoader.Core.Reports
                     Math.Abs(report.ProfitAndLoss.NetAmount),
                     report.ProfitAndLoss));
             }
+
+            // Inject Difference in opening balances
+            if (totalOpening > 0m)
+            {
+                report.AssetSide.Lines.Add(new BalanceSheetLine
+                {
+                    Name = "Difference in opening balances",
+                    Amount = totalOpening,
+                    IsEmphasis = true
+                });
+            }
+            else if (totalOpening < 0m)
+            {
+                report.LiabilitySide.Lines.Add(new BalanceSheetLine
+                {
+                    Name = "Difference in opening balances",
+                    Amount = -totalOpening,
+                    IsEmphasis = true
+                });
+            }
+
+            // Unified primary group display order for sorting
+            var unifiedOrder = new List<string>
+            {
+                "Capital Account",
+                "Loans (Liability)",
+                "Current Liabilities",
+                "Fixed Assets",
+                "Investments",
+                "Current Assets",
+                "Stock-in-hand",
+                "Branch / Divisions",
+                "Misc. Expenses (ASSET)",
+                "Suspense A/c",
+                request.Options.ProfitAndLossLedgerName,
+                "Difference in opening balances"
+            };
+
+            report.LiabilitySide.Lines = report.LiabilitySide.Lines
+                .OrderBy(l =>
+                {
+                    int index = unifiedOrder.FindIndex(x => x.Equals(l.Name, StringComparison.OrdinalIgnoreCase));
+                    return index >= 0 ? index : int.MaxValue;
+                  })
+                .ToList();
+
+            report.AssetSide.Lines = report.AssetSide.Lines
+                .OrderBy(l =>
+                {
+                    int index = unifiedOrder.FindIndex(x => x.Equals(l.Name, StringComparison.OrdinalIgnoreCase));
+                    return index >= 0 ? index : int.MaxValue;
+                })
+                .ToList();
 
             report.Status = report.Difference <= request.Options.BalanceTolerance
                 ? "balanced"
@@ -254,6 +344,8 @@ namespace TallyDbLoader.Core.Reports
         {
             report.Status = "failed";
             report.ErrorSummary = errorSummary;
+            report.LiabilitySide.Lines.Clear();
+            report.AssetSide.Lines.Clear();
             return report;
         }
 

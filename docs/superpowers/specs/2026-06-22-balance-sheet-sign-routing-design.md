@@ -43,10 +43,12 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   - For `"Stock-in-hand"` group ledgers inside the resolved opening sum: use `OpeningStockValue` directly without negation if `HasOpeningStockValue` is true; otherwise use `OpeningBalance + PrePeriodMovement`.
   - For all other ledgers: use `OpeningBalance + PrePeriodMovement`.
   - **Inclusion/Exclusion Rules**: Include the resolved P&L ledger, revenue ledgers, and all recognized group ledgers. Exclude unrecognized groups (which will fail the report anyway).
-- **P&L Stock-in-Hand Sign Alignment**:
+- **P&L Stock-in-Hand Sign Alignment & Fallback Warnings**:
   Align `stockOpening` and `stockClosing` to use the signed DB basis:
   - `stockOpening = raw.Ledgers.Where(...).Sum(l => l.HasOpeningStockValue ? l.OpeningStockValue : l.OpeningBalance + l.PrePeriodMovement);`
   - `stockClosing = raw.Ledgers.Where(...).Sum(l => l.HasClosingStockValue ? l.ClosingStockValue : l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);`
+  - If any stock ledger lacks `HasClosingStockValue`, preserve the fallback warning:
+    `report.Warnings.Add("Some Stock-in-Hand closing values were not found; ledger balances were used as fallback.");`
   Adjust P&L formulas to consume these signed (negative) values correctly:
   - `report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod - stockOpening;` (subtracting negative stockOpening adds its absolute value, increasing prior-period P&L by the closing stock of that period)
   - `report.ProfitAndLoss.CurrentPeriod = revenueCurrent - (stockClosing - stockOpening);`
@@ -92,7 +94,7 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
 - Modify existing calculator tests that use `ClosingStockValue` to supply negative values (matching the signed model boundary).
 - Update the tolerance test `Calculate_SmallDifferenceWithinTolerance_IsBalanced` to exercise tolerance through a current period movement mismatch, not an opening imbalance (since opening imbalances now get balanced by the injected difference line).
 - Add unit tests validating:
-  - Unrecognized group validation failure (asserting `Status == "failed"`, `ErrorSummary` populated, and sides cleared).
+  - Unrecognized group validation failure (asserting `Status == "failed"`, `ErrorSummary` populated, previously added lines on both sides are cleared).
   - Debit-balanced liabilities correctly routed to Assets side.
   - Credit-balanced assets (e.g. Bank Overdraft) correctly routed to Liabilities side.
   - Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly (asserting credit surplus on Assets side and debit surplus on Liabilities side).

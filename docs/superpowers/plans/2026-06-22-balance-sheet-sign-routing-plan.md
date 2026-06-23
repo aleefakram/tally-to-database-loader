@@ -77,6 +77,11 @@
                   ? l.ClosingStockValue
                   : l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement);
 
+              if (stockLedgers.Any(l => !l.HasClosingStockValue))
+              {
+                  report.Warnings.Add("Some Stock-in-Hand closing values were not found; ledger balances were used as fallback.");
+              }
+
               // 3. Compute Profit & Loss Breakdown using consistent signs
               report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod - stockOpening;
               report.ProfitAndLoss.CurrentPeriod = revenueCurrent - (stockClosing - stockOpening);
@@ -105,7 +110,7 @@
                       if (NormalizeGroup(group.Key).Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase) && l.HasClosingStockValue)
                       {
                           return l.ClosingStockValue; // already negative/debit
-                      }
+                        }
                       return l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement;
                   });
 
@@ -265,6 +270,13 @@
                   Groups = new List<BalanceSheetGroupRow>(),
                   Ledgers = new List<BalanceSheetLedgerRow>
                   {
+                      new BalanceSheetLedgerRow
+                      {
+                          LedgerName = "Capital Ledger",
+                          ParentGroupName = "Capital Account",
+                          PrimaryGroup = "Capital Account",
+                          OpeningBalance = 2000m
+                      },
                       new BalanceSheetLedgerRow
                       {
                           LedgerName = "Unknown Ledger",
@@ -489,10 +501,11 @@
                   Groups = new List<BalanceSheetGroupRow>(),
                   Ledgers = new List<BalanceSheetLedgerRow>
                   {
-                      // Mix groups to test sorting
+                      // Mix groups to test sorting on both sides
                       new BalanceSheetLedgerRow { LedgerName = "Suspense", ParentGroupName = "Suspense A/c", PrimaryGroup = "Suspense A/c", OpeningBalance = -100m },
                       new BalanceSheetLedgerRow { LedgerName = "Capital", ParentGroupName = "Capital Account", PrimaryGroup = "Capital Account", OpeningBalance = 500m },
-                      new BalanceSheetLedgerRow { LedgerName = "Asset", ParentGroupName = "Current Assets", PrimaryGroup = "Current Assets", OpeningBalance = -300m }
+                      new BalanceSheetLedgerRow { LedgerName = "Asset", ParentGroupName = "Current Assets", PrimaryGroup = "Current Assets", OpeningBalance = -300m },
+                      new BalanceSheetLedgerRow { LedgerName = "Loans", ParentGroupName = "Loans (Liability)", PrimaryGroup = "Loans (Liability)", OpeningBalance = 400m }
                   }
               };
 
@@ -503,6 +516,11 @@
               Assert.Equal("Current Assets", assetNames[0]);
               Assert.Equal("Suspense A/c", assetNames[1]);
               Assert.Equal("Difference in opening balances", assetNames[2]);
+
+              // Liabilities Side Order should be: Capital Account, then Loans (Liability)
+              var liabilityNames = report.LiabilitySide.Lines.Select(l => l.Name).ToList();
+              Assert.Equal("Capital Account", liabilityNames[0]);
+              Assert.Equal("Loans (Liability)", liabilityNames[1]);
           }
   ```
 

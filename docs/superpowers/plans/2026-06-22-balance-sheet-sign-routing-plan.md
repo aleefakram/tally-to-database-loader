@@ -110,7 +110,7 @@
                       if (NormalizeGroup(group.Key).Equals("Stock-in-hand", StringComparison.OrdinalIgnoreCase) && l.HasClosingStockValue)
                       {
                           return l.ClosingStockValue; // already negative/debit
-                        }
+                      }
                       return l.OpeningBalance + l.PrePeriodMovement + l.CurrentPeriodMovement;
                   });
 
@@ -225,8 +225,8 @@
 
 - [ ] **Step 1: Modify existing stock and tolerance tests**
   In `tests/TallyDbLoader.Tests/BalanceSheetCalculatorTests.cs`:
-  - In `Calculate_ProfitAndLoss_CurrentPeriod_IncludesStockDelta`, change `ClosingStockValue = 300m` to `ClosingStockValue = -300m`.
-  - In `Calculate_PartialStockValuation_AppliesPerLedgerFallback`, change `ClosingStockValue = 150m` to `ClosingStockValue = -150m`.
+  - In `Calculate_ProfitAndLoss_CurrentPeriod_IncludesStockDelta`, change `ClosingStockValue = 300m` to `ClosingStockValue = -300m`. Update test comments accordingly.
+  - In `Calculate_PartialStockValuation_AppliesPerLedgerFallback`, change `ClosingStockValue = 150m` to `ClosingStockValue = -150m`. Update test comments accordingly.
   - Replace `Calculate_SmallDifferenceWithinTolerance_IsBalanced` to exercise tolerance via current period movement mismatch:
     ```csharp
             [Fact]
@@ -276,6 +276,13 @@
                           ParentGroupName = "Capital Account",
                           PrimaryGroup = "Capital Account",
                           OpeningBalance = 2000m
+                      },
+                      new BalanceSheetLedgerRow
+                      {
+                          LedgerName = "Cash",
+                          ParentGroupName = "Current Assets",
+                          PrimaryGroup = "Current Assets",
+                          OpeningBalance = -1500m
                       },
                       new BalanceSheetLedgerRow
                       {
@@ -683,8 +690,7 @@
               string configPath = Path.Combine(Path.GetTempPath(), $"bs_config_{Guid.NewGuid()}.db");
               string targetPath = Path.Combine(Path.GetTempPath(), $"bs_target_{Guid.NewGuid()}.db");
               try
-              {
-                  DatabaseHelper.InitializeDatabase(configPath);
+              {                  DatabaseHelper.InitializeDatabase(configPath);
 
                   using (var connection = new SqliteConnection($"Data Source={targetPath}"))
                   {

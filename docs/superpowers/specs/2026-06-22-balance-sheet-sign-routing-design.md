@@ -91,7 +91,7 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   ```
 
 ### 2. `tests/TallyDbLoader.Tests/BalanceSheetCalculatorTests.cs`
-- Modify existing calculator tests that use `ClosingStockValue` to supply negative values (matching the signed model boundary).
+- Modify existing calculator tests that use `ClosingStockValue` to supply negative values (matching the signed model boundary). Update comments in these tests to align with the negative values.
 - Update the tolerance test `Calculate_SmallDifferenceWithinTolerance_IsBalanced` to exercise tolerance through a current period movement mismatch, not an opening imbalance (since opening imbalances now get balanced by the injected difference line).
 - Add unit tests validating:
   - Unrecognized group validation failure (asserting `Status == "failed"`, `ErrorSummary` populated, previously added lines on both sides are cleared).

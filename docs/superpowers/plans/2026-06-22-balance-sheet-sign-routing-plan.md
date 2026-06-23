@@ -35,17 +35,22 @@
   ```csharp
               // ... Existing loop for ledger group resolution (lines 50-91) ...
 
-              // 1. Calculate resolved ledgers opening sum
+              // 1. Calculate resolved ledgers opening sum (excluding revenue and P&L)
               decimal resolvedOpening = raw.Ledgers.Sum(l =>
               {
+                  if (l.IsRevenue || l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
+                  {
+                      return 0m;
+                  }
+
                   bool hasCycle = false;
                   string primaryGroup = l.PrimaryGroup;
-                  if (string.IsNullOrWhiteSpace(primaryGroup) && !l.IsRevenue && !l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
+                  if (string.IsNullOrWhiteSpace(primaryGroup))
                   {
                       primaryGroup = ResolvePrimaryGroup(l.ParentGroupName, groupMap, new HashSet<string>(StringComparer.OrdinalIgnoreCase), ref hasCycle);
                   }
                   if (hasCycle || string.IsNullOrWhiteSpace(primaryGroup) || 
-                      (!LiabilityGroups.Contains(primaryGroup) && !AssetGroups.Contains(primaryGroup) && !l.IsRevenue && !l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase)))
+                      (!LiabilityGroups.Contains(primaryGroup) && !AssetGroups.Contains(primaryGroup)))
                   {
                       return 0m;
                   }
@@ -480,7 +485,7 @@
                   {
                       // Mix groups to test sorting
                       new BalanceSheetLedgerRow { LedgerName = "Suspense", ParentGroupName = "Suspense A/c", PrimaryGroup = "Suspense A/c", OpeningBalance = -100m },
-                      new BalanceSheetLedgerRow { LedgerName = "Capital", ParentGroupName = "Capital Account", PrimaryGroup = "Capital Account", OpeningBalance = 200m },
+                      new BalanceSheetLedgerRow { LedgerName = "Capital", ParentGroupName = "Capital Account", PrimaryGroup = "Capital Account", OpeningBalance = 500m },
                       new BalanceSheetLedgerRow { LedgerName = "Asset", ParentGroupName = "Current Assets", PrimaryGroup = "Current Assets", OpeningBalance = -300m }
                   }
               };
@@ -633,6 +638,12 @@
                   var stockLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Stock-in-hand");
                   Assert.NotNull(stockLine);
                   Assert.Equal(2500m, stockLine.Amount);
+
+                  // Assert report remains balanced and difference line is correct after closing stock change
+                  Assert.Equal("balanced", report.Status);
+                  var diffLineAfter = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+                  Assert.NotNull(diffLineAfter);
+                  Assert.Equal(5000m, diffLineAfter.Amount);
               }
               finally
               {

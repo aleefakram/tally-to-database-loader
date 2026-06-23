@@ -33,6 +33,13 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   Compute `totalOpening` immediately after the ledger resolution loop has completed (so that `PrimaryGroup` is fully resolved for all ledgers).
   - Calculate `totalOpening` as the sum of resolved non-revenue ledgers (excluding P&L) plus the net opening balance of the P&L account:
     `totalOpening = resolvedOpening + (pnlOpening + revenuePrePeriod - stockOpening);`
+  - In `resolvedOpening`, filter out P&L and revenue ledgers early:
+    ```csharp
+    if (l.IsRevenue || l.LedgerName.Equals(request.Options.ProfitAndLossLedgerName, StringComparison.OrdinalIgnoreCase))
+    {
+        return 0m;
+    }
+    ```
   - For `"Stock-in-hand"` group ledgers inside the resolved opening sum: use `OpeningStockValue` directly without negation if `HasOpeningStockValue` is true; otherwise use `OpeningBalance + PrePeriodMovement`.
   - For all other ledgers: use `OpeningBalance + PrePeriodMovement`.
   - **Inclusion/Exclusion Rules**: Include the resolved P&L ledger, revenue ledgers, and all recognized group ledgers. Exclude unrecognized groups (which will fail the report anyway).

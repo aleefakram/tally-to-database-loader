@@ -31,10 +31,11 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   ```
 - **Opening Balance Difference Computation**:
   Compute `totalOpening` immediately after the ledger resolution loop has completed (so that `PrimaryGroup` is fully resolved for all ledgers).
-  - Calculate `totalOpening` using the **Tally report-period opening basis** (to match the P&L stock opening value at `FinancialYearStart`):
-    - For `"Stock-in-hand"` group ledgers: use `OpeningStockValue` directly without negation if `HasOpeningStockValue` is true; otherwise use `OpeningBalance + PrePeriodMovement`.
-    - For all other ledgers: use `OpeningBalance + PrePeriodMovement`.
-  - **Inclusion/Exclusion Rules**: Include the reserved P&L ledger, revenue ledgers, and all recognized group ledgers. Exclude unrecognized groups (which will fail the report anyway).
+  - Calculate `totalOpening` as the sum of resolved non-revenue ledgers (excluding P&L) plus the net opening balance of the P&L account:
+    `totalOpening = resolvedOpening + (pnlOpening + revenuePrePeriod - stockOpening);`
+  - For `"Stock-in-hand"` group ledgers inside the resolved opening sum: use `OpeningStockValue` directly without negation if `HasOpeningStockValue` is true; otherwise use `OpeningBalance + PrePeriodMovement`.
+  - For all other ledgers: use `OpeningBalance + PrePeriodMovement`.
+  - **Inclusion/Exclusion Rules**: Include the resolved P&L ledger, revenue ledgers, and all recognized group ledgers. Exclude unrecognized groups (which will fail the report anyway).
 - **P&L Stock-in-Hand Sign Alignment**:
   Align `stockOpening` and `stockClosing` to use the signed DB basis:
   - `stockOpening = raw.Ledgers.Where(...).Sum(l => l.HasOpeningStockValue ? l.OpeningStockValue : l.OpeningBalance + l.PrePeriodMovement);`
@@ -87,7 +88,7 @@ The current implementation of `BalanceSheetCalculator` hardcodes groups into eit
   - Unrecognized group validation failure (asserting `Status == "failed"`, `ErrorSummary` populated, and sides cleared).
   - Debit-balanced liabilities correctly routed to Assets side.
   - Credit-balanced assets (e.g. Bank Overdraft) correctly routed to Liabilities side.
-  - Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly on both sides.
+  - Difference in opening balances computed using `OpeningBalance + PrePeriodMovement` and routed correctly (asserting credit surplus on Assets side and debit surplus on Liabilities side).
   - P&L stock formulas and sign alignment (validating correct opening balance and current period calculation with negative stock values).
   - Deterministic sorting order of report lines on both sides when dynamic routing occurs.
 

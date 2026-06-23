@@ -4,7 +4,7 @@
 
 **Goal:** Correct the WPF app's Balance Sheet display by implementing sign-based group routing and computing the report-period opening balance difference, achieving perfect parity with Tally.
 
-**Architecture:** Calculate the opening balance difference on Tally report-period opening basis (including `PrePeriodMovement`) after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail immediately with `ErrorSummary` on unrecognized groups (clearing all lines so failed history totals are zero), and sort both sides deterministically using a unified order.
+**Architecture:** Calculate the opening balance difference on Tally report-period opening basis (including `PrePeriodMovement` and P&L opening) after resolving ledgers, dynamically route recognized primary groups to the Assets or Liabilities side based on their net balance sign, fail immediately with `ErrorSummary` on unrecognized groups (clearing all lines so failed history totals are zero), and sort both sides deterministically using a unified order.
 
 **Tech Stack:** C# 10, .NET 6, xUnit, SQLite, Dapper
 
@@ -35,8 +35,8 @@
   ```csharp
               // ... Existing loop for ledger group resolution (lines 50-91) ...
 
-              // 1. Calculate report-period opening balance difference (Tally report-period opening basis)
-              decimal totalOpening = raw.Ledgers.Sum(l =>
+              // 1. Calculate resolved ledgers opening sum
+              decimal resolvedOpening = raw.Ledgers.Sum(l =>
               {
                   bool hasCycle = false;
                   string primaryGroup = l.PrimaryGroup;
@@ -76,6 +76,9 @@
               report.ProfitAndLoss.OpeningBalance = pnlOpening + revenuePrePeriod - stockOpening;
               report.ProfitAndLoss.CurrentPeriod = revenueCurrent - (stockClosing - stockOpening);
               report.ProfitAndLoss.LessTransferred = pnlLessTransferred;
+
+              // 4. Calculate total opening (including P&L opening)
+              decimal totalOpening = resolvedOpening + report.ProfitAndLoss.OpeningBalance;
 
               var grouped = raw.Ledgers
                   .Where(l => !l.IsRevenue)
@@ -232,7 +235,7 @@
     ```
 
 - [ ] **Step 2: Add new unit test cases**
-  Add unit tests validating unrecognized group failure with cleared lines, debit-balanced liabilities, credit-balanced assets, opening difference with pre-period movements, P&L stock breakdown correctness with negative stock values, and unified display sorting.
+  Add unit tests validating unrecognized group failure with cleared lines, debit-balanced liabilities, credit-balanced assets, opening difference with pre-period movements, opening difference debit surplus on Liabilities, P&L stock breakdown correctness with negative stock values, and unified display sorting.
 
   Code changes:
   ```csharp
@@ -376,6 +379,39 @@
           }
 
           [Fact]
+          public void Calculate_OpeningBalanceDifference_DebitSurplus_InjectsLiabilities()
+          {
+              var request = new BalanceSheetVerificationRequest
+              {
+                  CompanyProfileId = 1,
+                  FinancialYearStart = new DateTime(2025, 4, 1),
+                  AsAtDate = new DateTime(2025, 6, 1)
+              };
+
+              // Trial balance difference: Cash = -1000m (Debit) -> totalOpening = -1000m (Debit surplus)
+              var raw = new BalanceSheetRawData
+              {
+                  Groups = new List<BalanceSheetGroupRow>(),
+                  Ledgers = new List<BalanceSheetLedgerRow>
+                  {
+                      new BalanceSheetLedgerRow
+                      {
+                          LedgerName = "Cash",
+                          ParentGroupName = "Current Assets",
+                          PrimaryGroup = "Current Assets",
+                          OpeningBalance = -1000m
+                      }
+                  }
+              };
+
+              var report = BalanceSheetCalculator.Calculate("Test Company", raw, request);
+
+              var diffLiabilityLine = report.LiabilitySide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
+              Assert.NotNull(diffLiabilityLine);
+              Assert.Equal(1000m, diffLiabilityLine.Amount);
+          }
+
+          [Fact]
           public void Calculate_PnLBreakdownWithStock_ComputesCorrectly()
           {
               var request = new BalanceSheetVerificationRequest
@@ -459,7 +495,7 @@
           }
   ```
 
-- [ ] **Step 3: Run tests to verify they pass**
+- [ ] **Step 2: Run tests to verify they pass**
   Run: `dotnet test tests/TallyDbLoader.Tests/TallyDbLoader.Tests.csproj --no-restore --filter "FullyQualifiedName~BalanceSheetCalculatorTests"`
   Expected: All calculator tests pass.
 
@@ -523,7 +559,7 @@
           }
 
           [Fact]
-          public async Task GenerateAsync_SeededDb_ComputesOpeningDifferenceAndDynamicRouting()
+          public async Task GenerateAsync_SeededDb_ComputesOpeningDifferenceAndStockClosing()
           {
               string configPath = Path.Combine(Path.GetTempPath(), $"bs_config_{Guid.NewGuid()}.db");
               string targetPath = Path.Combine(Path.GetTempPath(), $"bs_target_{Guid.NewGuid()}.db");
@@ -581,10 +617,22 @@
                   Assert.NotNull(report);
                   Assert.Equal("balanced", report.Status);
 
-                  // Opening Difference: Credit 5000 - Debit 2000 (stock_value) = 3000 Credit surplus. Should show as 3000 Debit Difference on Assets.
+                  // Opening Difference (including P&L opening 2000 credit): Credit 5000 + Credit 2000 (P&L) - Debit 2000 (stock_value) = 5000 Credit surplus. Should show as 5000 Debit Difference on Assets.
                   var diffLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
                   Assert.NotNull(diffLine);
-                  Assert.Equal(3000m, diffLine.Amount);
+                  Assert.Equal(5000m, diffLine.Amount);
+
+                  // Verify Stock-in-hand routes to Assets side
+                  using (var connection = new SqliteConnection($"Data Source={targetPath}"))
+                  {
+                      connection.Open();
+                      connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-06-01', 2500.00);");
+                  }
+                  
+                  report = await service.GenerateAsync(request, CancellationToken.None);
+                  var stockLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Stock-in-hand");
+                  Assert.NotNull(stockLine);
+                  Assert.Equal(2500m, stockLine.Amount);
               }
               finally
               {
@@ -615,16 +663,18 @@
                       connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Capital', '', 'Capital Account', 0);");
                       connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Stock', '', 'Stock-in-hand', 0);");
                       
-                      // Seed balanced opening state
-                      connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Equity', 'Capital', 5000.00);"); // Credit 5000
+                      // Seed balanced opening state: Capital 5000 (credit) + Stock 2000 (debit) + Bank 5000 (debit)
+                      // P&L Opening (credit) derived from stock opening is 2000.
+                      // Total Opening = 5000 (Capital) + 2000 (P&L) - 2000 (Stock) - 5000 (Bank) = 0.
+                      connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Equity', 'Capital', 5000.00);");
                       connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Inventory', 'Stock', 0.00);");
 
                       // Seed raw positive closing stock (Debit 2000)
                       connection.Execute("INSERT INTO trn_closingstock_ledger (ledger, stock_date, stock_value) VALUES ('Inventory', '2025-04-30', 2000.00);");
 
-                      // Seed balancing pre-period transaction (Debit 3000 to Assets to balance the 5000 Credit)
+                      // Seed balancing pre-period transaction (Debit 5000 to Assets to balance Capital + P&L)
                       connection.Execute("INSERT INTO mst_group (name, parent, primary_group, is_revenue) VALUES ('Assets', '', 'Current Assets', 0);");
-                      connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Bank', 'Assets', -3000.00);"); // Debit 3000
+                      connection.Execute("INSERT INTO mst_ledger (name, parent, opening_balance) VALUES ('Bank', 'Assets', -5000.00);");
                   }
 
                   var repo = new ConfigRepository(configPath);
@@ -658,7 +708,7 @@
                   Assert.NotNull(report);
                   Assert.Equal("balanced", report.Status);
 
-                  // Total Opening: Credit 5000 (Equity) - Debit 2000 (Stock) - Debit 3000 (Bank) = 0. No difference line should exist.
+                  // Total Opening = 0. No difference line should exist.
                   var diffLine = report.AssetSide.Lines.FirstOrDefault(l => l.Name == "Difference in opening balances");
                   Assert.Null(diffLine);
               }
